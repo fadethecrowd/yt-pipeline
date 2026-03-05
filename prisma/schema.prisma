@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ──────────────────────────────────────────────────────────────────
+
+enum TopicStatus {
+  DISCOVERED
+  APPROVED
+  SCRIPTED
+  REJECTED
+  FAILED
+}
+
+enum VideoStatus {
+  SCRIPT_PENDING
+  SCRIPT_DONE
+  QUALITY_FAILED
+  VOICEOVER_PENDING
+  VOICEOVER_DONE
+  ASSEMBLY_PENDING
+  ASSEMBLY_DONE
+  SEO_PENDING
+  SEO_DONE
+  UPLOAD_PENDING
+  UPLOADED
+  PUBLISHED
+  FAILED
+}
+
+// ── Models ─────────────────────────────────────────────────────────────────
+
+model Topic {
+  id        String      @id @default(cuid())
+  title     String
+  url       String      @unique
+  source    String      // e.g. "techcrunch", "hackernews", "ars_technica"
+  summary   String?
+  score     Float?      // relevance score 0-1
+  status    TopicStatus @default(DISCOVERED)
+  videos    Video[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([status])
+  @@index([source])
+  @@index([createdAt])
+}
+
+model Video {
+  id             String      @id @default(cuid())
+  topicId        String
+  topic          Topic       @relation(fields: [topicId], references: [id])
+  status         VideoStatus @default(SCRIPT_PENDING)
+
+  // Script stage
+  scriptJson     Json?       // structured script: hook, segments[], cta
+  qualityScore   Int?        // 0-100 from quality gate
+
+  // Voiceover stage
+  voiceoverUrls  String[]    // S3/R2 URLs to MP3 segments
+
+  // Assembly stage
+  assemblyJobId  String?     // InVideo job ID
+  videoUrl       String?     // final assembled video URL
+
+  // SEO stage
+  seoTitle       String?
+  seoDescription String?
+  seoTags        String[]
+  seoChapters    Json?       // [{time: "0:00", label: "Intro"}, ...]
+
+  // Upload stage
+  youtubeId      String?     // YouTube video ID after upload
+  scheduledAt    DateTime?   // scheduled publish time
+  publishedAt    DateTime?
+
+  // Tracking
+  failReason     String?
+  retryCount     Int         @default(0)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([status])
+  @@index([topicId])
+  @@index([createdAt])
+}
