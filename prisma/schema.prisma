@@ -67,8 +67,8 @@ model Video {
   voiceoverPath  String?     // path to concatenated final.mp3
 
   // Assembly stage
-  assemblyJobId  String?     // InVideo job ID
-  videoUrl       String?     // final assembled video URL
+  videoPath      String?     // local path to assembled final.mp4
+  videoUrl       String?     // remote video URL (after upload)
 
   // SEO stage
   seoTitle       String?

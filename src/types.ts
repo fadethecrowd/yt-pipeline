@@ -79,8 +79,7 @@ export interface VoiceoverResult {
 // ── Video Assembly ─────────────────────────────────────────────────────────
 
 export interface AssemblyResult {
-  jobId: string;
-  videoUrl: string;
+  videoPath: string;
 }
 
 // ── YouTube Upload ─────────────────────────────────────────────────────────

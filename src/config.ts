@@ -5,7 +5,7 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1),
   ELEVENLABS_API_KEY: z.string().min(1),
   ELEVENLABS_VOICE_ID: z.string().min(1),
-  INVIDEO_API_KEY: z.string().min(1),
+  PEXELS_API_KEY: z.string().min(1),
   YOUTUBE_CLIENT_ID: z.string().min(1),
   YOUTUBE_CLIENT_SECRET: z.string().min(1),
   YOUTUBE_REFRESH_TOKEN: z.string().min(1),
