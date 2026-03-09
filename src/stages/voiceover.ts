@@ -1,9 +1,13 @@
+import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { VideoStatus } from "@prisma/client";
 import { prisma } from "../lib/db";
+import { env } from "../config";
 import type { PipelineContext, StageResult, VoiceoverResult } from "../types";
 
 /**
- * Stage 4: Use ElevenLabs API to generate MP3 per script segment.
+ * Stage 4: Use ElevenLabs API to generate MP3 per script segment,
+ * save locally, concatenate into a single final.mp3.
  */
 export async function voiceover(
   ctx: PipelineContext
@@ -19,34 +23,77 @@ export async function voiceover(
     data: { status: VideoStatus.VOICEOVER_PENDING },
   });
 
-  // TODO: For each segment, call ElevenLabs TTS API
-  // const voiceId = env().ELEVENLABS_VOICE_ID;
-  // const apiKey = env().ELEVENLABS_API_KEY;
-  //
-  // for (const segment of ctx.script.segments) {
-  //   const response = await fetch(
-  //     `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-  //     {
-  //       method: "POST",
-  //       headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
-  //       body: JSON.stringify({
-  //         text: segment.text,
-  //         model_id: "eleven_multilingual_v2",
-  //         voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-  //       }),
-  //     }
-  //   );
-  //   // Save MP3 buffer to storage, collect URL
-  // }
+  const config = env();
+  const voiceId = config.ELEVENLABS_VOICE_ID;
+  const apiKey = config.ELEVENLABS_API_KEY;
 
-  const results: VoiceoverResult[] = []; // placeholder
+  // Create output directory
+  const audioDir = join(process.cwd(), "audio", ctx.video.id);
+  await mkdir(audioDir, { recursive: true });
 
-  const urls = results.map((r) => r.url);
+  const results: VoiceoverResult[] = [];
+  const segmentPaths: string[] = [];
 
+  for (const segment of ctx.script.segments) {
+    const segIdx = segment.segmentIndex;
+    console.log(`[voiceover] Generating TTS for segment ${segIdx}: "${segment.title}"...`);
+
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": apiKey,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text: segment.narration,
+          model_id: "eleven_multilingual_v2",
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return {
+        success: false,
+        error: `ElevenLabs API error (segment ${segIdx}): ${response.status} ${errText}`,
+        durationMs: Date.now() - start,
+      };
+    }
+
+    const mp3Buffer = Buffer.from(await response.arrayBuffer());
+    const segmentPath = join(audioDir, `segment-${segIdx}.mp3`);
+    await writeFile(segmentPath, mp3Buffer);
+
+    console.log(`[voiceover] Saved ${segmentPath} (${mp3Buffer.length} bytes)`);
+
+    segmentPaths.push(segmentPath);
+    results.push({
+      segmentIndex: segIdx,
+      url: segmentPath,
+      durationMs: Date.now() - start,
+    });
+  }
+
+  // Concatenate all segment MP3s into a single final.mp3
+  const finalPath = join(audioDir, "final.mp3");
+  const chunks: Buffer[] = [];
+  for (const p of segmentPaths) {
+    chunks.push(await readFile(p));
+  }
+  await writeFile(finalPath, Buffer.concat(chunks));
+  console.log(`[voiceover] Concatenated ${segmentPaths.length} segments → ${finalPath}`);
+
+  // Persist to DB
+  const urls = segmentPaths;
   await prisma.video.update({
     where: { id: ctx.video.id },
     data: {
       voiceoverUrls: urls,
+      voiceoverPath: finalPath,
       status: VideoStatus.VOICEOVER_DONE,
     },
   });

@@ -63,7 +63,8 @@ model Video {
   qualityScore   Int?        // 0-100 from quality gate
 
   // Voiceover stage
-  voiceoverUrls  String[]    // S3/R2 URLs to MP3 segments
+  voiceoverUrls  String[]    // local paths to MP3 segments
+  voiceoverPath  String?     // path to concatenated final.mp3
 
   // Assembly stage
   assemblyJobId  String?     // InVideo job ID
