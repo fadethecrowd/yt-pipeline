@@ -4,10 +4,10 @@ import type { Topic, Video } from "@prisma/client";
 
 export interface ScriptSegment {
   segmentIndex: number;
-  label: string; // e.g. "intro", "body_1", "cta"
-  text: string;
-  visualPrompt: string; // prompt for video generation
-  durationEstimate: number; // seconds
+  title: string;
+  narration: string; // voiceover text
+  visual_prompt: string; // description of what to show on screen
+  duration_seconds: number; // estimated duration
 }
 
 export interface Script {

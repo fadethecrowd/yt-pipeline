@@ -61,7 +61,7 @@ export async function topicDiscovery(
       source: item.source,
       summary: item.summary ?? null,
       score: scoreTopic(item),
-      status: TopicStatus.DISCOVERED as const,
+      status: "DISCOVERED" as const,
     }));
 
     // Use skipDuplicates in case of race conditions on the unique url constraint
