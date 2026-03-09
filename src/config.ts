@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z.string().startsWith("postgresql://"),
   ANTHROPIC_API_KEY: z.string().min(1),
   ELEVENLABS_API_KEY: z.string().min(1),
   ELEVENLABS_VOICE_ID: z.string().min(1),
