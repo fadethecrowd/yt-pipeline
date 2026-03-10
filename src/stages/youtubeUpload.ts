@@ -8,12 +8,12 @@ import type { PipelineContext, StageResult, UploadResult } from "../types";
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Returns the next Monday, Wednesday, or Friday at 9:00 AM EST.
- * If today is one of those days and it's before 9 AM EST, uses today.
+ * Returns the next Monday, Wednesday, or Friday at 2:00 PM EST.
+ * If today is one of those days and it's before 2 PM EST, uses today.
  */
 function getNextPublishSlot(): Date {
   const PUBLISH_DAYS = [1, 3, 5]; // Mon, Wed, Fri
-  const PUBLISH_HOUR_UTC = 14; // 9 AM EST = 14:00 UTC
+  const PUBLISH_HOUR_UTC = 19; // 2 PM EST = 19:00 UTC
 
   const now = new Date();
   const candidate = new Date(now);
