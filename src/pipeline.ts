@@ -17,6 +17,7 @@ import { notify } from "./stages/notify";
 // ── Stage definitions (sequential) ────────────────────────────────────────
 
 const STAGES: StageDefinition[] = [
+  { name: "topicDiscovery", execute: topicDiscovery, retries: 2 },
   { name: "scriptGenerator", execute: scriptGenerator, retries: 2 },
   { name: "qualityGate", execute: qualityGate, retries: 1 },
   { name: "voiceover", execute: voiceover, retries: 3 },
@@ -26,18 +27,72 @@ const STAGES: StageDefinition[] = [
   { name: "notify", execute: notify, retries: 2 },
 ];
 
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function ts(): string {
+  return new Date().toISOString();
+}
+
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = (ms / 1000).toFixed(1);
+  return `${s}s`;
+}
+
+async function failVideo(
+  ctx: PipelineContext,
+  stageName: string,
+  reason: string
+) {
+  const failReason = `${stageName}: ${reason}`;
+  await prisma.video.update({
+    where: { id: ctx.video.id },
+    data: {
+      status: VideoStatus.FAILED,
+      failReason,
+      retryCount: { increment: 1 },
+    },
+  });
+  ctx.video = { ...ctx.video, failReason };
+
+  // Best-effort failure notification
+  await notify(ctx).catch(() => {});
+}
+
 // ── Orchestrator ───────────────────────────────────────────────────────────
 
 export async function runPipeline(): Promise<void> {
   const config = env();
+  const pipelineStart = Date.now();
+
+  console.log(`[pipeline] ═══ Run started at ${ts()} ═══`);
 
   await withAdvisoryLock(prisma, config.PIPELINE_LOCK_ID, async () => {
-    console.log("[pipeline] Acquiring advisory lock — starting run");
+    console.log("[pipeline] Advisory lock acquired");
 
-    // Stage 0: discover new topics and pick the best one
-    const discoveryResult = await withRetry(
-      () => topicDiscovery({} as PipelineContext),
-      { maxRetries: 2, label: "topicDiscovery" }
+    // ── Stage 1: Topic Discovery (seeds the context) ──────────────────
+
+    const discoveryStage = STAGES[0];
+    const discoveryStart = Date.now();
+    console.log(`[pipeline] ▸ ${discoveryStage.name} started at ${ts()}`);
+
+    let discoveryResult: StageResult;
+    try {
+      discoveryResult = await withRetry(
+        () => topicDiscovery({} as PipelineContext),
+        { maxRetries: discoveryStage.retries, label: discoveryStage.name }
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[pipeline] ✗ topicDiscovery failed: ${msg}`);
+      console.log(
+        `[pipeline] ▸ topicDiscovery ended at ${ts()} (${fmtDuration(Date.now() - discoveryStart)})`
+      );
+      return;
+    }
+
+    console.log(
+      `[pipeline] ✓ topicDiscovery ended at ${ts()} (${fmtDuration(Date.now() - discoveryStart)})`
     );
 
     if (!discoveryResult.success || !discoveryResult.data) {
@@ -53,11 +108,13 @@ export async function runPipeline(): Promise<void> {
     });
 
     const ctx: PipelineContext = { topic, video };
+    console.log(`[pipeline] Video ${video.id} created for topic "${topic.title}"`);
 
-    // Run each stage sequentially
-    for (const stage of STAGES) {
-      console.log(`[pipeline] ▸ ${stage.name}`);
-      const start = Date.now();
+    // ── Stages 2–8 ───────────────────────────────────────────────────
+
+    for (const stage of STAGES.slice(1)) {
+      const stageStart = Date.now();
+      console.log(`[pipeline] ▸ ${stage.name} started at ${ts()}`);
 
       let result: StageResult;
       try {
@@ -66,48 +123,26 @@ export async function runPipeline(): Promise<void> {
           label: stage.name,
         });
       } catch (err) {
-        const failReason =
-          err instanceof Error ? err.message : String(err);
-        console.error(`[pipeline] ✗ ${stage.name} failed: ${failReason}`);
-
-        await prisma.video.update({
-          where: { id: video.id },
-          data: {
-            status: VideoStatus.FAILED,
-            failReason: `${stage.name}: ${failReason}`,
-            retryCount: { increment: 1 },
-          },
-        });
-
-        // Send failure notification
-        await notify({
-          ...ctx,
-          video: { ...ctx.video, failReason: `${stage.name}: ${failReason}` },
-        }).catch(() => {}); // best-effort
-
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error(`[pipeline] ✗ ${stage.name} threw: ${reason}`);
+        console.log(
+          `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+        );
+        await failVideo(ctx, stage.name, reason);
         return;
       }
 
       if (!result.success) {
-        console.error(
-          `[pipeline] ✗ ${stage.name} rejected: ${result.error}`
+        console.error(`[pipeline] ✗ ${stage.name} rejected: ${result.error}`);
+        console.log(
+          `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
         );
-        await prisma.video.update({
-          where: { id: video.id },
-          data: {
-            status: VideoStatus.FAILED,
-            failReason: `${stage.name}: ${result.error}`,
-          },
-        });
-        await notify({
-          ...ctx,
-          video: { ...ctx.video, failReason: `${stage.name}: ${result.error}` },
-        }).catch(() => {});
+        await failVideo(ctx, stage.name, result.error ?? "unknown error");
         return;
       }
 
       console.log(
-        `[pipeline] ✓ ${stage.name} (${Date.now() - start}ms)`
+        `[pipeline] ✓ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
       );
     }
 
@@ -115,13 +150,23 @@ export async function runPipeline(): Promise<void> {
       `[pipeline] ✓ Complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
     );
   });
+
+  console.log(
+    `[pipeline] ═══ Run finished at ${ts()} — total ${fmtDuration(Date.now() - pipelineStart)} ═══`
+  );
 }
 
-// ── Entry point ────────────────────────────────────────────────────────────
+// ── Entry point (only when run directly) ──────────────────────────────────
 
-runPipeline()
-  .catch((err) => {
-    console.error("[pipeline] Fatal:", err);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+const isDirectRun =
+  process.argv[1]?.endsWith("pipeline.ts") ||
+  process.argv[1]?.endsWith("pipeline.js");
+
+if (isDirectRun) {
+  runPipeline()
+    .catch((err) => {
+      console.error("[pipeline] Fatal:", err);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

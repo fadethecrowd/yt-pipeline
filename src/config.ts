@@ -9,7 +9,7 @@ const envSchema = z.object({
   YOUTUBE_CLIENT_ID: z.string().min(1),
   YOUTUBE_CLIENT_SECRET: z.string().min(1),
   YOUTUBE_REFRESH_TOKEN: z.string().min(1),
-  SLACK_WEBHOOK_URL: z.string().url(),
+
   NODE_ENV: z.enum(["development", "production"]).default("development"),
   PIPELINE_LOCK_ID: z.coerce.number().default(123456),
   QUALITY_THRESHOLD: z.coerce.number().min(0).max(100).default(75),

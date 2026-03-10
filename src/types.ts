@@ -88,14 +88,3 @@ export interface UploadResult {
   youtubeId: string;
   scheduledAt: Date;
 }
-
-// ── Notifications ──────────────────────────────────────────────────────────
-
-export interface NotifyPayload {
-  videoId: string;
-  topicTitle: string;
-  success: boolean;
-  youtubeId?: string;
-  failReason?: string;
-  stage?: string;
-}

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.env.save
 *.mp3
 *.mp4
 .DS_Store
