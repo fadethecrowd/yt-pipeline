@@ -1,4 +1,4 @@
-import { VideoStatus } from "@prisma/client";
+import { TopicStatus, VideoStatus } from "@prisma/client";
 import { prisma } from "./lib/db";
 import { withAdvisoryLock } from "./lib/lock";
 import { withRetry } from "./lib/retry";
@@ -175,8 +175,23 @@ export async function runPipeline(): Promise<void> {
     );
 
     if (!discoveryResult.success || !discoveryResult.data) {
-      console.log("[pipeline] No viable topics found, exiting");
-      return;
+      console.log("[pipeline] Discovery found no new topics, checking for existing APPROVED topics…");
+
+      const fallbackTopic = await prisma.topic.findFirst({
+        where: {
+          status: TopicStatus.APPROVED,
+          videos: { none: {} },
+        },
+        orderBy: [{ score: "desc" }, { createdAt: "desc" }],
+      });
+
+      if (!fallbackTopic) {
+        console.log("[pipeline] No APPROVED fallback topics either, exiting");
+        return;
+      }
+
+      console.log(`[pipeline] Using fallback APPROVED topic: "${fallbackTopic.title}"`);
+      discoveryResult = { success: true, data: fallbackTopic, durationMs: discoveryResult.durationMs };
     }
 
     const topic = discoveryResult.data as PipelineContext["topic"];
