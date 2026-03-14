@@ -13,8 +13,8 @@ const TITLE_CARD_DURATION = 4;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-const FFMPEG = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg";
-const FFPROBE = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe";
+const FFMPEG = "ffmpeg";
+const FFPROBE = "ffprobe";
 
 async function ff(...args: string[]): Promise<void> {
   console.log(`[assembly] ffmpeg ${args.slice(0, 4).join(" ")}...`);
