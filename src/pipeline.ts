@@ -3,7 +3,7 @@ import { prisma } from "./lib/db";
 import { withAdvisoryLock } from "./lib/lock";
 import { withRetry } from "./lib/retry";
 import { env } from "./config";
-import type { PipelineContext, StageDefinition, StageResult } from "./types";
+import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "./types";
 
 import { topicDiscovery } from "./stages/topicDiscovery";
 import { scriptGenerator } from "./stages/scriptGenerator";
@@ -26,6 +26,11 @@ const STAGES: StageDefinition[] = [
   { name: "youtubeUpload", execute: youtubeUpload, retries: 3 },
   { name: "notify", execute: notify, retries: 2 },
 ];
+
+// Map video status → index into STAGES where we should resume
+const RESUME_FROM: Partial<Record<VideoStatus, number>> = {
+  [VideoStatus.SEO_DONE]: 6,     // resume at youtubeUpload
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -69,6 +74,80 @@ export async function runPipeline(): Promise<void> {
 
   await withAdvisoryLock(prisma, config.PIPELINE_LOCK_ID, async () => {
     console.log("[pipeline] Advisory lock acquired");
+
+    // ── Check for stuck videos that can be resumed ────────────────────
+
+    const resumableStatuses = Object.keys(RESUME_FROM) as VideoStatus[];
+    const stuckVideo = await prisma.video.findFirst({
+      where: { status: { in: resumableStatuses } },
+      include: { topic: true },
+      orderBy: { updatedAt: "asc" }, // oldest stuck video first
+    });
+
+    if (stuckVideo) {
+      const resumeIdx = RESUME_FROM[stuckVideo.status]!;
+      const resumeStages = STAGES.slice(resumeIdx);
+      console.log(
+        `[pipeline] Resuming video ${stuckVideo.id} (stuck at ${stuckVideo.status}) from ${resumeStages[0].name}`
+      );
+
+      // Rebuild context from DB fields
+      const ctx: PipelineContext = {
+        topic: stuckVideo.topic,
+        video: stuckVideo,
+        script: (stuckVideo.scriptJson as unknown as Script) ?? undefined,
+        voiceoverUrls: stuckVideo.voiceoverUrls,
+        videoUrl: stuckVideo.videoPath ?? undefined,
+        seo:
+          stuckVideo.seoTitle && stuckVideo.seoDescription
+            ? {
+                title: stuckVideo.seoTitle,
+                description: stuckVideo.seoDescription,
+                tags: stuckVideo.seoTags,
+                chapters: (stuckVideo.seoChapters as unknown as SEOMetadata["chapters"]) ?? [],
+              }
+            : undefined,
+      };
+
+      for (const stage of resumeStages) {
+        const stageStart = Date.now();
+        console.log(`[pipeline] ▸ ${stage.name} started at ${ts()}`);
+
+        let result: StageResult;
+        try {
+          result = await withRetry(() => stage.execute(ctx), {
+            maxRetries: stage.retries,
+            label: stage.name,
+          });
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          console.error(`[pipeline] ✗ ${stage.name} threw: ${reason}`);
+          console.log(
+            `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+          );
+          await failVideo(ctx, stage.name, reason);
+          return;
+        }
+
+        if (!result.success) {
+          console.error(`[pipeline] ✗ ${stage.name} rejected: ${result.error}`);
+          console.log(
+            `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+          );
+          await failVideo(ctx, stage.name, result.error ?? "unknown error");
+          return;
+        }
+
+        console.log(
+          `[pipeline] ✓ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+        );
+      }
+
+      console.log(
+        `[pipeline] ✓ Resumed complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
+      );
+      return;
+    }
 
     // ── Stage 1: Topic Discovery (seeds the context) ──────────────────
 
