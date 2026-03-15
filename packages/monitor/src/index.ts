@@ -6,6 +6,7 @@ import { scrapeComments } from "./commentScraper";
 import { evaluate } from "./decisionEngine";
 import { executeDecisions } from "./executor";
 import { sendDailyDigest, shouldSendDigest } from "./digest";
+import { startBot, setLastTickTime } from "./telegram";
 
 const DAILY_MS = 24 * 60 * 60 * 1000;
 const DIGEST_HOUR_UTC = 14; // ~9 AM EST
@@ -40,6 +41,7 @@ async function tick(): Promise<void> {
   }
   firstTick = false;
 
+  setLastTickTime(new Date());
   const elapsed = Date.now() - start;
   console.log(`[monitor] ═══ Tick complete (${elapsed}ms) ═══\n`);
 }
@@ -49,6 +51,9 @@ async function main(): Promise<void> {
   console.log(
     `[monitor] Starting with poll interval ${config.POLL_INTERVAL_MS}ms`,
   );
+
+  // Start Telegram bot listener
+  startBot();
 
   // Run immediately, then on interval
   await tick();

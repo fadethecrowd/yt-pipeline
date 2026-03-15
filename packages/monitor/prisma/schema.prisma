@@ -162,3 +162,11 @@ model DigestLog {
   sentVia    String
   createdAt  DateTime @default(now())
 }
+
+model ChannelGoal {
+  id            String   @id @default(cuid())
+  goal          String
+  autonomyTier  Int      @default(2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
