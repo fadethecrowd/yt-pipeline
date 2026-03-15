@@ -8,6 +8,9 @@ import { executeDecisions } from "./executor";
 import { sendDailyDigest, shouldSendDigest } from "./digest";
 
 const DAILY_MS = 24 * 60 * 60 * 1000;
+const DIGEST_HOUR_UTC = 14; // ~9 AM EST
+
+let firstTick = true;
 
 async function tick(): Promise<void> {
   const start = Date.now();
@@ -25,10 +28,17 @@ async function tick(): Promise<void> {
     await executeDecisions(decisions);
   }
 
-  // 4. Daily digest (if due)
-  if (await shouldSendDigest("daily", DAILY_MS)) {
-    await sendDailyDigest();
+  // 4. Daily digest — skip the first tick; only send at the scheduled hour
+  if (!firstTick && new Date().getUTCHours() === DIGEST_HOUR_UTC) {
+    try {
+      if (await shouldSendDigest("daily", DAILY_MS)) {
+        await sendDailyDigest();
+      }
+    } catch (err) {
+      console.error("[monitor] Digest send failed (non-fatal):", err instanceof Error ? err.message : err);
+    }
   }
+  firstTick = false;
 
   const elapsed = Date.now() - start;
   console.log(`[monitor] ═══ Tick complete (${elapsed}ms) ═══\n`);

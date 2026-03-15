@@ -19,7 +19,7 @@ export async function sendTelegram(text: string): Promise<void> {
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Telegram API error ${res.status}: ${body}`);
+    console.error(`[telegram] API error ${res.status}: ${body}`);
   }
 }
 
@@ -27,6 +27,10 @@ export async function sendTelegram(text: string): Promise<void> {
  * Send an alert message.
  */
 export async function sendAlert(message: string): Promise<void> {
-  await sendTelegram(`⚠️ *Alert*\n${message}`);
-  console.log(`[telegram] Alert sent: ${message}`);
+  try {
+    await sendTelegram(`⚠️ *Alert*\n${message}`);
+    console.log(`[telegram] Alert sent: ${message}`);
+  } catch (err) {
+    console.error("[telegram] Alert send failed (non-fatal):", err instanceof Error ? err.message : err);
+  }
 }
