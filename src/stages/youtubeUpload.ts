@@ -8,31 +8,50 @@ import type { PipelineContext, StageResult, UploadResult } from "../types";
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Returns the next Monday, Wednesday, or Friday at 2:00 PM EST.
- * If today is one of those days and it's before 2 PM EST, uses today.
+ * Returns the next Monday, Wednesday, or Friday at 2:00 PM EST
+ * that doesn't already have a video scheduled in the DB.
  */
-function getNextPublishSlot(): Date {
+async function getNextPublishSlot(): Promise<Date> {
   const PUBLISH_DAYS = [1, 3, 5]; // Mon, Wed, Fri
   const PUBLISH_HOUR_UTC = 19; // 2 PM EST = 19:00 UTC
+  const MAX_WEEKS_AHEAD = 8; // Look up to 8 weeks out
 
   const now = new Date();
   const candidate = new Date(now);
   candidate.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
 
-  // Check today through the next 7 days
-  for (let i = 0; i < 7; i++) {
+  // Build list of candidate slots
+  const slots: Date[] = [];
+  for (let i = 0; i < 7 * MAX_WEEKS_AHEAD; i++) {
     const d = new Date(candidate);
     d.setUTCDate(d.getUTCDate() + i);
-    if (PUBLISH_DAYS.includes(d.getUTCDay())) {
-      // If it's today, only use it if the slot hasn't passed
-      if (i === 0 && now >= d) continue;
-      return d;
-    }
+    if (!PUBLISH_DAYS.includes(d.getUTCDay())) continue;
+    if (i === 0 && now >= d) continue;
+    slots.push(d);
   }
 
-  // Fallback: next Monday
-  const fallback = new Date(candidate);
-  fallback.setUTCDate(fallback.getUTCDate() + ((8 - fallback.getUTCDay()) % 7 || 7));
+  // Query DB for already-occupied slots
+  const occupied = new Set(
+    (
+      await prisma.video.findMany({
+        where: {
+          scheduledAt: { in: slots },
+          status: { not: VideoStatus.FAILED },
+        },
+        select: { scheduledAt: true },
+      })
+    )
+      .filter((v) => v.scheduledAt !== null)
+      .map((v) => v.scheduledAt!.getTime())
+  );
+
+  const available = slots.find((s) => !occupied.has(s.getTime()));
+  if (available) return available;
+
+  // Fallback: slot after the last candidate
+  const last = slots[slots.length - 1];
+  const fallback = new Date(last);
+  fallback.setUTCDate(fallback.getUTCDate() + 2); // next publish day after Friday is Monday
   return fallback;
 }
 
@@ -83,7 +102,7 @@ export async function youtubeUpload(
     data: { status: VideoStatus.UPLOAD_PENDING },
   });
 
-  const scheduledAt = getNextPublishSlot();
+  const scheduledAt = await getNextPublishSlot();
   console.log(`[youtubeUpload] Scheduled publish: ${scheduledAt.toISOString()}`);
   console.log(`[youtubeUpload] Title: ${ctx.seo.title}`);
   console.log(`[youtubeUpload] Video file: ${video.videoPath}`);
