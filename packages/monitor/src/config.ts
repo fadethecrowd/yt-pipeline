@@ -3,7 +3,7 @@ import type { MonitorConfig } from "./lib/types";
 
 const envSchema = z.object({
   DATABASE_URL: z.string().startsWith("postgresql://"),
-  YOUTUBE_API_KEY: z.string().min(1),
+  YOUTUBE_API_KEY: z.string().optional(),
   YOUTUBE_CLIENT_ID: z.string().min(1),
   YOUTUBE_CLIENT_SECRET: z.string().min(1),
   YOUTUBE_REFRESH_TOKEN: z.string().min(1),

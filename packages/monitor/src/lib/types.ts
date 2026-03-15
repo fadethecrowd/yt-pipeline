@@ -53,7 +53,7 @@ export interface DigestEntry {
 
 export interface MonitorConfig {
   DATABASE_URL: string;
-  YOUTUBE_API_KEY: string;
+  YOUTUBE_API_KEY?: string;
   YOUTUBE_CLIENT_ID: string;
   YOUTUBE_CLIENT_SECRET: string;
   YOUTUBE_REFRESH_TOKEN: string;
