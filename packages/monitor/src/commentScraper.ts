@@ -1,5 +1,5 @@
 import { prisma } from "./lib/prisma";
-import { youtubeReadOnly } from "./lib/youtube";
+import { youtube } from "./lib/youtube";
 import type { YouTubeComment } from "./lib/types";
 
 /**
@@ -14,7 +14,7 @@ export async function scrapeComments(): Promise<YouTubeComment[]> {
 
   if (videos.length === 0) return [];
 
-  const yt = youtubeReadOnly();
+  const yt = youtube();
   const allComments: YouTubeComment[] = [];
 
   for (const video of videos) {

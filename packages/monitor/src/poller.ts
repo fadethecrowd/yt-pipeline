@@ -1,5 +1,5 @@
 import { prisma } from "./lib/prisma";
-import { youtubeReadOnly } from "./lib/youtube";
+import { youtube } from "./lib/youtube";
 import type { VideoMetrics } from "./lib/types";
 
 /**
@@ -18,7 +18,7 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
   }
 
   const youtubeIds = videos.map((v: { id: string; youtubeId: string | null }) => v.youtubeId!);
-  const yt = youtubeReadOnly();
+  const yt = youtube();
 
   // Batch fetch stats (max 50 per request)
   const metrics: VideoMetrics[] = [];

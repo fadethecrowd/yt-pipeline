@@ -1,6 +1,6 @@
 import { ActionStatus } from "./lib/types";
 import { prisma } from "./lib/prisma";
-import { youtubeAuth } from "./lib/youtube";
+import { youtube } from "./lib/youtube";
 import type { Decision } from "./lib/types";
 import { routeAction } from "./actionRouter";
 
@@ -12,7 +12,7 @@ export async function heartComment(commentId: string): Promise<void> {
   // Hearting is done by setting the moderationStatus or via the
   // comments.markAsSpam / setModerationStatus approach.
   // For now, use the comment rating approach:
-  const yt = youtubeAuth();
+  const yt = youtube();
   await yt.comments.setModerationStatus({
     id: [commentId],
     moderationStatus: "published",
@@ -31,7 +31,7 @@ export async function updateVideoTitle(
     where: { id: videoId },
   });
 
-  const yt = youtubeAuth();
+  const yt = youtube();
   await yt.videos.update({
     part: ["snippet"],
     requestBody: {
