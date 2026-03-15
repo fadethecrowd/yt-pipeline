@@ -1,4 +1,4 @@
-import { ActionStatus, Prisma } from "@prisma/client";
+import { ActionStatus } from "./lib/types";
 import { prisma } from "./lib/prisma";
 import { youtubeAuth } from "./lib/youtube";
 import type { Decision } from "./lib/types";
@@ -54,7 +54,7 @@ export async function executeDecisions(decisions: Decision[]): Promise<void> {
       data: {
         videoId: decision.videoId,
         type: decision.type,
-        payload: decision.payload as Prisma.InputJsonValue,
+        payload: decision.payload as any,
         reason: decision.reason,
       },
     });

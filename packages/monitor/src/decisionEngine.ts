@@ -1,4 +1,4 @@
-import { ActionType } from "@prisma/client";
+import { ActionType } from "./lib/types";
 import { prisma } from "./lib/prisma";
 import type { Decision, VideoMetrics } from "./lib/types";
 

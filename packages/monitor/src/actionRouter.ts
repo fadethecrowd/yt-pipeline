@@ -1,4 +1,4 @@
-import { ActionType } from "@prisma/client";
+import { ActionType } from "./lib/types";
 import type { Decision, ActionResult } from "./lib/types";
 import { heartComment, updateVideoTitle } from "./executor";
 import { sendAlert } from "./telegram";

@@ -1,4 +1,23 @@
-import type { ActionType } from "@prisma/client";
+// ── Enums (local definitions, not from @prisma/client) ──────────────────
+
+export const ActionType = {
+  PIN_COMMENT: "PIN_COMMENT",
+  HEART_COMMENT: "HEART_COMMENT",
+  REPLY_COMMENT: "REPLY_COMMENT",
+  UPDATE_TITLE: "UPDATE_TITLE",
+  UPDATE_DESCRIPTION: "UPDATE_DESCRIPTION",
+  UPDATE_TAGS: "UPDATE_TAGS",
+  ALERT: "ALERT",
+} as const;
+export type ActionType = (typeof ActionType)[keyof typeof ActionType];
+
+export const ActionStatus = {
+  PENDING: "PENDING",
+  EXECUTED: "EXECUTED",
+  FAILED: "FAILED",
+  SKIPPED: "SKIPPED",
+} as const;
+export type ActionStatus = (typeof ActionStatus)[keyof typeof ActionStatus];
 
 // ── YouTube API response shapes ─────────────────────────────────────────
 

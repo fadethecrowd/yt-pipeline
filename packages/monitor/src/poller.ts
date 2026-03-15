@@ -17,7 +17,7 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     return [];
   }
 
-  const youtubeIds = videos.map((v) => v.youtubeId!);
+  const youtubeIds = videos.map((v: { id: string; youtubeId: string | null }) => v.youtubeId!);
   const yt = youtubeReadOnly();
 
   // Batch fetch stats (max 50 per request)
@@ -31,7 +31,7 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     });
 
     for (const item of res.data.items ?? []) {
-      const video = videos.find((v) => v.youtubeId === item.id);
+      const video = videos.find((v: { id: string; youtubeId: string | null }) => v.youtubeId === item.id);
       if (!video || !item.statistics) continue;
 
       metrics.push({
