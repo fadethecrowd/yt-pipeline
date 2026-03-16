@@ -4,7 +4,6 @@ import type { VideoMetrics } from "./lib/types";
 
 interface AnalyticsData {
   ctr?: number;
-  impressions?: number;
   avgViewPercentage?: number;
   estimatedMinutesWatched?: number;
   avgViewDuration?: number;
@@ -26,7 +25,7 @@ async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
       ids: "channel==MINE",
       startDate,
       endDate,
-      metrics: "annotationClickThroughRate,impressions,averageViewPercentage,estimatedMinutesWatched,averageViewDuration",
+      metrics: "annotationClickThroughRate,averageViewPercentage,estimatedMinutesWatched,averageViewDuration",
       filters: `video==${youtubeId}`,
     });
 
@@ -35,10 +34,9 @@ async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
 
     return {
       ctr: row[0] != null ? Number(row[0]) : undefined,
-      impressions: row[1] != null ? Number(row[1]) : undefined,
-      avgViewPercentage: row[2] != null ? Number(row[2]) : undefined,
-      estimatedMinutesWatched: row[3] != null ? Number(row[3]) : undefined,
-      avgViewDuration: row[4] != null ? Number(row[4]) : undefined,
+      avgViewPercentage: row[1] != null ? Number(row[1]) : undefined,
+      estimatedMinutesWatched: row[2] != null ? Number(row[2]) : undefined,
+      avgViewDuration: row[3] != null ? Number(row[3]) : undefined,
     };
   } catch (err) {
     console.warn(`[poller] Analytics fetch failed for ${youtubeId}: ${err instanceof Error ? err.message : err}`);
@@ -107,7 +105,6 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
         likes: m.likes,
         comments: m.comments,
         ctr: a.ctr ?? null,
-        impressions: a.impressions ?? null,
         avgViewDuration: a.avgViewDuration ?? null,
         avgViewPercentage: a.avgViewPercentage ?? null,
         estimatedMinutesWatched: a.estimatedMinutesWatched ?? null,
