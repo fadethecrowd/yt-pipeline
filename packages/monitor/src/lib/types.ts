@@ -41,6 +41,15 @@ export interface YouTubeComment {
   publishedAt: Date;
 }
 
+// ── Benchmarks ──────────────────────────────────────────────────────────
+
+export interface BootstrapBenchmarks {
+  avgCtr: number;
+  avgViewDuration: number;
+  avgViews48hr: number;
+  avgSubsPerVideo: number;
+}
+
 // ── Decision engine ─────────────────────────────────────────────────────
 
 export interface Decision {
@@ -77,6 +86,7 @@ export interface MonitorConfig {
   YOUTUBE_CLIENT_SECRET: string;
   YOUTUBE_REFRESH_TOKEN: string;
   YOUTUBE_CHANNEL_ID: string;
+  ANTHROPIC_API_KEY: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
   POLL_INTERVAL_MS: number;

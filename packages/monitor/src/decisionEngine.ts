@@ -1,9 +1,48 @@
 import { ActionType } from "./lib/types";
 import { prisma } from "./lib/prisma";
-import type { Decision, VideoMetrics } from "./lib/types";
+import type { BootstrapBenchmarks, Decision, VideoMetrics } from "./lib/types";
 
-const LOW_CTR_THRESHOLD = 0.03; // 3%
+const COLD_START_THRESHOLD = 15; // videos needed before using real averages
 const HIGH_LIKE_COMMENT = 50; // heart comments with 50+ likes
+
+/**
+ * Load baseline benchmarks. If the channel has fewer than COLD_START_THRESHOLD
+ * videos worth of snapshots, use bootstrapBenchmarks from ChannelGoal.
+ * Otherwise compute from actual data.
+ */
+async function getBaseline(): Promise<{ ctrThreshold: number; viewsThreshold: number }> {
+  const snapshotVideoCount = await prisma.videoSnapshot.groupBy({
+    by: ["videoId"],
+    _count: true,
+  });
+
+  if (snapshotVideoCount.length < COLD_START_THRESHOLD) {
+    // Cold start — use bootstrap benchmarks
+    const goal = await prisma.channelGoal.findFirst({
+      orderBy: { updatedAt: "desc" },
+    });
+
+    if (goal?.bootstrapBenchmarks) {
+      const bm = goal.bootstrapBenchmarks as unknown as BootstrapBenchmarks;
+      console.log(`[decisionEngine] Cold start: using bootstrap benchmarks (${snapshotVideoCount.length}/${COLD_START_THRESHOLD} videos)`);
+      return {
+        ctrThreshold: bm.avgCtr / 100, // convert percentage to decimal
+        viewsThreshold: bm.avgViews48hr,
+      };
+    }
+  }
+
+  // Warm channel — compute from actual snapshots
+  const avgCtr = await prisma.videoSnapshot.aggregate({
+    _avg: { ctr: true },
+    where: { ctr: { not: null } },
+  });
+
+  return {
+    ctrThreshold: (avgCtr._avg.ctr ?? 3) / 100,
+    viewsThreshold: 100,
+  };
+}
 
 /**
  * Analyze current metrics and recent comments, return suggested actions.
@@ -12,10 +51,11 @@ export async function evaluate(
   metrics: VideoMetrics[],
 ): Promise<Decision[]> {
   const decisions: Decision[] = [];
+  const baseline = await getBaseline();
 
   for (const m of metrics) {
     // ── Check for low CTR → suggest title update ──────────────────
-    if (m.ctr !== undefined && m.ctr < LOW_CTR_THRESHOLD && m.views > 100) {
+    if (m.ctr !== undefined && m.ctr < baseline.ctrThreshold && m.views > baseline.viewsThreshold) {
       const existing = await prisma.monitorAction.findFirst({
         where: {
           videoId: m.videoId,
@@ -28,7 +68,7 @@ export async function evaluate(
           videoId: m.videoId,
           type: ActionType.UPDATE_TITLE,
           payload: { currentCtr: m.ctr, views: m.views },
-          reason: `CTR ${(m.ctr * 100).toFixed(1)}% is below ${LOW_CTR_THRESHOLD * 100}% threshold`,
+          reason: `CTR ${(m.ctr * 100).toFixed(1)}% is below ${(baseline.ctrThreshold * 100).toFixed(1)}% threshold`,
         });
       }
     }

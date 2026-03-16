@@ -7,6 +7,7 @@ import { evaluate } from "./decisionEngine";
 import { executeDecisions } from "./executor";
 import { sendDailyDigest, shouldSendDigest } from "./digest";
 import { startBot, setLastTickTime } from "./telegram";
+import { scrapeRedditTopics } from "./redditScraper";
 
 const DAILY_MS = 24 * 60 * 60 * 1000;
 const DIGEST_HOUR_UTC = 14; // ~9 AM EST
@@ -29,7 +30,7 @@ async function tick(): Promise<void> {
     await executeDecisions(decisions);
   }
 
-  // 4. Daily digest — skip the first tick; only send at the scheduled hour
+  // 4. Daily tasks — skip the first tick; only run at the scheduled hour
   if (!firstTick && new Date().getUTCHours() === DIGEST_HOUR_UTC) {
     try {
       if (await shouldSendDigest("daily", DAILY_MS)) {
@@ -37,6 +38,13 @@ async function tick(): Promise<void> {
       }
     } catch (err) {
       console.error("[monitor] Digest send failed (non-fatal):", err instanceof Error ? err.message : err);
+    }
+
+    // 5. Reddit topic scraper (daily)
+    try {
+      await scrapeRedditTopics();
+    } catch (err) {
+      console.error("[monitor] Reddit scrape failed (non-fatal):", err instanceof Error ? err.message : err);
     }
   }
   firstTick = false;
