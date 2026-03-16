@@ -110,15 +110,18 @@ enum ActionStatus {
 // ── Monitor models ──────────────────────────────────────────────────────
 
 model VideoSnapshot {
-  id              String   @id @default(cuid())
-  videoId         String
-  video           Video    @relation(fields: [videoId], references: [id])
-  views           Int
-  likes           Int
-  comments        Int
-  ctr             Float?
-  avgViewDuration Float?
-  createdAt       DateTime @default(now())
+  id                    String   @id @default(cuid())
+  videoId               String
+  video                 Video    @relation(fields: [videoId], references: [id])
+  views                 Int
+  likes                 Int
+  comments              Int
+  ctr                   Float?
+  impressions           Int?
+  avgViewDuration       Float?
+  avgViewPercentage     Float?
+  estimatedMinutesWatched Float?
+  createdAt             DateTime @default(now())
 
   @@index([videoId, createdAt])
 }
