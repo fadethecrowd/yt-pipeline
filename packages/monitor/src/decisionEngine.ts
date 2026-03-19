@@ -116,12 +116,17 @@ ${JSON.stringify(metricsContext, null, 2)}
 Available actions:
 - UPDATE_TITLE: Video CTR is significantly below channel average and has enough impressions to be meaningful. Include a "newTitle" suggestion in payload. (Requires user approval — will not auto-execute.)
 - REGENERATE_THUMBNAIL: Thumbnail appears to be underperforming based on low CTR despite good content signals. (Requires user approval — will not auto-execute.)
-- UPDATE_TAGS: Video discovery seems poor relative to its quality.
+- UPDATE_TAGS: Video discovery seems poor relative to its quality. You MUST include a "tags" array in the payload with 10-15 specific tag strings relevant to the video content. Do NOT recommend UPDATE_TAGS without providing the actual tags array.
 - ALERT: Anomalous performance worth flagging.
 - NO_ACTION: Metrics look normal or there's not enough data to act.
 
-Respond with ONLY a JSON array. For each video, include:
+Respond with ONLY a JSON array. For each video, include one entry:
 [{"videoId": "...", "action": "NO_ACTION|UPDATE_TITLE|REGENERATE_THUMBNAIL|UPDATE_TAGS|ALERT", "reasoning": "...", "payload": {}}]
+
+Payload requirements by action type:
+- UPDATE_TITLE: payload MUST include {"newTitle": "your suggested title here"}
+- UPDATE_TAGS: payload MUST include {"tags": ["tag1", "tag2", "tag3", ...]} with 10-15 tags
+- All others: payload can be {}
 
 Be specific in your reasoning — reference the actual numbers. Only suggest actions when there's a clear signal.`;
 
