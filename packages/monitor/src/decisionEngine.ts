@@ -114,13 +114,14 @@ Current video metrics:
 ${JSON.stringify(metricsContext, null, 2)}
 
 Available actions:
-- UPDATE_TITLE: Video CTR is significantly below channel average and has enough impressions to be meaningful. Include a "newTitle" suggestion in payload.
+- UPDATE_TITLE: Video CTR is significantly below channel average and has enough impressions to be meaningful. Include a "newTitle" suggestion in payload. (Requires user approval — will not auto-execute.)
+- REGENERATE_THUMBNAIL: Thumbnail appears to be underperforming based on low CTR despite good content signals. (Requires user approval — will not auto-execute.)
 - UPDATE_TAGS: Video discovery seems poor relative to its quality.
 - ALERT: Anomalous performance worth flagging.
 - NO_ACTION: Metrics look normal or there's not enough data to act.
 
 Respond with ONLY a JSON array. For each video, include:
-[{"videoId": "...", "action": "NO_ACTION|UPDATE_TITLE|UPDATE_TAGS|ALERT", "reasoning": "...", "payload": {}}]
+[{"videoId": "...", "action": "NO_ACTION|UPDATE_TITLE|REGENERATE_THUMBNAIL|UPDATE_TAGS|ALERT", "reasoning": "...", "payload": {}}]
 
 Be specific in your reasoning — reference the actual numbers. Only suggest actions when there's a clear signal.`;
 

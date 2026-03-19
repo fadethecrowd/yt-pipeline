@@ -30,6 +30,7 @@ const handlers: Record<ActionType, ActionHandler> = {
   [ActionType.PIN_COMMENT]: async () => ({ success: false, message: "Not implemented" }),
   [ActionType.REPLY_COMMENT]: async () => ({ success: false, message: "Not implemented" }),
   [ActionType.UPDATE_DESCRIPTION]: async () => ({ success: false, message: "Not implemented" }),
+  [ActionType.REGENERATE_THUMBNAIL]: async () => ({ success: false, message: "Not implemented" }),
   [ActionType.UPDATE_TAGS]: async (d) => {
     const tags = d.payload.tags as string[] | undefined;
     if (!tags || tags.length === 0) {

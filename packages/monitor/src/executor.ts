@@ -1,8 +1,9 @@
-import { ActionStatus } from "./lib/types";
+import { ActionStatus, REQUIRES_APPROVAL } from "./lib/types";
 import { prisma } from "./lib/prisma";
 import { youtube } from "./lib/youtube";
 import type { Decision } from "./lib/types";
 import { routeAction } from "./actionRouter";
+import { sendApprovalRequest } from "./telegram";
 
 /**
  * Heart a comment via the YouTube API.
@@ -85,9 +86,31 @@ export async function updateVideoTags(
 
 /**
  * Persist decisions as MonitorAction rows, execute them, and record results.
+ * UPDATE_TITLE and REGENERATE_THUMBNAIL are NEVER auto-executed — they are
+ * sent to Telegram as approval requests regardless of autonomy tier.
  */
 export async function executeDecisions(decisions: Decision[]): Promise<void> {
   for (const decision of decisions) {
+    if (REQUIRES_APPROVAL.has(decision.type)) {
+      // Save as awaiting approval — do NOT execute
+      const action = await prisma.monitorAction.create({
+        data: {
+          videoId: decision.videoId,
+          type: decision.type,
+          payload: decision.payload as any,
+          reason: decision.reason,
+          status: ActionStatus.AWAITING_APPROVAL,
+        },
+      });
+
+      await sendApprovalRequest(action.id, decision);
+      console.log(
+        `[executor] ${decision.type} → AWAITING_APPROVAL — sent to Telegram for approval (action ${action.id})`,
+      );
+      continue;
+    }
+
+    // Auto-execute non-approval actions
     const action = await prisma.monitorAction.create({
       data: {
         videoId: decision.videoId,

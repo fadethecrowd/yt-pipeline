@@ -1,6 +1,9 @@
 import TelegramBot from "node-telegram-bot-api";
 import { env } from "./config";
 import { prisma } from "./lib/prisma";
+import { ActionStatus } from "./lib/types";
+import type { Decision } from "./lib/types";
+import { routeAction } from "./actionRouter";
 
 let bot: TelegramBot | null = null;
 
@@ -53,6 +56,45 @@ export async function sendAlert(message: string): Promise<void> {
     console.log(`[telegram] Alert sent: ${message}`);
   } catch (err) {
     console.error("[telegram] Alert send failed (non-fatal):", err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * Send an approval request with inline ✅/❌ buttons.
+ * Used for UPDATE_TITLE and REGENERATE_THUMBNAIL — these never auto-execute.
+ */
+export async function sendApprovalRequest(actionId: string, decision: Decision): Promise<void> {
+  const config = env();
+  if (!bot) {
+    console.error("[telegram] Cannot send approval request — bot not initialized");
+    return;
+  }
+
+  const lines = [
+    "🔔 *Action Requires Approval*",
+    "",
+    `Type: \`${decision.type}\``,
+    `Video: \`${decision.videoId}\``,
+    `Reason: ${decision.reason}`,
+  ];
+
+  if (decision.type === "UPDATE_TITLE" && decision.payload.newTitle) {
+    lines.push(`Proposed title: "${decision.payload.newTitle}"`);
+  }
+
+  try {
+    await bot.sendMessage(config.TELEGRAM_CHAT_ID, lines.join("\n"), {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "\u2705 Approve", callback_data: `approve:${actionId}` },
+          { text: "\u274C Reject", callback_data: `reject:${actionId}` },
+        ]],
+      },
+    });
+    console.log(`[telegram] Approval request sent for action ${actionId} (${decision.type})`);
+  } catch (err) {
+    console.error("[telegram] Failed to send approval request:", err instanceof Error ? err.message : err);
   }
 }
 
@@ -179,6 +221,78 @@ async function handleTier(msg: TelegramBot.Message): Promise<void> {
   }
 }
 
+// ── Approval callback handler ────────────────────────────────────────────
+
+async function handleApprovalCallback(query: TelegramBot.CallbackQuery): Promise<void> {
+  const data = query.data;
+  if (!data) return;
+
+  const [verb, actionId] = data.split(":");
+  if (!actionId || (verb !== "approve" && verb !== "reject")) return;
+
+  const monitorAction = await prisma.monitorAction.findUnique({
+    where: { id: actionId },
+  });
+
+  if (!monitorAction) {
+    await bot!.answerCallbackQuery(query.id, { text: "Action not found" });
+    return;
+  }
+
+  if (monitorAction.status !== "AWAITING_APPROVAL") {
+    await bot!.answerCallbackQuery(query.id, { text: `Already ${monitorAction.status.toLowerCase()}` });
+    return;
+  }
+
+  if (verb === "approve") {
+    const decision: Decision = {
+      videoId: monitorAction.videoId,
+      type: monitorAction.type as any,
+      payload: (monitorAction.payload as Record<string, unknown>) ?? {},
+      reason: monitorAction.reason,
+    };
+
+    const result = await routeAction(decision);
+
+    await prisma.monitorAction.update({
+      where: { id: actionId },
+      data: {
+        status: result.success ? ActionStatus.EXECUTED : ActionStatus.FAILED,
+        result: result.message,
+        executedAt: new Date(),
+      },
+    });
+
+    const emoji = result.success ? "\u2705" : "\u274C";
+    await bot!.editMessageText(
+      `${emoji} *${monitorAction.type}* — ${result.success ? "Approved & executed" : "Approved but execution failed"}\n${result.message}`,
+      {
+        chat_id: query.message!.chat.id,
+        message_id: query.message!.message_id,
+        parse_mode: "Markdown",
+      },
+    );
+    await bot!.answerCallbackQuery(query.id, { text: result.success ? "Executed!" : "Execution failed" });
+    console.log(`[telegram] Action ${actionId} approved → ${result.success ? "EXECUTED" : "FAILED"}: ${result.message}`);
+  } else {
+    await prisma.monitorAction.update({
+      where: { id: actionId },
+      data: { status: ActionStatus.SKIPPED, result: "Rejected by user" },
+    });
+
+    await bot!.editMessageText(
+      `\u274C *${monitorAction.type}* — Rejected\nVideo: \`${monitorAction.videoId}\``,
+      {
+        chat_id: query.message!.chat.id,
+        message_id: query.message!.message_id,
+        parse_mode: "Markdown",
+      },
+    );
+    await bot!.answerCallbackQuery(query.id, { text: "Rejected" });
+    console.log(`[telegram] Action ${actionId} rejected by user`);
+  }
+}
+
 // ── Bot initialization ──────────────────────────────────────────────────
 
 let restarting = false;
@@ -207,6 +321,13 @@ function registerHandlers(): void {
   bot.onText(/\/tier/, (msg) => {
     handleTier(msg).catch((err) =>
       console.error("[telegram] /tier error:", err instanceof Error ? err.message : err),
+    );
+  });
+
+  // ── Approval callback handler (✅/❌ buttons) ────────────────────────
+  bot.on("callback_query", (query) => {
+    handleApprovalCallback(query).catch((err) =>
+      console.error("[telegram] callback_query error:", err instanceof Error ? err.message : err),
     );
   });
 

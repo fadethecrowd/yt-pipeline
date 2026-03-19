@@ -7,12 +7,20 @@ export const ActionType = {
   UPDATE_TITLE: "UPDATE_TITLE",
   UPDATE_DESCRIPTION: "UPDATE_DESCRIPTION",
   UPDATE_TAGS: "UPDATE_TAGS",
+  REGENERATE_THUMBNAIL: "REGENERATE_THUMBNAIL",
   ALERT: "ALERT",
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 
+// Actions that must always go through Telegram approval — never auto-execute
+export const REQUIRES_APPROVAL: ReadonlySet<ActionType> = new Set([
+  ActionType.UPDATE_TITLE,
+  ActionType.REGENERATE_THUMBNAIL,
+]);
+
 export const ActionStatus = {
   PENDING: "PENDING",
+  AWAITING_APPROVAL: "AWAITING_APPROVAL",
   EXECUTED: "EXECUTED",
   FAILED: "FAILED",
   SKIPPED: "SKIPPED",
