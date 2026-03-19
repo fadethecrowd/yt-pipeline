@@ -159,16 +159,19 @@ Be specific in your reasoning — reference the actual numbers. Only suggest act
         continue;
       }
 
-      // Skip if there's already a pending/executed action of this type
+      // Dedup: ALERTs are allowed once per video per 24h; other types blocked if pending/executed
+      const isAlert = cd.action === ActionType.ALERT;
       const existing = await prisma.monitorAction.findFirst({
         where: {
           videoId: cd.videoId,
           type: cd.action as ActionType,
-          status: { in: ["PENDING", "EXECUTED"] },
+          ...(isAlert
+            ? { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
+            : { status: { in: ["PENDING", "EXECUTED"] } }),
         },
       });
       if (existing) {
-        console.log(`[decisionEngine] Skipping ${cd.action} for ${cd.videoId} — already exists`);
+        console.log(`[decisionEngine] Skipping ${cd.action} for ${cd.videoId} — ${isAlert ? "already alerted in last 24h" : "already exists"}`);
         continue;
       }
 
@@ -258,12 +261,22 @@ export async function evaluate(
     if (snapshots.length === 2) {
       const viewDelta = snapshots[0].views - snapshots[1].views;
       if (viewDelta > 1000) {
-        decisions.push({
-          videoId: m.videoId,
-          type: ActionType.ALERT,
-          payload: { viewDelta, currentViews: m.views },
-          reason: `Rapid growth: +${viewDelta} views since last poll`,
+        // Allow one ALERT per video per 24 hours
+        const recentAlert = await prisma.monitorAction.findFirst({
+          where: {
+            videoId: m.videoId,
+            type: ActionType.ALERT,
+            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          },
         });
+        if (!recentAlert) {
+          decisions.push({
+            videoId: m.videoId,
+            type: ActionType.ALERT,
+            payload: { viewDelta, currentViews: m.views },
+            reason: `Rapid growth: +${viewDelta} views since last poll`,
+          });
+        }
       }
     }
   }
