@@ -15,6 +15,7 @@ export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 // Actions that must always go through Telegram approval — never auto-execute
 export const REQUIRES_APPROVAL: ReadonlySet<ActionType> = new Set([
   ActionType.UPDATE_TITLE,
+  ActionType.UPDATE_TAGS,
   ActionType.REGENERATE_THUMBNAIL,
 ]);
 
