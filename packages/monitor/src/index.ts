@@ -25,9 +25,17 @@ async function tick(): Promise<void> {
   await scrapeComments();
 
   // 3. Evaluate & act
+  console.log(`[monitor] Starting decision cycle with ${metrics.length} videos`);
+  for (const m of metrics) {
+    console.log(
+      `[monitor]   video=${m.videoId} yt=${m.youtubeId} views=${m.views} likes=${m.likes} comments=${m.comments} ctr=${m.ctr !== undefined ? (m.ctr * 100).toFixed(2) + "%" : "n/a"} avgViewDuration=${m.avgViewDuration ?? "n/a"}`,
+    );
+  }
   const decisions = await evaluate(metrics);
   if (decisions.length > 0) {
     await executeDecisions(decisions);
+  } else {
+    console.log(`[monitor] No decisions — skipping executor`);
   }
 
   // 4. Daily tasks — skip the first tick; only run at the scheduled hour
