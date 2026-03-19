@@ -68,6 +68,18 @@ async function main(): Promise<void> {
     `[monitor] Starting with poll interval ${config.POLL_INTERVAL_MS}ms`,
   );
 
+  // Check for ChannelGoal
+  const goal = await prisma.channelGoal.findFirst({
+    orderBy: { updatedAt: "desc" },
+  });
+  if (!goal) {
+    console.warn(
+      "[monitor] ⚠ No ChannelGoal found in the database! The decision engine needs a goal to evaluate videos effectively. Send /goal via Telegram to set one.",
+    );
+  } else {
+    console.log(`[monitor] ChannelGoal loaded: "${goal.goal}" (tier ${goal.autonomyTier})`);
+  }
+
   // Start Telegram bot listener
   startBot();
 

@@ -1,6 +1,6 @@
 import { ActionType } from "./lib/types";
 import type { Decision, ActionResult } from "./lib/types";
-import { heartComment, updateVideoTitle } from "./executor";
+import { heartComment, updateVideoTitle, updateVideoTags } from "./executor";
 import { sendAlert } from "./telegram";
 
 type ActionHandler = (decision: Decision) => Promise<ActionResult>;
@@ -30,7 +30,14 @@ const handlers: Record<ActionType, ActionHandler> = {
   [ActionType.PIN_COMMENT]: async () => ({ success: false, message: "Not implemented" }),
   [ActionType.REPLY_COMMENT]: async () => ({ success: false, message: "Not implemented" }),
   [ActionType.UPDATE_DESCRIPTION]: async () => ({ success: false, message: "Not implemented" }),
-  [ActionType.UPDATE_TAGS]: async () => ({ success: false, message: "Not implemented" }),
+  [ActionType.UPDATE_TAGS]: async (d) => {
+    const tags = d.payload.tags as string[] | undefined;
+    if (!tags || tags.length === 0) {
+      return { success: false, message: "No tags in payload" };
+    }
+    await updateVideoTags(d.videoId, tags);
+    return { success: true, message: `Updated tags: [${tags.join(", ")}]` };
+  },
 };
 
 /**

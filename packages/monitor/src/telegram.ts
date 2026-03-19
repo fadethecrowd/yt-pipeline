@@ -181,9 +181,10 @@ async function handleTier(msg: TelegramBot.Message): Promise<void> {
 
 // ── Bot initialization ──────────────────────────────────────────────────
 
-export function startBot(): void {
-  const config = env();
-  bot = new TelegramBot(config.TELEGRAM_BOT_TOKEN, { polling: true });
+let restarting = false;
+
+function registerHandlers(): void {
+  if (!bot) return;
 
   bot.onText(/\/start/, (msg) => {
     handleStart(msg).catch((err) =>
@@ -210,8 +211,29 @@ export function startBot(): void {
   });
 
   bot.on("polling_error", (err) => {
-    console.error("[telegram] Polling error (non-fatal):", err.message);
+    const is409 = err.message?.includes("409") || (err as any)?.response?.statusCode === 409;
+    if (is409 && !restarting) {
+      restarting = true;
+      console.warn("[telegram] 409 Conflict detected — stopping polling and restarting in 5s");
+      bot!.stopPolling().then(() => {
+        setTimeout(() => {
+          restarting = false;
+          console.log("[telegram] Restarting bot polling after 409 conflict");
+          bot!.startPolling();
+        }, 5000);
+      }).catch((stopErr) => {
+        restarting = false;
+        console.error("[telegram] Failed to stop polling:", stopErr instanceof Error ? stopErr.message : stopErr);
+      });
+    } else if (!is409) {
+      console.error("[telegram] Polling error (non-fatal):", err.message);
+    }
   });
+}
 
+export function startBot(): void {
+  const config = env();
+  bot = new TelegramBot(config.TELEGRAM_BOT_TOKEN, { polling: true });
+  registerHandlers();
   console.log("[telegram] Bot polling started");
 }

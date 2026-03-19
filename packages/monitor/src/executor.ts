@@ -46,6 +46,44 @@ export async function updateVideoTitle(
 }
 
 /**
+ * Update a video's tags via the YouTube API.
+ */
+export async function updateVideoTags(
+  videoId: string,
+  tags: string[],
+): Promise<void> {
+  const video = await prisma.video.findUniqueOrThrow({
+    where: { id: videoId },
+  });
+
+  const yt = youtube();
+
+  // Fetch current snippet so we preserve title/description/categoryId
+  const current = await yt.videos.list({
+    part: ["snippet"],
+    id: [video.youtubeId!],
+  });
+
+  const snippet = current.data.items?.[0]?.snippet;
+  if (!snippet) {
+    throw new Error(`Could not fetch snippet for video ${video.youtubeId}`);
+  }
+
+  await yt.videos.update({
+    part: ["snippet"],
+    requestBody: {
+      id: video.youtubeId!,
+      snippet: {
+        title: snippet.title!,
+        categoryId: snippet.categoryId!,
+        tags,
+      },
+    },
+  });
+  console.log(`[executor] Updated tags for ${video.youtubeId}: [${tags.join(", ")}]`);
+}
+
+/**
  * Persist decisions as MonitorAction rows, execute them, and record results.
  */
 export async function executeDecisions(decisions: Decision[]): Promise<void> {
