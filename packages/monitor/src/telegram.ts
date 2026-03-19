@@ -3,7 +3,6 @@ import { env } from "./config";
 import { prisma } from "./lib/prisma";
 import { ActionStatus } from "./lib/types";
 import type { Decision } from "./lib/types";
-import { routeAction } from "./actionRouter";
 
 let bot: TelegramBot | null = null;
 
@@ -252,6 +251,8 @@ async function handleApprovalCallback(query: TelegramBot.CallbackQuery): Promise
       reason: monitorAction.reason,
     };
 
+    // Lazy import to break circular dependency: executor -> telegram -> actionRouter -> executor
+    const { routeAction } = await import("./actionRouter");
     const result = await routeAction(decision);
 
     await prisma.monitorAction.update({
