@@ -301,6 +301,13 @@ let restarting = false;
 function registerHandlers(): void {
   if (!bot) return;
 
+  // Log every incoming message with chat ID (helps discover TELEGRAM_CHAT_ID)
+  bot.on("message", (msg) => {
+    console.log(
+      `[telegram] Incoming message: chat_id=${msg.chat.id} from=${msg.from?.username ?? msg.from?.id ?? "unknown"} text="${msg.text ?? ""}"`,
+    );
+  });
+
   bot.onText(/\/start/, (msg) => {
     handleStart(msg).catch((err) =>
       console.error("[telegram] /start error:", err instanceof Error ? err.message : err),
