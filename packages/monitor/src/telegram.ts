@@ -58,9 +58,16 @@ export async function sendAlert(message: string): Promise<void> {
   }
 }
 
+// Track pending title selections: messageId -> { actionId, videoId, titles }
+const pendingTitleSelections = new Map<number, {
+  actionId: string;
+  videoId: string;
+  titles: [string, string, string];
+}>();
+
 /**
- * Send an approval request with inline ✅/❌ buttons.
- * Used for UPDATE_TITLE and REGENERATE_THUMBNAIL — these never auto-execute.
+ * Send an approval request with inline buttons.
+ * UPDATE_TITLE shows all 3 title variants with scores and accepts reply overrides.
  */
 export async function sendApprovalRequest(actionId: string, decision: Decision): Promise<void> {
   const config = env();
@@ -69,6 +76,47 @@ export async function sendApprovalRequest(actionId: string, decision: Decision):
     return;
   }
 
+  // Special handling for UPDATE_TITLE with title variants
+  if (decision.type === "UPDATE_TITLE" && decision.payload.titleVariantB) {
+    const t1 = (decision.payload.newTitle as string) ?? "N/A";
+    const t2 = (decision.payload.titleVariantB as string) ?? "N/A";
+    const t3 = (decision.payload.titleVariantC as string) ?? "N/A";
+    const score = decision.payload.primaryScore as number | undefined;
+
+    const lines = [
+      "Title Selection — auto-picked #1",
+      "",
+      `Video: ${decision.videoId}`,
+      "",
+      `1. [auto] "${t1}"${score ? ` (score: ${score}/40)` : ""}`,
+      `2. "${t2}"`,
+      `3. [wildcard] "${t3}"`,
+      "",
+      "Reply 1, 2, or 3 to override. Any other reply confirms auto-pick.",
+    ];
+
+    try {
+      const sent = await bot.sendMessage(config.TELEGRAM_CHAT_ID, lines.join("\n"), {
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "\u2705 Approve", callback_data: `approve:${actionId}` },
+            { text: "\u274C Reject", callback_data: `reject:${actionId}` },
+          ]],
+        },
+      });
+      pendingTitleSelections.set(sent.message_id, {
+        actionId,
+        videoId: decision.videoId,
+        titles: [t1, t2, t3],
+      });
+      console.log(`[telegram] Title selection sent for action ${actionId} (msg ${sent.message_id})`);
+      return;
+    } catch (err) {
+      console.error("[telegram] Failed to send title selection:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Default approval request for other action types
   const lines = [
     "Action Requires Approval",
     "",
@@ -97,7 +145,6 @@ export async function sendApprovalRequest(actionId: string, decision: Decision):
     console.log(`[telegram] Approval request sent for action ${actionId} (${decision.type})`);
   } catch (err) {
     console.error("[telegram] Failed to send approval request:", err instanceof Error ? err.message : err);
-    // Retry without reply_markup as a fallback
     try {
       await bot.sendMessage(config.TELEGRAM_CHAT_ID, `[APPROVAL NEEDED] ${decision.type} for video ${decision.videoId}\n${decision.reason}\n\nAction ID: ${actionId}`);
       console.log(`[telegram] Approval request sent as plain text fallback for action ${actionId}`);
@@ -304,6 +351,33 @@ async function handleApprovalCallback(query: TelegramBot.CallbackQuery): Promise
   }
 }
 
+// ── Title override handler ───────────────────────────────────────────────
+
+async function handleTitleOverride(
+  actionId: string,
+  videoId: string,
+  selectedTitle: string,
+  choiceNum: number,
+  chatId: number,
+): Promise<void> {
+  // Update the video's seoTitle to the selected variant
+  await prisma.video.update({
+    where: { id: videoId },
+    data: { seoTitle: selectedTitle },
+  });
+
+  // Update the MonitorAction payload to reflect the override
+  await prisma.monitorAction.update({
+    where: { id: actionId },
+    data: {
+      result: `User selected title #${choiceNum}: "${selectedTitle}"`,
+    },
+  });
+
+  await bot!.sendMessage(chatId, `Title updated to #${choiceNum}: "${selectedTitle}"`);
+  console.log(`[telegram] Title override: action=${actionId} choice=${choiceNum} title="${selectedTitle}"`);
+}
+
 // ── Bot initialization ──────────────────────────────────────────────────
 
 let restarting = false;
@@ -316,6 +390,19 @@ function registerHandlers(): void {
     console.log(
       `[telegram] Incoming message: chat_id=${msg.chat.id} from=${msg.from?.username ?? msg.from?.id ?? "unknown"} text="${msg.text ?? ""}"`,
     );
+
+    // Handle title selection override replies (1, 2, or 3)
+    if (msg.reply_to_message && msg.text && /^[123]$/.test(msg.text.trim())) {
+      const replyToId = msg.reply_to_message.message_id;
+      const pending = pendingTitleSelections.get(replyToId);
+      if (pending) {
+        const choice = parseInt(msg.text.trim(), 10) - 1; // 0-indexed
+        const selectedTitle = pending.titles[choice];
+        handleTitleOverride(pending.actionId, pending.videoId, selectedTitle, choice + 1, msg.chat.id)
+          .then(() => pendingTitleSelections.delete(replyToId))
+          .catch((err) => console.error("[telegram] Title override error:", err instanceof Error ? err.message : err));
+      }
+    }
   });
 
   bot.onText(/\/start/, (msg) => {

@@ -68,6 +68,8 @@ model Video {
   videoUrl       String?
 
   seoTitle       String?
+  titleVariantB  String?
+  titleVariantC  String?
   seoDescription String?
   seoTags        String[]
   seoChapters    Json?
