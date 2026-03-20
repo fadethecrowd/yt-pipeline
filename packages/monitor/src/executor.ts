@@ -103,7 +103,12 @@ export async function executeDecisions(decisions: Decision[]): Promise<void> {
         },
       });
 
-      await sendApprovalRequest(action.id, decision);
+      if (typeof sendApprovalRequest !== "function") {
+        console.error(`[executor] sendApprovalRequest is ${typeof sendApprovalRequest} — circular import issue`);
+      } else {
+        console.log(`[executor] Calling sendApprovalRequest for action ${action.id}`);
+        await sendApprovalRequest(action.id, decision);
+      }
       console.log(
         `[executor] ${decision.type} → AWAITING_APPROVAL — sent to Telegram for approval (action ${action.id})`,
       );

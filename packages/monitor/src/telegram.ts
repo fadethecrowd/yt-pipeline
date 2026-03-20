@@ -375,4 +375,12 @@ export function startBot(): void {
   bot = new TelegramBot(config.TELEGRAM_BOT_TOKEN, { polling: true });
   registerHandlers();
   console.log("[telegram] Bot polling started");
+
+  // Startup test: verify TELEGRAM_CHAT_ID works for outbound messages
+  console.log(`[telegram] Sending startup test to chat_id=${config.TELEGRAM_CHAT_ID}`);
+  bot.sendMessage(config.TELEGRAM_CHAT_ID, "Monitor bot started.").then(() => {
+    console.log("[telegram] Startup test message sent successfully");
+  }).catch((err) => {
+    console.error(`[telegram] Startup test FAILED — TELEGRAM_CHAT_ID may be wrong: ${err instanceof Error ? err.message : err}`);
+  });
 }
