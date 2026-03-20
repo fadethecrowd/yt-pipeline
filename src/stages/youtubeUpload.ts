@@ -10,10 +10,9 @@ import type { PipelineContext, StageResult, UploadResult } from "../types";
 /**
  * Returns the publish slot for the current pipeline run.
  *
- * The pipeline runs Mon/Wed/Fri at 09:00 UTC (05:00 EST), so the
- * same-day 2 PM EST (19:00 UTC) slot is always reachable under normal
- * conditions.  If the pipeline runs late (after 19:00 UTC) we fall
- * back to the next available Mon/Wed/Fri slot.
+ * If today is Mon/Wed/Fri, always use today at 2 PM EST (19:00 UTC)
+ * regardless of what time the pipeline ran. Only jump to the next
+ * Mon/Wed/Fri slot if today is not a valid publish day.
  */
 async function getNextPublishSlot(): Promise<Date> {
   const PUBLISH_DAYS = [1, 3, 5]; // Mon, Wed, Fri
@@ -22,14 +21,13 @@ async function getNextPublishSlot(): Promise<Date> {
 
   const now = new Date();
 
-  // ── Try same-day slot first ───────────────────────────────────────
+  // ── Use today's slot if today is a publish day ──────────────────
   const today = new Date(now);
   today.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
 
   const todayIsPublishDay = PUBLISH_DAYS.includes(today.getUTCDay());
-  const stillBeforeSlot = now < today;
 
-  if (todayIsPublishDay && stillBeforeSlot) {
+  if (todayIsPublishDay) {
     // Check the slot isn't already taken
     const conflict = await prisma.video.findFirst({
       where: {
@@ -42,10 +40,8 @@ async function getNextPublishSlot(): Promise<Date> {
       return today;
     }
     console.log(`[youtubeUpload] Same-day slot occupied, scanning ahead`);
-  } else if (!todayIsPublishDay) {
-    console.log(`[youtubeUpload] Today is not a publish day (${now.toUTCString()}), scanning ahead`);
   } else {
-    console.log(`[youtubeUpload] Past 2 PM EST cutoff (${now.toUTCString()}), scanning ahead`);
+    console.log(`[youtubeUpload] Today is not a publish day (${now.toUTCString()}), scanning ahead`);
   }
 
   // ── Fall back to next available Mon/Wed/Fri ───────────────────────

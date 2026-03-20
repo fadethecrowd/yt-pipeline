@@ -50,7 +50,14 @@ async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
  */
 export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
   const videos = await prisma.video.findMany({
-    where: { youtubeId: { not: null } },
+    where: {
+      youtubeId: { not: null },
+      // Only poll videos that have already published (scheduledAt in the past or null)
+      OR: [
+        { scheduledAt: { lte: new Date() } },
+        { scheduledAt: null },
+      ],
+    },
     select: { id: true, youtubeId: true },
   });
 
