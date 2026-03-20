@@ -376,17 +376,10 @@ export function startBot(): void {
   registerHandlers();
   console.log("[telegram] Bot polling started");
 
-  // Startup test: verify TELEGRAM_CHAT_ID works for outbound messages
-  const telegramVars = Object.entries(process.env)
-    .filter(([k]) => k.toUpperCase().includes("TELEGRAM") || k.toUpperCase().includes("CHAT"))
-    .map(([k, v]) => `${k}=${v}`)
-    .join(", ");
-  console.log(`[telegram] All TELEGRAM/CHAT env vars: ${telegramVars || "NONE FOUND"}`);
-  console.log(`[telegram] TELEGRAM_CHAT_ID from config: "${config.TELEGRAM_CHAT_ID}"`);
-  console.log(`[telegram] Sending startup test to chat_id=${config.TELEGRAM_CHAT_ID}`);
+  // Verify outbound messaging works on startup
   bot.sendMessage(config.TELEGRAM_CHAT_ID, "Monitor bot started.").then(() => {
-    console.log("[telegram] Startup test message sent successfully");
+    console.log("[telegram] Startup message sent");
   }).catch((err) => {
-    console.error(`[telegram] Startup test FAILED — TELEGRAM_CHAT_ID may be wrong: ${err instanceof Error ? err.message : err}`);
+    console.error(`[telegram] Startup message FAILED (check TELEGRAM_CHAT_ID): ${err instanceof Error ? err.message : err}`);
   });
 }
