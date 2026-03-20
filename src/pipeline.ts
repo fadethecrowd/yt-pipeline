@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { TopicStatus, VideoStatus } from "@prisma/client";
 import { prisma } from "./lib/db";
 import { withAdvisoryLock } from "./lib/lock";
@@ -10,6 +12,7 @@ import { scriptGenerator } from "./stages/scriptGenerator";
 import { qualityGate } from "./stages/qualityGate";
 import { voiceover } from "./stages/voiceover";
 import { videoAssembly } from "./stages/videoAssembly";
+import { thumbnailGenerator } from "./stages/thumbnailGenerator";
 import { seoGenerator } from "./stages/seoGenerator";
 import { youtubeUpload } from "./stages/youtubeUpload";
 import { notify } from "./stages/notify";
@@ -22,6 +25,7 @@ const STAGES: StageDefinition[] = [
   { name: "qualityGate", execute: qualityGate, retries: 1 },
   { name: "voiceover", execute: voiceover, retries: 3 },
   { name: "videoAssembly", execute: videoAssembly, retries: 3 },
+  { name: "thumbnailGenerator", execute: thumbnailGenerator, retries: 2 },
   { name: "seoGenerator", execute: seoGenerator, retries: 2 },
   { name: "youtubeUpload", execute: youtubeUpload, retries: 3 },
   { name: "notify", execute: notify, retries: 2 },
@@ -29,7 +33,7 @@ const STAGES: StageDefinition[] = [
 
 // Map video status → index into STAGES where we should resume
 const RESUME_FROM: Partial<Record<VideoStatus, number>> = {
-  [VideoStatus.SEO_DONE]: 6,     // resume at youtubeUpload
+  [VideoStatus.SEO_DONE]: 7,     // resume at youtubeUpload (index shifted by thumbnailGenerator)
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -62,6 +66,16 @@ async function failVideo(
 
   // Best-effort failure notification
   await notify(ctx).catch(() => {});
+}
+
+async function cleanupTmpDir(videoId: string): Promise<void> {
+  const tmpDir = join(process.cwd(), "tmp", videoId);
+  try {
+    await rm(tmpDir, { recursive: true, force: true });
+    console.log(`[pipeline] Cleaned up ${tmpDir}`);
+  } catch {
+    // non-fatal
+  }
 }
 
 // ── Orchestrator ───────────────────────────────────────────────────────────
@@ -143,6 +157,7 @@ export async function runPipeline(): Promise<void> {
         );
       }
 
+      await cleanupTmpDir(ctx.video.id);
       console.log(
         `[pipeline] ✓ Resumed complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
       );
@@ -240,6 +255,7 @@ export async function runPipeline(): Promise<void> {
       );
     }
 
+    await cleanupTmpDir(ctx.video.id);
     console.log(
       `[pipeline] ✓ Complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
     );

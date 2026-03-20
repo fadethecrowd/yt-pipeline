@@ -9,6 +9,8 @@ const envSchema = z.object({
   YOUTUBE_CLIENT_ID: z.string().min(1),
   YOUTUBE_CLIENT_SECRET: z.string().min(1),
   YOUTUBE_REFRESH_TOKEN: z.string().min(1),
+  TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+  TELEGRAM_CHAT_ID: z.coerce.string().optional(),
 
   NODE_ENV: z.enum(["development", "production"]).default("development"),
   PIPELINE_LOCK_ID: z.coerce.number().default(123456),

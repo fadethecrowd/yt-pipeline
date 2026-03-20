@@ -39,6 +39,9 @@ export interface PipelineContext {
   script?: Script;
   voiceoverUrls?: string[];
   videoUrl?: string;
+  thumbnailA?: string;
+  thumbnailB?: string;
+  thumbnailC?: string;
   seo?: SEOMetadata;
   youtubeId?: string;
 }
