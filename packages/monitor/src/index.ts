@@ -1,4 +1,7 @@
-import "dotenv/config";
+// Only load .env file in development — Railway injects env vars directly
+if (!process.env.RAILWAY_ENVIRONMENT) {
+  require("dotenv/config");
+}
 import { prisma } from "./lib/prisma";
 import { env } from "./config";
 import { pollVideoMetrics } from "./poller";
