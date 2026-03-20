@@ -70,20 +70,23 @@ export async function sendApprovalRequest(actionId: string, decision: Decision):
   }
 
   const lines = [
-    "🔔 *Action Requires Approval*",
+    "Action Requires Approval",
     "",
-    `Type: \`${decision.type}\``,
-    `Video: \`${decision.videoId}\``,
+    `Type: ${decision.type}`,
+    `Video: ${decision.videoId}`,
     `Reason: ${decision.reason}`,
   ];
 
   if (decision.type === "UPDATE_TITLE" && decision.payload.newTitle) {
-    lines.push(`Proposed title: "${decision.payload.newTitle}"`);
+    lines.push(`Proposed title: ${decision.payload.newTitle}`);
+  }
+
+  if (decision.type === "UPDATE_TAGS" && Array.isArray(decision.payload.tags)) {
+    lines.push(`Tags: ${(decision.payload.tags as string[]).join(", ")}`);
   }
 
   try {
     await bot.sendMessage(config.TELEGRAM_CHAT_ID, lines.join("\n"), {
-      parse_mode: "Markdown",
       reply_markup: {
         inline_keyboard: [[
           { text: "\u2705 Approve", callback_data: `approve:${actionId}` },
@@ -94,6 +97,13 @@ export async function sendApprovalRequest(actionId: string, decision: Decision):
     console.log(`[telegram] Approval request sent for action ${actionId} (${decision.type})`);
   } catch (err) {
     console.error("[telegram] Failed to send approval request:", err instanceof Error ? err.message : err);
+    // Retry without reply_markup as a fallback
+    try {
+      await bot.sendMessage(config.TELEGRAM_CHAT_ID, `[APPROVAL NEEDED] ${decision.type} for video ${decision.videoId}\n${decision.reason}\n\nAction ID: ${actionId}`);
+      console.log(`[telegram] Approval request sent as plain text fallback for action ${actionId}`);
+    } catch (retryErr) {
+      console.error("[telegram] Fallback send also failed:", retryErr instanceof Error ? retryErr.message : retryErr);
+    }
   }
 }
 

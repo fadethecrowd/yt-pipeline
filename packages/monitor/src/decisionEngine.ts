@@ -165,7 +165,7 @@ Be specific in your reasoning — reference the actual numbers. Only suggest act
         continue;
       }
 
-      // Dedup: ALERTs are allowed once per video per 24h; other types blocked if pending/executed
+      // Dedup: ALERTs are allowed once per video per 24h; other types blocked if pending/executed/awaiting
       const isAlert = cd.action === ActionType.ALERT;
       const existing = await prisma.monitorAction.findFirst({
         where: {
@@ -173,11 +173,11 @@ Be specific in your reasoning — reference the actual numbers. Only suggest act
           type: cd.action as ActionType,
           ...(isAlert
             ? { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
-            : { status: { in: ["PENDING", "EXECUTED"] } }),
+            : { status: { in: ["PENDING", "EXECUTED", "AWAITING_APPROVAL"] } }),
         },
       });
       if (existing) {
-        console.log(`[decisionEngine] Skipping ${cd.action} for ${cd.videoId} — ${isAlert ? "already alerted in last 24h" : "already exists"}`);
+        console.log(`[decisionEngine] Skipping ${cd.action} for ${cd.videoId} — ${isAlert ? "already alerted in last 24h" : `already exists (${existing.status})`}`);
         continue;
       }
 
