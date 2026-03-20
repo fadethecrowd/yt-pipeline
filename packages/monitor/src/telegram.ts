@@ -377,6 +377,9 @@ export function startBot(): void {
   console.log("[telegram] Bot polling started");
 
   // Startup test: verify TELEGRAM_CHAT_ID works for outbound messages
+  console.log(`[telegram] Config keys: ${Object.keys(config).join(", ")}`);
+  console.log(`[telegram] TELEGRAM_CHAT_ID value: "${config.TELEGRAM_CHAT_ID}" (type: ${typeof config.TELEGRAM_CHAT_ID})`);
+  console.log(`[telegram] Raw env TELEGRAM_CHAT_ID: "${process.env.TELEGRAM_CHAT_ID}"`);
   console.log(`[telegram] Sending startup test to chat_id=${config.TELEGRAM_CHAT_ID}`);
   bot.sendMessage(config.TELEGRAM_CHAT_ID, "Monitor bot started.").then(() => {
     console.log("[telegram] Startup test message sent successfully");
