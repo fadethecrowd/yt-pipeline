@@ -5,7 +5,7 @@ import { env } from "./config";
 import type { BootstrapBenchmarks, Decision, VideoMetrics } from "./lib/types";
 
 const COLD_START_THRESHOLD = 15; // videos needed before using real averages
-const HIGH_LIKE_COMMENT = 50; // heart comments with 50+ likes
+const HIGH_LIKE_COMMENT = 3; // heart comments with 3+ likes
 
 interface Baseline {
   ctrThreshold: number;
