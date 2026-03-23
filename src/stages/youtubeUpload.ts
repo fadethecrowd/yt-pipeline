@@ -10,71 +10,39 @@ import type { PipelineContext, StageResult, UploadResult } from "../types";
 /**
  * Returns the publish slot for the current pipeline run.
  *
- * If today is Mon/Wed/Fri, always use today at 2 PM EST (19:00 UTC)
- * regardless of what time the pipeline ran. Only jump to the next
- * Mon/Wed/Fri slot if today is not a valid publish day.
+ * Always publishes same-day: if today is Mon/Wed/Fri, use today at
+ * 2 PM EST (19:00 UTC). Multiple videos per day is allowed — AI news
+ * gets stale fast so same-day publish is the priority.
+ *
+ * If today is not a publish day (Tue/Thu/Sat/Sun), use the next
+ * Mon/Wed/Fri at 2 PM EST.
  */
-async function getNextPublishSlot(): Promise<Date> {
+function getNextPublishSlot(): Date {
   const PUBLISH_DAYS = [1, 3, 5]; // Mon, Wed, Fri
   const PUBLISH_HOUR_UTC = 19; // 2 PM EST = 19:00 UTC
-  const MAX_WEEKS_AHEAD = 8;
 
   const now = new Date();
-
-  // ── Use today's slot if today is a publish day ──────────────────
   const today = new Date(now);
   today.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
 
-  const todayIsPublishDay = PUBLISH_DAYS.includes(today.getUTCDay());
-
-  if (todayIsPublishDay) {
-    // Check the slot isn't already taken
-    const conflict = await prisma.video.findFirst({
-      where: {
-        scheduledAt: today,
-        status: { not: VideoStatus.FAILED },
-      },
-    });
-    if (!conflict) {
-      console.log(`[youtubeUpload] Using same-day slot: ${today.toISOString()}`);
-      return today;
-    }
-    console.log(`[youtubeUpload] Same-day slot occupied, scanning ahead`);
-  } else {
-    console.log(`[youtubeUpload] Today is not a publish day (${now.toUTCString()}), scanning ahead`);
+  if (PUBLISH_DAYS.includes(today.getUTCDay())) {
+    console.log(`[youtubeUpload] Using same-day slot: ${today.toISOString()}`);
+    return today;
   }
 
-  // ── Fall back to next available Mon/Wed/Fri ───────────────────────
-  const slots: Date[] = [];
-  for (let i = 1; i <= 7 * MAX_WEEKS_AHEAD; i++) {
+  // Find the next Mon/Wed/Fri
+  for (let i = 1; i <= 7; i++) {
     const d = new Date(today);
     d.setUTCDate(d.getUTCDate() + i);
     if (PUBLISH_DAYS.includes(d.getUTCDay())) {
-      slots.push(d);
+      console.log(`[youtubeUpload] Next publish day: ${d.toISOString()}`);
+      return d;
     }
   }
 
-  const occupied = new Set(
-    (
-      await prisma.video.findMany({
-        where: {
-          scheduledAt: { in: slots },
-          status: { not: VideoStatus.FAILED },
-        },
-        select: { scheduledAt: true },
-      })
-    )
-      .filter((v) => v.scheduledAt !== null)
-      .map((v) => v.scheduledAt!.getTime()),
-  );
-
-  const available = slots.find((s) => !occupied.has(s.getTime()));
-  if (available) return available;
-
-  // Fallback: slot after the last candidate
-  const last = slots[slots.length - 1];
-  const fallback = new Date(last);
-  fallback.setUTCDate(fallback.getUTCDate() + 2);
+  // Should never reach here, but fallback to tomorrow
+  const fallback = new Date(today);
+  fallback.setUTCDate(fallback.getUTCDate() + 1);
   return fallback;
 }
 
@@ -125,7 +93,7 @@ export async function youtubeUpload(
     data: { status: VideoStatus.UPLOAD_PENDING },
   });
 
-  const scheduledAt = await getNextPublishSlot();
+  const scheduledAt = getNextPublishSlot();
   console.log(`[youtubeUpload] Scheduled publish: ${scheduledAt.toISOString()}`);
   console.log(`[youtubeUpload] Title: ${ctx.seo.title}`);
   console.log(`[youtubeUpload] Video file: ${video.videoPath}`);
