@@ -104,6 +104,28 @@ async function claudeEvaluate(
     avgViewDuration: m.avgViewDuration ?? "unknown",
   }));
 
+  // Fetch recent comments for comment-based actions
+  const recentComments = await prisma.comment.findMany({
+    where: { videoId: { in: metrics.map((m) => m.videoId) } },
+    orderBy: { likeCount: "desc" },
+    take: 20,
+  });
+
+  const commentsContext = recentComments.length > 0
+    ? `\n\nRecent high-engagement comments:\n${JSON.stringify(
+        recentComments.map((c) => ({
+          videoId: c.videoId,
+          commentId: c.youtubeCommentId,
+          author: c.authorName,
+          text: c.text.slice(0, 200),
+          likes: c.likeCount,
+          isPinned: c.isPinned,
+        })),
+        null,
+        2,
+      )}`
+    : "";
+
   const prompt = `You are a YouTube channel monitor deciding whether to take action on videos.
 
 Channel goal: ${baseline.goalText ?? "Not set"}
@@ -111,21 +133,29 @@ Channel averages: CTR threshold = ${(baseline.ctrThreshold * 100).toFixed(2)}%, 
 ${baseline.bootstrapBenchmarks ? `Bootstrap benchmarks: avgCtr=${baseline.bootstrapBenchmarks.avgCtr}%, avgViews48hr=${baseline.bootstrapBenchmarks.avgViews48hr}, avgViewDuration=${baseline.bootstrapBenchmarks.avgViewDuration}s, avgSubsPerVideo=${baseline.bootstrapBenchmarks.avgSubsPerVideo}` : ""}
 
 Current video metrics:
-${JSON.stringify(metricsContext, null, 2)}
+${JSON.stringify(metricsContext, null, 2)}${commentsContext}
 
 Available actions:
-- UPDATE_TITLE: Video CTR is significantly below channel average and has enough impressions to be meaningful. Include a "newTitle" suggestion in payload. (Requires user approval — will not auto-execute.)
-- REGENERATE_THUMBNAIL: Thumbnail appears to be underperforming based on low CTR despite good content signals. (Requires user approval — will not auto-execute.)
-- UPDATE_TAGS: Video discovery seems poor relative to its quality. You MUST include a "tags" array in the payload with 10-15 specific tag strings relevant to the video content. Do NOT recommend UPDATE_TAGS without providing the actual tags array.
+- UPDATE_TITLE: Video CTR is significantly below channel average and has enough impressions to be meaningful. Include a "newTitle" suggestion in payload. (Requires user approval.)
+- REGENERATE_THUMBNAIL: Thumbnail appears to be underperforming based on low CTR despite good content signals. (Requires user approval.)
+- UPDATE_DESCRIPTION: Video description needs improvement for better engagement or SEO. Include "newDescription" with the full rewritten description in payload. (Requires user approval.)
+- UPDATE_TAGS: Video discovery seems poor relative to its quality. You MUST include a "tags" array in the payload with 10-15 specific tag strings. (Requires user approval.)
+- PIN_COMMENT: A viewer comment deserves to be pinned (great question, useful summary, high engagement). Include "commentId" and "commentText" in payload. (Auto-sends alert.)
+- REPLY_COMMENT: A comment warrants a thoughtful channel reply. Include "commentId", "commentText" (the original), and "replyText" (your drafted reply) in payload. Keep replies authentic and conversational. (Requires user approval.)
 - ALERT: Anomalous performance worth flagging.
 - NO_ACTION: Metrics look normal or there's not enough data to act.
 
-Respond with ONLY a JSON array. For each video, include one entry:
-[{"videoId": "...", "action": "NO_ACTION|UPDATE_TITLE|REGENERATE_THUMBNAIL|UPDATE_TAGS|ALERT", "reasoning": "...", "payload": {}}]
+You may suggest multiple actions per video if warranted (e.g. UPDATE_TAGS + REPLY_COMMENT).
+
+Respond with ONLY a JSON array:
+[{"videoId": "...", "action": "NO_ACTION|UPDATE_TITLE|REGENERATE_THUMBNAIL|UPDATE_DESCRIPTION|UPDATE_TAGS|PIN_COMMENT|REPLY_COMMENT|ALERT", "reasoning": "...", "payload": {}}]
 
 Payload requirements by action type:
-- UPDATE_TITLE: payload MUST include {"newTitle": "your suggested title here"}
-- UPDATE_TAGS: payload MUST include {"tags": ["tag1", "tag2", "tag3", ...]} with 10-15 tags
+- UPDATE_TITLE: payload MUST include {"newTitle": "..."}
+- UPDATE_DESCRIPTION: payload MUST include {"newDescription": "full description text..."}
+- UPDATE_TAGS: payload MUST include {"tags": ["tag1", "tag2", ...]} with 10-15 tags
+- PIN_COMMENT: payload MUST include {"commentId": "...", "commentText": "..."}
+- REPLY_COMMENT: payload MUST include {"commentId": "...", "commentText": "...", "replyText": "..."}
 - All others: payload can be {}
 
 Be specific in your reasoning — reference the actual numbers. Only suggest actions when there's a clear signal.`;
@@ -135,7 +165,7 @@ Be specific in your reasoning — reference the actual numbers. Only suggest act
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 1024,
+    max_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
   });
 

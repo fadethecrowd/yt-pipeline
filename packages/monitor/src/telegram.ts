@@ -133,6 +133,24 @@ export async function sendApprovalRequest(actionId: string, decision: Decision):
     lines.push(`Tags: ${(decision.payload.tags as string[]).join(", ")}`);
   }
 
+  if (decision.type === "UPDATE_DESCRIPTION" && decision.payload.newDescription) {
+    const desc = (decision.payload.newDescription as string).slice(0, 500);
+    lines.push(`\nProposed description (preview):\n${desc}...`);
+  }
+
+  if (decision.type === "REPLY_COMMENT") {
+    if (decision.payload.commentText) {
+      lines.push(`\nOriginal comment: "${decision.payload.commentText}"`);
+    }
+    if (decision.payload.replyText) {
+      lines.push(`Drafted reply: "${decision.payload.replyText}"`);
+    }
+  }
+
+  if ((decision.type === "COMMUNITY_POST" || decision.type === "REPROMOTE") && decision.payload.draftText) {
+    lines.push(`\nDraft:\n${decision.payload.draftText}`);
+  }
+
   try {
     await bot.sendMessage(config.TELEGRAM_CHAT_ID, lines.join("\n"), {
       reply_markup: {
@@ -151,6 +169,42 @@ export async function sendApprovalRequest(actionId: string, decision: Decision):
     } catch (retryErr) {
       console.error("[telegram] Fallback send also failed:", retryErr instanceof Error ? retryErr.message : retryErr);
     }
+  }
+}
+
+/**
+ * Send 3 thumbnail variants as photos to Telegram.
+ */
+export async function sendThumbnailVariants(
+  variants: { a: Buffer; b: Buffer; c: Buffer },
+  videoTitle: string,
+  youtubeId: string,
+): Promise<void> {
+  const config = env();
+  if (!bot) return;
+
+  const caption = [
+    `New thumbnails generated — "${videoTitle}"`,
+    "",
+    "A = Terminal (text only)",
+    "B = Frame + strip (uploaded to YouTube)",
+    "C = Frame + big text",
+    "",
+    `Video: https://youtu.be/${youtubeId}`,
+  ].join("\n");
+
+  try {
+    const labels = ["A", "B", "C"] as const;
+    const buffers = [variants.a, variants.b, variants.c];
+    // Send as individual photos since sendMediaGroup with buffers is tricky
+    for (let i = 0; i < buffers.length; i++) {
+      await bot.sendPhoto(config.TELEGRAM_CHAT_ID, buffers[i], {
+        caption: i === 0 ? caption : `Variant ${labels[i]}`,
+      });
+    }
+    console.log(`[telegram] Sent 3 thumbnail variants`);
+  } catch (err) {
+    console.error("[telegram] Failed to send thumbnail variants:", err instanceof Error ? err.message : err);
   }
 }
 

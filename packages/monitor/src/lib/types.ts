@@ -8,6 +8,9 @@ export const ActionType = {
   UPDATE_DESCRIPTION: "UPDATE_DESCRIPTION",
   UPDATE_TAGS: "UPDATE_TAGS",
   REGENERATE_THUMBNAIL: "REGENERATE_THUMBNAIL",
+  COMMUNITY_POST: "COMMUNITY_POST",
+  END_SCREEN: "END_SCREEN",
+  REPROMOTE: "REPROMOTE",
   ALERT: "ALERT",
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
@@ -16,7 +19,11 @@ export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 export const REQUIRES_APPROVAL: ReadonlySet<ActionType> = new Set([
   ActionType.UPDATE_TITLE,
   ActionType.UPDATE_TAGS,
+  ActionType.UPDATE_DESCRIPTION,
   ActionType.REGENERATE_THUMBNAIL,
+  ActionType.REPLY_COMMENT,
+  ActionType.COMMUNITY_POST,
+  ActionType.REPROMOTE,
 ]);
 
 export const ActionStatus = {

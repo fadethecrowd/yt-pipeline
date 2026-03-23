@@ -11,6 +11,7 @@ import { executeDecisions } from "./executor";
 import { sendDailyDigest, shouldSendDigest } from "./digest";
 import { startBot, setLastTickTime } from "./telegram";
 import { scrapeRedditTopics } from "./redditScraper";
+import { detectLifecycleEvents } from "./lifecycleDetector";
 
 const DAILY_MS = 24 * 60 * 60 * 1000;
 const DIGEST_HOUR_UTC = 14; // ~9 AM EST
@@ -39,6 +40,16 @@ async function tick(): Promise<void> {
     await executeDecisions(decisions);
   } else {
     console.log(`[monitor] No decisions — skipping executor`);
+  }
+
+  // 3b. Lifecycle events (community post, end screen, re-promotion)
+  try {
+    const lifecycleDecisions = await detectLifecycleEvents();
+    if (lifecycleDecisions.length > 0) {
+      await executeDecisions(lifecycleDecisions);
+    }
+  } catch (err) {
+    console.error("[monitor] Lifecycle detection failed (non-fatal):", err instanceof Error ? err.message : err);
   }
 
   // 4. Daily tasks — skip the first tick; only run at the scheduled hour
