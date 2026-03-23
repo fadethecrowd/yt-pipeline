@@ -113,7 +113,7 @@ async function claudeEvaluate(
 
   const commentsContext = recentComments.length > 0
     ? `\n\nRecent high-engagement comments:\n${JSON.stringify(
-        recentComments.map((c) => ({
+        recentComments.map((c: any) => ({
           videoId: c.videoId,
           commentId: c.youtubeCommentId,
           author: c.authorName,

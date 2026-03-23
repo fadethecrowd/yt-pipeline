@@ -79,11 +79,11 @@ Return ONLY the community post text, nothing else.`,
     // End screen suggestion
     if (!await hasExistingAction(video.id, ActionType.END_SCREEN)) {
       // Find other published videos to recommend
-      const otherVideos = publishedVideos.filter((v) => v.id !== video.id && v.youtubeId);
+      const otherVideos = publishedVideos.filter((v: any) => v.id !== video.id && v.youtubeId);
       if (otherVideos.length > 0) {
         try {
           const videoList = otherVideos
-            .map((v) => `- "${v.seoTitle ?? v.topic.title}" (https://youtu.be/${v.youtubeId})`)
+            .map((v: any) => `- "${v.seoTitle ?? v.topic.title}" (https://youtu.be/${v.youtubeId})`)
             .join("\n");
 
           const suggestion = await callClaude(
@@ -127,7 +127,7 @@ Respond with ONLY a JSON object: {"youtubeId": "...", "title": "...", "reasoning
   // ── Re-promotion: published > 48hrs, views below channel average ────
   const cutoff = new Date(Date.now() - REPROMO_WINDOW_MS);
   const matureVideos = publishedVideos.filter(
-    (v) => v.scheduledAt && v.scheduledAt <= cutoff,
+    (v: any) => v.scheduledAt && v.scheduledAt <= cutoff,
   );
 
   if (matureVideos.length > 1) {
