@@ -52,6 +52,71 @@ Respond ONLY with valid JSON matching this exact structure:
   "estimatedTotalDuration": 240
 }`;
 
+function parseJSON(text: string): unknown {
+  let raw = text.trim();
+  if (raw.startsWith("```")) {
+    raw = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  }
+  return JSON.parse(raw);
+}
+
+async function generateScript(
+  anthropic: Anthropic,
+  ctx: PipelineContext,
+  feedback?: string,
+): Promise<{ script?: Script; error?: string }> {
+  const parts = [
+    `Write a YouTube script about this topic:`,
+    ``,
+    `Title: ${ctx.topic.title}`,
+    `Source: ${ctx.topic.url}`,
+    ctx.topic.summary ? `Summary: ${ctx.topic.summary}` : null,
+    ``,
+    `Make it informative, engaging, and suitable for a tech-savvy audience.`,
+  ];
+
+  if (feedback) {
+    parts.push(
+      ``,
+      `IMPORTANT: A previous version of this script was rejected by quality review. Fix these issues:`,
+      feedback,
+      ``,
+      `Rewrite the script addressing all of the above feedback.`,
+    );
+  }
+
+  const userPrompt = parts.filter(Boolean).join("\n");
+
+  const message = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 4096,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    return { error: "No text in Claude response" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parseJSON(textBlock.text);
+  } catch {
+    return { error: `Invalid JSON from Claude: ${textBlock.text.slice(0, 200)}` };
+  }
+
+  const validation = scriptSchema.safeParse(parsed);
+  if (!validation.success) {
+    const issues = validation.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    return { error: `Script validation failed: ${issues}` };
+  }
+
+  return { script: validation.data };
+}
+
 /**
  * Stage 2: Use Claude API to generate a structured script JSON.
  * Output: hook, 4-6 body segments (each with visual_prompt), CTA.
@@ -61,71 +126,21 @@ export async function scriptGenerator(
 ): Promise<StageResult> {
   const start = Date.now();
   const config = env();
-
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
 
-  const userPrompt = [
-    `Write a YouTube script about this topic:`,
-    ``,
-    `Title: ${ctx.topic.title}`,
-    `Source: ${ctx.topic.url}`,
-    ctx.topic.summary ? `Summary: ${ctx.topic.summary}` : null,
-    ``,
-    `Make it informative, engaging, and suitable for a tech-savvy audience.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  console.log(`[scriptGenerator] Generating script for: "${ctx.topic.title}"`);
 
-  console.log(`[scriptGenerator] Calling Claude for: "${ctx.topic.title}"`);
+  const result = await generateScript(anthropic, ctx);
 
-  const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }],
-  });
-
-  // Extract text from response
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
+  if (result.error || !result.script) {
     return {
       success: false,
-      error: "No text in Claude response",
+      error: result.error ?? "No script generated",
       durationMs: Date.now() - start,
     };
   }
 
-  // Parse JSON — strip markdown fences if present
-  let raw = textBlock.text.trim();
-  if (raw.startsWith("```")) {
-    raw = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return {
-      success: false,
-      error: `Invalid JSON from Claude: ${raw.slice(0, 200)}`,
-      durationMs: Date.now() - start,
-    };
-  }
-
-  // Validate with Zod
-  const validation = scriptSchema.safeParse(parsed);
-  if (!validation.success) {
-    const issues = validation.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; ");
-    return {
-      success: false,
-      error: `Script validation failed: ${issues}`,
-      durationMs: Date.now() - start,
-    };
-  }
-
-  const script: Script = validation.data;
+  const script = result.script;
 
   console.log(
     `[scriptGenerator] Generated ${script.segments.length} segments, ~${script.estimatedTotalDuration}s total`
@@ -144,3 +159,8 @@ export async function scriptGenerator(
 
   return { success: true, data: script, durationMs: Date.now() - start };
 }
+
+/**
+ * Exposed for use by qualityGate's rewrite loop.
+ */
+export { generateScript, type Anthropic };

@@ -22,7 +22,7 @@ import { notify } from "./stages/notify";
 const STAGES: StageDefinition[] = [
   { name: "topicDiscovery", execute: topicDiscovery, retries: 2 },
   { name: "scriptGenerator", execute: scriptGenerator, retries: 2 },
-  { name: "qualityGate", execute: qualityGate, retries: 1 },
+  { name: "qualityGate", execute: qualityGate, retries: 0 },
   { name: "voiceover", execute: voiceover, retries: 3 },
   { name: "videoAssembly", execute: videoAssembly, retries: 3 },
   { name: "thumbnailGenerator", execute: thumbnailGenerator, retries: 2 },

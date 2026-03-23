@@ -3,7 +3,10 @@ import { z } from "zod";
 import { VideoStatus } from "@prisma/client";
 import { prisma } from "../lib/db";
 import { env } from "../config";
-import type { PipelineContext, StageResult } from "../types";
+import { generateScript } from "./scriptGenerator";
+import type { PipelineContext, Script, StageResult } from "../types";
+
+const MAX_REWRITES = 2; // up to 2 rewrite attempts after initial failure
 
 // ── Zod schema for Claude's scoring output ─────────────────────────────────
 
@@ -42,9 +45,52 @@ Respond ONLY with valid JSON matching this exact structure:
   "verdict": "One-sentence overall assessment"
 }`;
 
+function parseJSON(text: string): unknown {
+  let raw = text.trim();
+  if (raw.startsWith("```")) {
+    raw = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  }
+  return JSON.parse(raw);
+}
+
+async function scoreScript(
+  anthropic: Anthropic,
+  script: Script,
+): Promise<QualityResult | { error: string }> {
+  const message = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: `Score the following YouTube script:\n\n${JSON.stringify(script, null, 2)}` }],
+  });
+
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    return { error: "No text in Claude response" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parseJSON(textBlock.text);
+  } catch {
+    return { error: `Invalid JSON from Claude: ${textBlock.text.slice(0, 200)}` };
+  }
+
+  const validation = qualitySchema.safeParse(parsed);
+  if (!validation.success) {
+    const issues = validation.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    return { error: `Quality response validation failed: ${issues}` };
+  }
+
+  return validation.data;
+}
+
 /**
- * Stage 3: Use Claude API to score the script 0-100.
- * Fails the video (marks QUALITY_FAILED) if score < threshold (default 75).
+ * Stage 3: Score the script 0-100. If below threshold, feed rejection
+ * reasons back to the script generator for a rewrite (up to MAX_REWRITES
+ * attempts). Fails the video only after all rewrite attempts are exhausted.
  */
 export async function qualityGate(
   ctx: PipelineContext
@@ -52,101 +98,92 @@ export async function qualityGate(
   const start = Date.now();
   const config = env();
   const threshold = config.QUALITY_THRESHOLD;
+  const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
 
   if (!ctx.script) {
     return { success: false, error: "No script in context", durationMs: Date.now() - start };
   }
 
-  const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
+  let currentScript = ctx.script;
+  let lastScore = 0;
+  let lastReasons: string[] = [];
+  let lastVerdict = "";
 
-  const userPrompt = `Score the following YouTube script:\n\n${JSON.stringify(ctx.script, null, 2)}`;
+  for (let attempt = 0; attempt <= MAX_REWRITES; attempt++) {
+    const label = attempt === 0 ? "initial" : `rewrite #${attempt}`;
+    console.log(`[qualityGate] Scoring script (${label}, threshold: ${threshold})...`);
 
-  console.log(`[qualityGate] Scoring script (threshold: ${threshold})...`);
+    const result = await scoreScript(anthropic, currentScript);
 
-  const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+    if ("error" in result) {
+      return { success: false, error: result.error, durationMs: Date.now() - start };
+    }
 
-  // Extract text
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    return {
-      success: false,
-      error: "No text in Claude response",
-      durationMs: Date.now() - start,
-    };
+    lastScore = result.score;
+    lastReasons = result.reasons;
+    lastVerdict = result.verdict;
+
+    console.log(`[qualityGate] Score: ${result.score}/100 — ${result.verdict}`);
+    for (const r of result.reasons) {
+      console.log(`  ${r}`);
+    }
+
+    if (result.score >= threshold) {
+      // Passed
+      await prisma.video.update({
+        where: { id: ctx.video.id },
+        data: {
+          qualityScore: result.score,
+          scriptJson: currentScript as any,
+          status: VideoStatus.VOICEOVER_PENDING,
+        },
+      });
+      ctx.script = currentScript;
+
+      if (attempt > 0) {
+        console.log(`[qualityGate] Passed after ${attempt} rewrite(s)`);
+      }
+
+      return {
+        success: true,
+        data: { score: result.score, reasons: result.reasons, verdict: result.verdict },
+        durationMs: Date.now() - start,
+      };
+    }
+
+    // Failed — attempt rewrite if we have attempts left
+    if (attempt < MAX_REWRITES) {
+      const feedback = result.reasons.join("\n") + "\n\nVerdict: " + result.verdict;
+      console.log(`[qualityGate] Score ${result.score} < ${threshold}, requesting rewrite (attempt ${attempt + 1}/${MAX_REWRITES})...`);
+
+      const rewrite = await generateScript(anthropic, ctx, feedback);
+      if (rewrite.error || !rewrite.script) {
+        console.error(`[qualityGate] Rewrite failed: ${rewrite.error}`);
+        break; // fall through to failure
+      }
+
+      currentScript = rewrite.script;
+      console.log(
+        `[qualityGate] Rewrite generated ${currentScript.segments.length} segments, ~${currentScript.estimatedTotalDuration}s`
+      );
+    }
   }
 
-  // Parse JSON — strip markdown fences if present
-  let raw = textBlock.text.trim();
-  if (raw.startsWith("```")) {
-    raw = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return {
-      success: false,
-      error: `Invalid JSON from Claude: ${raw.slice(0, 200)}`,
-      durationMs: Date.now() - start,
-    };
-  }
-
-  // Validate with Zod
-  const validation = qualitySchema.safeParse(parsed);
-  if (!validation.success) {
-    const issues = validation.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; ");
-    return {
-      success: false,
-      error: `Quality response validation failed: ${issues}`,
-      durationMs: Date.now() - start,
-    };
-  }
-
-  const { score, reasons, verdict } = validation.data;
-
-  console.log(`[qualityGate] Score: ${score}/100 — ${verdict}`);
-  for (const r of reasons) {
-    console.log(`  ${r}`);
-  }
-
-  if (score < threshold) {
-    const failReason = `Quality score ${score}/${threshold}: ${verdict}`;
-    await prisma.video.update({
-      where: { id: ctx.video.id },
-      data: {
-        qualityScore: score,
-        status: VideoStatus.QUALITY_FAILED,
-        failReason,
-      },
-    });
-    return {
-      success: false,
-      error: failReason,
-      data: { score, reasons, verdict },
-      durationMs: Date.now() - start,
-    };
-  }
-
-  // Passed — advance to next stage
+  // All attempts exhausted
+  const failReason = `Quality score ${lastScore}/${threshold} after ${MAX_REWRITES} rewrite(s): ${lastVerdict}`;
   await prisma.video.update({
     where: { id: ctx.video.id },
     data: {
-      qualityScore: score,
-      status: VideoStatus.VOICEOVER_PENDING,
+      qualityScore: lastScore,
+      status: VideoStatus.QUALITY_FAILED,
+      failReason,
     },
   });
 
   return {
-    success: true,
-    data: { score, reasons, verdict },
+    success: false,
+    error: failReason,
+    data: { score: lastScore, reasons: lastReasons, verdict: lastVerdict },
     durationMs: Date.now() - start,
   };
 }
