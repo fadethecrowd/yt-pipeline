@@ -13,8 +13,12 @@ const TITLE_CARD_DURATION = 4;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-const FFMPEG = "ffmpeg";
-const FFPROBE = "ffprobe";
+// Use ffmpeg-full on macOS for drawtext filter support; fall back to PATH ffmpeg elsewhere
+const FFMPEG_FULL = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg";
+const FFPROBE_FULL = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe";
+
+const FFMPEG = require("fs").existsSync(FFMPEG_FULL) ? FFMPEG_FULL : "ffmpeg";
+const FFPROBE = require("fs").existsSync(FFPROBE_FULL) ? FFPROBE_FULL : "ffprobe";
 
 async function ff(...args: string[]): Promise<void> {
   console.log(`[assembly] ffmpeg ${args.slice(0, 4).join(" ")}...`);

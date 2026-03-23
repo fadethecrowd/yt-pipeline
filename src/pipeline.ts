@@ -33,7 +33,9 @@ const STAGES: StageDefinition[] = [
 
 // Map video status → index into STAGES where we should resume
 const RESUME_FROM: Partial<Record<VideoStatus, number>> = {
-  [VideoStatus.SEO_DONE]: 7,     // resume at youtubeUpload (index shifted by thumbnailGenerator)
+  [VideoStatus.VOICEOVER_DONE]: 4, // resume at videoAssembly
+  [VideoStatus.ASSEMBLY_DONE]: 5,  // resume at thumbnailGenerator
+  [VideoStatus.SEO_DONE]: 7,       // resume at youtubeUpload
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
