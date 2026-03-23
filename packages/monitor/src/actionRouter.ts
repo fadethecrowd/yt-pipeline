@@ -1,5 +1,6 @@
 import { ActionType } from "./lib/types";
 import type { Decision, ActionResult } from "./lib/types";
+import { prisma } from "./lib/prisma";
 import { heartComment, updateVideoTitle, updateVideoTags } from "./executor";
 import { sendAlert } from "./telegram";
 
@@ -30,7 +31,18 @@ const handlers: Record<ActionType, ActionHandler> = {
   [ActionType.PIN_COMMENT]: async () => ({ success: false, message: "Not implemented" }),
   [ActionType.REPLY_COMMENT]: async () => ({ success: false, message: "Not implemented" }),
   [ActionType.UPDATE_DESCRIPTION]: async () => ({ success: false, message: "Not implemented" }),
-  [ActionType.REGENERATE_THUMBNAIL]: async () => ({ success: false, message: "Not implemented" }),
+  [ActionType.REGENERATE_THUMBNAIL]: async (d) => {
+    const video = await prisma.video.findUnique({
+      where: { id: d.videoId },
+      select: { youtubeId: true, seoTitle: true },
+    });
+    const ytLink = video?.youtubeId ? `https://youtu.be/${video.youtubeId}` : d.videoId;
+    const title = video?.seoTitle ?? "Unknown";
+    await sendAlert(
+      `Thumbnail flagged for replacement\n\nVideo: "${title}"\n${ytLink}\n\nReason: ${d.reason}\n\nAction: Upload a new thumbnail in YouTube Studio > Edit > Thumbnail`,
+    );
+    return { success: true, message: `Thumbnail alert sent for ${ytLink}` };
+  },
   [ActionType.UPDATE_TAGS]: async (d) => {
     const tags = d.payload.tags as string[] | undefined;
     if (!tags || tags.length === 0) {
