@@ -195,6 +195,13 @@ Be specific in your reasoning — reference the actual numbers. Only suggest act
         continue;
       }
 
+      // Validate videoId exists in DB — Claude sometimes hallucinates IDs
+      const videoExists = await prisma.video.findUnique({ where: { id: cd.videoId }, select: { id: true } });
+      if (!videoExists) {
+        console.warn(`[decisionEngine] Skipping ${cd.action} — videoId ${cd.videoId} not found in DB`);
+        continue;
+      }
+
       // Dedup: ALERTs are allowed once per video per 24h; other types blocked if pending/executed/awaiting
       const isAlert = cd.action === ActionType.ALERT;
       const existing = await prisma.monitorAction.findFirst({
