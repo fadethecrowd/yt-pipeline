@@ -377,11 +377,10 @@ async function handleApprovalCallback(query: TelegramBot.CallbackQuery): Promise
 
     const emoji = result.success ? "\u2705" : "\u274C";
     await bot!.editMessageText(
-      `${emoji} *${monitorAction.type}* — ${result.success ? "Approved & executed" : "Approved but execution failed"}\n${result.message}`,
+      `${emoji} ${monitorAction.type} — ${result.success ? "Approved & executed" : "Approved but execution failed"}\n${result.message}`,
       {
         chat_id: query.message!.chat.id,
         message_id: query.message!.message_id,
-        parse_mode: "Markdown",
       },
     );
     await bot!.answerCallbackQuery(query.id, { text: result.success ? "Executed!" : "Execution failed" });
@@ -393,11 +392,10 @@ async function handleApprovalCallback(query: TelegramBot.CallbackQuery): Promise
     });
 
     await bot!.editMessageText(
-      `\u274C *${monitorAction.type}* — Rejected\nVideo: \`${monitorAction.videoId}\``,
+      `\u274C ${monitorAction.type} — Rejected\nVideo: ${monitorAction.videoId}`,
       {
         chat_id: query.message!.chat.id,
         message_id: query.message!.message_id,
-        parse_mode: "Markdown",
       },
     );
     await bot!.answerCallbackQuery(query.id, { text: "Rejected" });
