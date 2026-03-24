@@ -109,10 +109,10 @@ async function generateTitles(
   scriptSummary: string,
 ): Promise<TitleResult> {
   // Round 1 — generate candidates
-  console.log("[seoGenerator] Title round 1: generating candidates...");
+  console.log("[wc:seoGenerator] Title round 1: generating candidates...");
   const round1Raw = await callClaude(
     anthropic,
-    "You are a YouTube title expert for an AI/tech news channel.",
+    "You are a YouTube title expert for a marine electronics channel called Wet Circuit.",
     `Generate 5 YouTube title candidates for this script.
 
 Topic: ${topicTitle}
@@ -120,18 +120,19 @@ Script summary: ${scriptSummary}
 
 Each title must: be under 70 characters, create a curiosity gap,
 be specific (not vague), avoid clickbait that doesn't deliver.
+Focus on marine electronics, boating, and nautical tech keywords.
 Return ONLY a JSON array: [{"title": "...", "rationale": "..."}]`,
     1024,
   );
 
   const candidates = titleCandidateSchema.parse(parseJSON(round1Raw));
-  console.log(`[seoGenerator] Round 1: ${candidates.length} candidates generated`);
+  console.log(`[wc:seoGenerator] Round 1: ${candidates.length} candidates generated`);
   for (const c of candidates) {
-    console.log(`[seoGenerator]   "${c.title}"`);
+    console.log(`[wc:seoGenerator]   "${c.title}"`);
   }
 
   // Round 2 — score them
-  console.log("[seoGenerator] Title round 2: scoring...");
+  console.log("[wc:seoGenerator] Title round 2: scoring...");
   const round2Raw = await callClaude(
     anthropic,
     "You are a YouTube title analyst. Score titles objectively.",
@@ -149,18 +150,18 @@ ${JSON.stringify(candidates.map((c) => c.title))}`,
 
   const scored = titleScoreSchema.parse(parseJSON(round2Raw));
   scored.sort((a, b) => b.total - a.total);
-  console.log("[seoGenerator] Round 2 scores:");
+  console.log("[wc:seoGenerator] Round 2 scores:");
   for (const s of scored) {
-    console.log(`[seoGenerator]   ${s.total}/40 "${s.title}"`);
+    console.log(`[wc:seoGenerator]   ${s.total}/40 "${s.title}"`);
   }
 
   const top2 = scored.slice(0, 2);
 
   // Round 3 — rewrite top 2 + wildcard
-  console.log("[seoGenerator] Title round 3: rewriting top 2 + wildcard...");
+  console.log("[wc:seoGenerator] Title round 3: rewriting top 2 + wildcard...");
   const round3Raw = await callClaude(
     anthropic,
-    "You are a YouTube CTR optimization expert.",
+    "You are a YouTube CTR optimization expert for marine/boating content.",
     `Rewrite these 2 titles to maximize CTR.
 Apply: stronger verbs, cut filler words, front-load the hook.
 Also generate 1 wildcard title that breaks the pattern entirely.
@@ -178,12 +179,11 @@ Topic: ${topicTitle}`,
   const refined = rewritten.filter((r) => r.type === "refined");
   const wildcard = rewritten.find((r) => r.type === "wildcard");
 
-  console.log("[seoGenerator] Round 3 results:");
+  console.log("[wc:seoGenerator] Round 3 results:");
   for (const r of rewritten) {
-    console.log(`[seoGenerator]   [${r.type}] "${r.title}" — ${r.reasoning}`);
+    console.log(`[wc:seoGenerator]   [${r.type}] "${r.title}" — ${r.reasoning}`);
   }
 
-  // Auto-select: highest-scoring refined title is primary, second refined is B, wildcard is C
   const primary = refined[0]?.title ?? top2[0].title;
   const variantB = refined[1]?.title ?? refined[0]?.title ?? top2[1].title;
   const variantC = wildcard?.title ?? (refined.length > 2 ? refined[2].title : top2[1].title);
@@ -198,13 +198,13 @@ Topic: ${topicTitle}`,
 
 // ── System prompt for description/tags/chapters ─────────────────────────
 
-const SEO_SYSTEM_PROMPT = `You are a YouTube SEO expert for an AI/tech news channel.
+const SEO_SYSTEM_PROMPT = `You are a YouTube SEO expert for a marine electronics channel called "Wet Circuit".
 Given a topic, script, and a pre-selected title, generate the remaining metadata.
 
 Requirements:
-- description: 300-500 words. Include relevant keywords naturally. Start with a strong hook sentence.
+- description: 300-500 words. Include relevant marine/boating keywords naturally. Start with a strong hook sentence.
   Include chapter timestamps (provided to you). End with a subscribe CTA and relevant links section.
-- tags: 15-20 highly relevant tags. Mix broad terms (AI, technology) with specific ones (the topic).
+- tags: 15-20 highly relevant tags. Mix broad terms (marine electronics, boating) with specific ones (the product/topic).
 - chapters: Use the exact timestamps provided. First chapter MUST start at 0:00.
 
 Respond ONLY with valid JSON matching this structure:
@@ -216,8 +216,10 @@ Respond ONLY with valid JSON matching this structure:
 }`;
 
 /**
- * Stage 6: Use Claude API to generate SEO-optimized title, description, tags, chapters.
+ * Stage 7: Use Claude API to generate SEO-optimized title, description, tags, chapters.
  * Title generation uses a 3-round loop: generate → score → rewrite.
+ *
+ * TODO: Customize SEO strategy for marine electronics niche.
  */
 export async function seoGenerator(
   ctx: PipelineContext
@@ -228,7 +230,7 @@ export async function seoGenerator(
     return { success: false, error: "No script in context", durationMs: Date.now() - start };
   }
 
-  await prisma.video.update({
+  await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: { status: VideoStatus.SEO_PENDING },
   });
@@ -242,9 +244,9 @@ export async function seoGenerator(
 
   const titles = await generateTitles(anthropic, ctx.topic.title, scriptSummary);
 
-  console.log(`[seoGenerator] Selected title: "${titles.primary}"`);
-  console.log(`[seoGenerator] Variant B: "${titles.variantB}"`);
-  console.log(`[seoGenerator] Variant C (wildcard): "${titles.variantC}"`);
+  console.log(`[wc:seoGenerator] Selected title: "${titles.primary}"`);
+  console.log(`[wc:seoGenerator] Variant B: "${titles.variantB}"`);
+  console.log(`[wc:seoGenerator] Variant C (wildcard): "${titles.variantC}"`);
 
   // ── Chapter timestamps from audio ────────────────────────────────────
   const audioDir = join(process.cwd(), "audio", ctx.video.id);
@@ -262,7 +264,7 @@ export async function seoGenerator(
     offset += dur;
   }
 
-  console.log(`[seoGenerator] Chapter timestamps from audio:`);
+  console.log(`[wc:seoGenerator] Chapter timestamps from audio:`);
   for (const c of chapterHints) console.log(`  ${c}`);
 
   // ── Generate description, tags, chapters ─────────────────────────────
@@ -277,7 +279,7 @@ ${chapterHints.join("\n")}
 Full script:
 ${JSON.stringify(ctx.script, null, 2)}`;
 
-  console.log(`[seoGenerator] Generating description, tags, chapters...`);
+  console.log(`[wc:seoGenerator] Generating description, tags, chapters...`);
 
   const seoRaw = await callClaude(anthropic, SEO_SYSTEM_PROMPT, userPrompt);
 
@@ -307,11 +309,11 @@ ${JSON.stringify(ctx.script, null, 2)}`;
   // Override the title with our 3-round winner
   const seo: SEOMetadata = { ...validation.data, title: titles.primary };
 
-  console.log(`[seoGenerator] Title: ${seo.title}`);
-  console.log(`[seoGenerator] Tags: ${seo.tags.length}`);
-  console.log(`[seoGenerator] Chapters: ${seo.chapters.length}`);
+  console.log(`[wc:seoGenerator] Title: ${seo.title}`);
+  console.log(`[wc:seoGenerator] Tags: ${seo.tags.length}`);
+  console.log(`[wc:seoGenerator] Chapters: ${seo.chapters.length}`);
 
-  await prisma.video.update({
+  await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: {
       seoTitle: seo.title,

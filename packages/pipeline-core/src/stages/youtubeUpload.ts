@@ -62,7 +62,7 @@ function getYouTubeClient() {
 // ── Main ─────────────────────────────────────────────────────────────────
 
 /**
- * Stage 7: Upload video via YouTube Data API v3 with scheduled publish.
+ * Stage: Upload video via YouTube Data API v3 with scheduled publish.
  */
 export async function youtubeUpload(
   ctx: PipelineContext

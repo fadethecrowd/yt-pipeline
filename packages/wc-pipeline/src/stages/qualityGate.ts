@@ -5,7 +5,7 @@ import { prisma, env } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 import { generateScript } from "./scriptGenerator";
 
-const MAX_REWRITES = 2; // up to 2 rewrite attempts after initial failure
+const MAX_REWRITES = 2;
 
 // ── Zod schema for Claude's scoring output ─────────────────────────────────
 
@@ -19,14 +19,14 @@ export type QualityResult = z.infer<typeof qualitySchema>;
 
 // ── System prompt ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a senior YouTube content quality reviewer for an AI/tech news channel.
+const SYSTEM_PROMPT = `You are a senior YouTube content quality reviewer for a marine electronics channel.
 You score scripts on a 0-100 scale across five dimensions.
 
 SCORING RUBRIC:
 - Hook strength (0-20): Does the opening grab attention within 30 seconds? Is it compelling enough to stop scrolling?
-- Educational value (0-20): Does the script teach something useful? Are claims accurate and well-explained?
+- Educational value (0-20): Does the script teach something useful about marine electronics? Are claims accurate and well-explained?
 - Narrative flow (0-20): Do segments connect logically? Is there a clear arc from intro to conclusion?
-- AI/Tech relevance (0-20): Is the content on-niche for an AI/tech audience? Does it cover meaningful developments?
+- Marine relevance (0-20): Is the content on-niche for boaters and marine electronics enthusiasts? Does it cover practical, useful topics?
 - CTA clarity (0-20): Is the call to action clear, natural, and motivating?
 
 Sum the five dimensions for the total score (0-100).
@@ -38,7 +38,7 @@ Respond ONLY with valid JSON matching this exact structure:
     "Hook strength (18/20): ...",
     "Educational value (16/20): ...",
     "Narrative flow (17/20): ...",
-    "AI/Tech relevance (18/20): ...",
+    "Marine relevance (18/20): ...",
     "CTA clarity (16/20): ..."
   ],
   "verdict": "One-sentence overall assessment"
@@ -88,8 +88,7 @@ async function scoreScript(
 
 /**
  * Stage 3: Score the script 0-100. If below threshold, feed rejection
- * reasons back to the script generator for a rewrite (up to MAX_REWRITES
- * attempts). Fails the video only after all rewrite attempts are exhausted.
+ * reasons back to the script generator for a rewrite.
  */
 export async function qualityGate(
   ctx: PipelineContext
@@ -110,7 +109,7 @@ export async function qualityGate(
 
   for (let attempt = 0; attempt <= MAX_REWRITES; attempt++) {
     const label = attempt === 0 ? "initial" : `rewrite #${attempt}`;
-    console.log(`[qualityGate] Scoring script (${label}, threshold: ${threshold})...`);
+    console.log(`[wc:qualityGate] Scoring script (${label}, threshold: ${threshold})...`);
 
     const result = await scoreScript(anthropic, currentScript);
 
@@ -122,14 +121,13 @@ export async function qualityGate(
     lastReasons = result.reasons;
     lastVerdict = result.verdict;
 
-    console.log(`[qualityGate] Score: ${result.score}/100 — ${result.verdict}`);
+    console.log(`[wc:qualityGate] Score: ${result.score}/100 — ${result.verdict}`);
     for (const r of result.reasons) {
       console.log(`  ${r}`);
     }
 
     if (result.score >= threshold) {
-      // Passed
-      await prisma.video.update({
+      await prisma.wcVideo.update({
         where: { id: ctx.video.id },
         data: {
           qualityScore: result.score,
@@ -140,7 +138,7 @@ export async function qualityGate(
       ctx.script = currentScript;
 
       if (attempt > 0) {
-        console.log(`[qualityGate] Passed after ${attempt} rewrite(s)`);
+        console.log(`[wc:qualityGate] Passed after ${attempt} rewrite(s)`);
       }
 
       return {
@@ -150,27 +148,25 @@ export async function qualityGate(
       };
     }
 
-    // Failed — attempt rewrite if we have attempts left
     if (attempt < MAX_REWRITES) {
       const feedback = result.reasons.join("\n") + "\n\nVerdict: " + result.verdict;
-      console.log(`[qualityGate] Score ${result.score} < ${threshold}, requesting rewrite (attempt ${attempt + 1}/${MAX_REWRITES})...`);
+      console.log(`[wc:qualityGate] Score ${result.score} < ${threshold}, requesting rewrite (attempt ${attempt + 1}/${MAX_REWRITES})...`);
 
       const rewrite = await generateScript(anthropic, ctx, feedback);
       if (rewrite.error || !rewrite.script) {
-        console.error(`[qualityGate] Rewrite failed: ${rewrite.error}`);
-        break; // fall through to failure
+        console.error(`[wc:qualityGate] Rewrite failed: ${rewrite.error}`);
+        break;
       }
 
       currentScript = rewrite.script;
       console.log(
-        `[qualityGate] Rewrite generated ${currentScript.segments.length} segments, ~${currentScript.estimatedTotalDuration}s`
+        `[wc:qualityGate] Rewrite generated ${currentScript.segments.length} segments, ~${currentScript.estimatedTotalDuration}s`
       );
     }
   }
 
-  // All attempts exhausted
   const failReason = `Quality score ${lastScore}/${threshold} after ${MAX_REWRITES} rewrite(s): ${lastVerdict}`;
-  await prisma.video.update({
+  await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: {
       qualityScore: lastScore,

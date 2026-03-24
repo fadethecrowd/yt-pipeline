@@ -136,7 +136,7 @@ function escapeFilterPath(p: string): string {
 // ── Main ─────────────────────────────────────────────────────────────────
 
 /**
- * Stage 5: Search Pexels for stock clips, assemble video with ffmpeg.
+ * Stage: Search Pexels for stock clips, assemble video with ffmpeg.
  * Lays voiceover audio, burns subtitles, adds title card.
  */
 export async function videoAssembly(

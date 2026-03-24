@@ -23,17 +23,18 @@ const scriptSchema = z.object({
 
 // ── System prompt ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a YouTube scriptwriter for an AI/tech news channel.
-You write punchy, engaging scripts optimized for viewer retention.
+const SYSTEM_PROMPT = `You are a YouTube scriptwriter for a marine electronics channel called "Wet Circuit".
+You write clear, informative scripts for boaters and marine electronics enthusiasts.
 
 RULES:
 - The hook must grab attention in the first 30 seconds
-- Write 4-6 body segments, each covering a distinct angle of the story
+- Write 4-6 body segments, each covering a distinct angle of the product/topic
 - Narration should be conversational, clear, and suitable for text-to-speech
-- Visual prompts describe what the viewer sees on screen (b-roll, graphics, text overlays)
+- Visual prompts describe what the viewer sees on screen (product shots, on-water footage, diagrams, UI screenshots)
 - Each segment should be 30-90 seconds
 - The CTA should encourage likes, subscribes, and comments
 - Total video length: 3-6 minutes
+- Focus on practical advice boaters can use — installation tips, comparisons, real-world performance
 
 Respond ONLY with valid JSON matching this exact structure:
 {
@@ -59,19 +60,22 @@ function parseJSON(text: string): unknown {
   return JSON.parse(raw);
 }
 
-async function generateScript(
+/**
+ * Generate a script, optionally with rewrite feedback from quality gate.
+ */
+export async function generateScript(
   anthropic: Anthropic,
   ctx: PipelineContext,
   feedback?: string,
 ): Promise<{ script?: Script; error?: string }> {
   const parts = [
-    `Write a YouTube script about this topic:`,
+    `Write a YouTube script about this marine electronics topic:`,
     ``,
     `Title: ${ctx.topic.title}`,
     `Source: ${ctx.topic.url}`,
     ctx.topic.summary ? `Summary: ${ctx.topic.summary}` : null,
     ``,
-    `Make it informative, engaging, and suitable for a tech-savvy audience.`,
+    `Make it informative, engaging, and useful for boaters considering this equipment.`,
   ];
 
   if (feedback) {
@@ -117,8 +121,10 @@ async function generateScript(
 }
 
 /**
- * Stage 2: Use Claude API to generate a structured script JSON.
- * Output: hook, 4-6 body segments (each with visual_prompt), CTA.
+ * Stage 2: Use Claude API to generate a structured script JSON
+ * tailored for marine electronics content.
+ *
+ * TODO: Customize prompts and script structure for Wet Circuit channel.
  */
 export async function scriptGenerator(
   ctx: PipelineContext
@@ -127,7 +133,7 @@ export async function scriptGenerator(
   const config = env();
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
 
-  console.log(`[scriptGenerator] Generating script for: "${ctx.topic.title}"`);
+  console.log(`[wc:scriptGenerator] Generating script for: "${ctx.topic.title}"`);
 
   const result = await generateScript(anthropic, ctx);
 
@@ -142,11 +148,10 @@ export async function scriptGenerator(
   const script = result.script;
 
   console.log(
-    `[scriptGenerator] Generated ${script.segments.length} segments, ~${script.estimatedTotalDuration}s total`
+    `[wc:scriptGenerator] Generated ${script.segments.length} segments, ~${script.estimatedTotalDuration}s total`
   );
 
-  // Persist script and update status
-  await prisma.video.update({
+  await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: {
       scriptJson: script as any,
@@ -159,7 +164,4 @@ export async function scriptGenerator(
   return { success: true, data: script, durationMs: Date.now() - start };
 }
 
-/**
- * Exposed for use by qualityGate's rewrite loop.
- */
-export { generateScript, type Anthropic };
+export { type Anthropic };

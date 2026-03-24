@@ -177,7 +177,7 @@ async function generateVariantC(
 // ── Stage entry point ───────────────────────────────────────────────────
 
 /**
- * Stage 6: Generate 3 thumbnail variants from the assembled video.
+ * Stage: Generate 3 thumbnail variants from the assembled video.
  */
 export async function thumbnailGenerator(
   ctx: PipelineContext,

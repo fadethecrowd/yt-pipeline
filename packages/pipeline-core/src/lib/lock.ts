@@ -2,7 +2,6 @@ import { PrismaClient } from "@prisma/client";
 
 /**
  * Postgres advisory lock to prevent overlapping pipeline runs.
- * Same pattern as the Polymarket ingestion daemon.
  */
 export async function withAdvisoryLock<T>(
   prisma: PrismaClient,

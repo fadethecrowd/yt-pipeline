@@ -6,7 +6,7 @@ import { env } from "../config";
 import type { PipelineContext, StageResult, VoiceoverResult } from "../types";
 
 /**
- * Stage 4: Use ElevenLabs API to generate MP3 per script segment,
+ * Stage: Use ElevenLabs API to generate MP3 per script segment,
  * save locally, concatenate into a single final.mp3.
  */
 export async function voiceover(

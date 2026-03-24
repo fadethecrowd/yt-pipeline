@@ -65,7 +65,7 @@ async function sendThumbnailGroup(ctx: PipelineContext): Promise<void> {
 }
 
 /**
- * Stage 9: Notify on pipeline result + deliver thumbnails to Telegram.
+ * Stage: Notify on pipeline result + deliver thumbnails to Telegram.
  */
 export async function notify(
   ctx: PipelineContext

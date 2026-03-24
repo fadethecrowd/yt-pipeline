@@ -98,3 +98,71 @@ model Video {
   @@index([topicId])
   @@index([createdAt])
 }
+
+// ── Wet Circuit (wc_) Models ──────────────────────────────────────────────
+
+model WcTopic {
+  id        String      @id @default(cuid())
+  title     String
+  url       String      @unique
+  source    String      // e.g. "panbo", "passagemaker"
+  summary   String?
+  score     Float?      // relevance score 0-1
+  status    TopicStatus @default(DISCOVERED)
+  videos    WcVideo[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@map("wc_topic")
+  @@index([status])
+  @@index([source])
+  @@index([createdAt])
+}
+
+model WcVideo {
+  id             String      @id @default(cuid())
+  topicId        String
+  topic          WcTopic     @relation(fields: [topicId], references: [id])
+  status         VideoStatus @default(SCRIPT_PENDING)
+
+  // Script stage
+  scriptJson     Json?
+  qualityScore   Int?
+
+  // Voiceover stage
+  voiceoverUrls  String[]
+  voiceoverPath  String?
+
+  // Assembly stage
+  videoPath      String?
+  videoUrl       String?
+
+  // Thumbnail stage
+  thumbnailA     String?
+  thumbnailB     String?
+  thumbnailC     String?
+
+  // SEO stage
+  seoTitle       String?
+  titleVariantB  String?
+  titleVariantC  String?
+  seoDescription String?
+  seoTags        String[]
+  seoChapters    Json?
+
+  // Upload stage
+  youtubeId      String?
+  scheduledAt    DateTime?
+  publishedAt    DateTime?
+
+  // Tracking
+  failReason     String?
+  retryCount     Int         @default(0)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@map("wc_video")
+  @@index([status])
+  @@index([topicId])
+  @@index([createdAt])
+}

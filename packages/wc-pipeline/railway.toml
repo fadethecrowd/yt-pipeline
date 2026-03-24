@@ -1,0 +1,7 @@
+[build]
+dockerfilePath = "packages/wc-pipeline/Dockerfile"
+
+[deploy]
+startCommand = "node packages/wc-pipeline/dist/index.js"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

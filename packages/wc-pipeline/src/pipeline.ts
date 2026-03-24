@@ -58,7 +58,7 @@ async function failVideo(
   reason: string
 ) {
   const failReason = `${stageName}: ${reason}`;
-  await prisma.video.update({
+  await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: {
       status: VideoStatus.FAILED,
@@ -76,7 +76,7 @@ async function cleanupTmpDir(videoId: string): Promise<void> {
   const tmpDir = join(process.cwd(), "tmp", videoId);
   try {
     await rm(tmpDir, { recursive: true, force: true });
-    console.log(`[pipeline] Cleaned up ${tmpDir}`);
+    console.log(`[wc:pipeline] Cleaned up ${tmpDir}`);
   } catch {
     // non-fatal
   }
@@ -88,28 +88,27 @@ export async function runPipeline(): Promise<void> {
   const config = env();
   const pipelineStart = Date.now();
 
-  console.log(`[pipeline] ═══ Run started at ${ts()} ═══`);
+  console.log(`[wc:pipeline] ═══ Run started at ${ts()} ═══`);
 
   await withAdvisoryLock(prisma, config.PIPELINE_LOCK_ID, async () => {
-    console.log("[pipeline] Advisory lock acquired");
+    console.log("[wc:pipeline] Advisory lock acquired");
 
     // ── Check for stuck videos that can be resumed ────────────────────
 
     const resumableStatuses = Object.keys(RESUME_FROM) as VideoStatus[];
-    const stuckVideo = await prisma.video.findFirst({
+    const stuckVideo = await prisma.wcVideo.findFirst({
       where: { status: { in: resumableStatuses } },
       include: { topic: true },
-      orderBy: { updatedAt: "asc" }, // oldest stuck video first
+      orderBy: { updatedAt: "asc" },
     });
 
     if (stuckVideo) {
       const resumeIdx = RESUME_FROM[stuckVideo.status]!;
       const resumeStages = STAGES.slice(resumeIdx);
       console.log(
-        `[pipeline] Resuming video ${stuckVideo.id} (stuck at ${stuckVideo.status}) from ${resumeStages[0].name}`
+        `[wc:pipeline] Resuming video ${stuckVideo.id} (stuck at ${stuckVideo.status}) from ${resumeStages[0].name}`
       );
 
-      // Rebuild context from DB fields
       const ctx: PipelineContext = {
         topic: stuckVideo.topic,
         video: stuckVideo,
@@ -129,7 +128,7 @@ export async function runPipeline(): Promise<void> {
 
       for (const stage of resumeStages) {
         const stageStart = Date.now();
-        console.log(`[pipeline] ▸ ${stage.name} started at ${ts()}`);
+        console.log(`[wc:pipeline] ▸ ${stage.name} started at ${ts()}`);
 
         let result: StageResult;
         try {
@@ -139,31 +138,31 @@ export async function runPipeline(): Promise<void> {
           });
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
-          console.error(`[pipeline] ✗ ${stage.name} threw: ${reason}`);
+          console.error(`[wc:pipeline] ✗ ${stage.name} threw: ${reason}`);
           console.log(
-            `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+            `[wc:pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
           );
           await failVideo(ctx, stage.name, reason);
           return;
         }
 
         if (!result.success) {
-          console.error(`[pipeline] ✗ ${stage.name} rejected: ${result.error}`);
+          console.error(`[wc:pipeline] ✗ ${stage.name} rejected: ${result.error}`);
           console.log(
-            `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+            `[wc:pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
           );
           await failVideo(ctx, stage.name, result.error ?? "unknown error");
           return;
         }
 
         console.log(
-          `[pipeline] ✓ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+          `[wc:pipeline] ✓ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
         );
       }
 
       await cleanupTmpDir(ctx.video.id);
       console.log(
-        `[pipeline] ✓ Resumed complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
+        `[wc:pipeline] ✓ Resumed complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
       );
       return;
     }
@@ -172,7 +171,7 @@ export async function runPipeline(): Promise<void> {
 
     const discoveryStage = STAGES[0];
     const discoveryStart = Date.now();
-    console.log(`[pipeline] ▸ ${discoveryStage.name} started at ${ts()}`);
+    console.log(`[wc:pipeline] ▸ ${discoveryStage.name} started at ${ts()}`);
 
     let discoveryResult: StageResult;
     try {
@@ -182,21 +181,21 @@ export async function runPipeline(): Promise<void> {
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[pipeline] ✗ topicDiscovery failed: ${msg}`);
+      console.error(`[wc:pipeline] ✗ topicDiscovery failed: ${msg}`);
       console.log(
-        `[pipeline] ▸ topicDiscovery ended at ${ts()} (${fmtDuration(Date.now() - discoveryStart)})`
+        `[wc:pipeline] ▸ topicDiscovery ended at ${ts()} (${fmtDuration(Date.now() - discoveryStart)})`
       );
       return;
     }
 
     console.log(
-      `[pipeline] ✓ topicDiscovery ended at ${ts()} (${fmtDuration(Date.now() - discoveryStart)})`
+      `[wc:pipeline] ✓ topicDiscovery ended at ${ts()} (${fmtDuration(Date.now() - discoveryStart)})`
     );
 
     if (!discoveryResult.success || !discoveryResult.data) {
-      console.log("[pipeline] Discovery found no new topics, checking for existing APPROVED topics…");
+      console.log("[wc:pipeline] Discovery found no new topics, checking for existing APPROVED topics…");
 
-      const fallbackTopic = await prisma.topic.findFirst({
+      const fallbackTopic = await prisma.wcTopic.findFirst({
         where: {
           status: TopicStatus.APPROVED,
           videos: { none: {} },
@@ -205,29 +204,29 @@ export async function runPipeline(): Promise<void> {
       });
 
       if (!fallbackTopic) {
-        console.log("[pipeline] No APPROVED fallback topics either, exiting");
+        console.log("[wc:pipeline] No APPROVED fallback topics either, exiting");
         return;
       }
 
-      console.log(`[pipeline] Using fallback APPROVED topic: "${fallbackTopic.title}"`);
+      console.log(`[wc:pipeline] Using fallback APPROVED topic: "${fallbackTopic.title}"`);
       discoveryResult = { success: true, data: fallbackTopic, durationMs: discoveryResult.durationMs };
     }
 
     const topic = discoveryResult.data as PipelineContext["topic"];
 
     // Create a video record to track through the pipeline
-    const video = await prisma.video.create({
+    const video = await prisma.wcVideo.create({
       data: { topicId: topic.id, status: VideoStatus.SCRIPT_PENDING },
     });
 
     const ctx: PipelineContext = { topic, video };
-    console.log(`[pipeline] Video ${video.id} created for topic "${topic.title}"`);
+    console.log(`[wc:pipeline] Video ${video.id} created for topic "${topic.title}"`);
 
     // ── Stages 2–8 ───────────────────────────────────────────────────
 
     for (const stage of STAGES.slice(1)) {
       const stageStart = Date.now();
-      console.log(`[pipeline] ▸ ${stage.name} started at ${ts()}`);
+      console.log(`[wc:pipeline] ▸ ${stage.name} started at ${ts()}`);
 
       let result: StageResult;
       try {
@@ -237,36 +236,36 @@ export async function runPipeline(): Promise<void> {
         });
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
-        console.error(`[pipeline] ✗ ${stage.name} threw: ${reason}`);
+        console.error(`[wc:pipeline] ✗ ${stage.name} threw: ${reason}`);
         console.log(
-          `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+          `[wc:pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
         );
         await failVideo(ctx, stage.name, reason);
         return;
       }
 
       if (!result.success) {
-        console.error(`[pipeline] ✗ ${stage.name} rejected: ${result.error}`);
+        console.error(`[wc:pipeline] ✗ ${stage.name} rejected: ${result.error}`);
         console.log(
-          `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+          `[wc:pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
         );
         await failVideo(ctx, stage.name, result.error ?? "unknown error");
         return;
       }
 
       console.log(
-        `[pipeline] ✓ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
+        `[wc:pipeline] ✓ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
       );
     }
 
     await cleanupTmpDir(ctx.video.id);
     console.log(
-      `[pipeline] ✓ Complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
+      `[wc:pipeline] ✓ Complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
     );
   });
 
   console.log(
-    `[pipeline] ═══ Run finished at ${ts()} — total ${fmtDuration(Date.now() - pipelineStart)} ═══`
+    `[wc:pipeline] ═══ Run finished at ${ts()} — total ${fmtDuration(Date.now() - pipelineStart)} ═══`
   );
 }
 
@@ -279,7 +278,7 @@ const isDirectRun =
 if (isDirectRun) {
   runPipeline()
     .catch((err) => {
-      console.error("[pipeline] Fatal:", err);
+      console.error("[wc:pipeline] Fatal:", err);
       process.exit(1);
     })
     .finally(() => prisma.$disconnect());

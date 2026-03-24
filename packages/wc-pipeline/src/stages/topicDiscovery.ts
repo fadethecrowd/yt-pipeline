@@ -3,47 +3,52 @@ import { TopicStatus } from "@prisma/client";
 import { prisma } from "@yt-pipeline/pipeline-core";
 import type { FeedItem, PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
 
-// RSS feed sources for AI/tech news
+// RSS feed sources for marine electronics / boating tech
 const FEEDS: Record<string, string> = {
-  techcrunch: "https://techcrunch.com/category/artificial-intelligence/feed/",
-  ars_technica: "https://feeds.arstechnica.com/arstechnica/technology-lab",
-  hackernews: "https://hnrss.org/best?q=AI+OR+LLM+OR+GPT+OR+machine+learning",
-  venturebeat: "https://venturebeat.com/category/ai/feed/",
+  // TODO: replace with actual marine electronics RSS feeds
+  panbo: "https://panbo.com/feed/",
+  passagemaker: "https://www.passagemaker.com/feed",
 };
 
 // Keywords to score relevance against
 const KEYWORDS = [
-  "ai",
-  "llm",
-  "model",
-  "automation",
-  "tool",
-  "agent",
-  "openai",
-  "anthropic",
-  "google",
-  "startup",
+  "marine",
+  "electronics",
+  "radar",
+  "chartplotter",
+  "sonar",
+  "nmea",
+  "garmin",
+  "raymarine",
+  "simrad",
+  "furuno",
+  "autopilot",
+  "vhf",
+  "ais",
+  "gps",
+  "boat",
 ];
 
 const parser = new Parser();
 
 /**
- * Stage 1: Poll RSS feeds for AI/tech topics.
+ * Stage 1: Poll RSS feeds for marine electronics topics.
  * Stores new topics in the DB, returns the highest-scored DISCOVERED topic.
+ *
+ * TODO: Implement full topic discovery for Wet Circuit channel.
+ * This is a placeholder mirroring yt-pipeline's structure.
  */
 export async function topicDiscovery(
   _ctx: PipelineContext
 ): Promise<StageResult> {
   const start = Date.now();
 
-  // 1. Fetch all RSS feeds
   const items = await fetchFeeds();
-  console.log(`[topicDiscovery] Fetched ${items.length} items from ${Object.keys(FEEDS).length} feeds`);
+  console.log(`[wc:topicDiscovery] Fetched ${items.length} items from ${Object.keys(FEEDS).length} feeds`);
 
-  // 2. Deduplicate against existing topics by URL
   const existingUrls = new Set(
     (
-      await prisma.topic.findMany({
+      await prisma.wcTopic.findMany({
         where: { url: { in: items.map((i) => i.url) } },
         select: { url: true },
       })
@@ -51,9 +56,8 @@ export async function topicDiscovery(
   );
 
   const newItems = items.filter((i) => !existingUrls.has(i.url));
-  console.log(`[topicDiscovery] ${newItems.length} new items after dedup`);
+  console.log(`[wc:topicDiscovery] ${newItems.length} new items after dedup`);
 
-  // 3. Score and insert new topics
   if (newItems.length > 0) {
     const scored = newItems.map((item) => ({
       title: item.title,
@@ -64,16 +68,14 @@ export async function topicDiscovery(
       status: "DISCOVERED" as const,
     }));
 
-    // Use skipDuplicates in case of race conditions on the unique url constraint
-    await prisma.topic.createMany({
+    await prisma.wcTopic.createMany({
       data: scored,
       skipDuplicates: true,
     });
-    console.log(`[topicDiscovery] Inserted ${scored.length} topics`);
+    console.log(`[wc:topicDiscovery] Inserted ${scored.length} topics`);
   }
 
-  // 4. Pick the best un-used topic
-  const topic = await prisma.topic.findFirst({
+  const topic = await prisma.wcTopic.findFirst({
     where: { status: TopicStatus.DISCOVERED },
     orderBy: [{ score: "desc" }, { createdAt: "desc" }],
   });
@@ -82,8 +84,7 @@ export async function topicDiscovery(
     return { success: false, error: "No viable topics", durationMs: Date.now() - start };
   }
 
-  // Mark it as approved so it won't be picked again
-  await prisma.topic.update({
+  await prisma.wcTopic.update({
     where: { id: topic.id },
     data: { status: TopicStatus.APPROVED },
   });
@@ -91,7 +92,6 @@ export async function topicDiscovery(
   return { success: true, data: topic, durationMs: Date.now() - start };
 }
 
-/** Fetch and normalize items from all configured RSS feeds. */
 async function fetchFeeds(): Promise<FeedItem[]> {
   const results: FeedItem[] = [];
 
@@ -111,7 +111,7 @@ async function fetchFeeds(): Promise<FeedItem[]> {
           };
         });
       } catch (err) {
-        console.warn(`[topicDiscovery] Failed to fetch ${source}: ${err}`);
+        console.warn(`[wc:topicDiscovery] Failed to fetch ${source}: ${err}`);
         return [];
       }
     })
@@ -128,20 +128,13 @@ async function fetchFeeds(): Promise<FeedItem[]> {
   return results;
 }
 
-/**
- * Score a topic 0–1 based on:
- *   - Keyword relevance (0–0.6): how many AI/tech keywords appear in title + summary
- *   - Recency (0–0.4): exponential decay, half-life of 24 hours
- */
 function scoreTopic(item: FeedItem): number {
   const text = `${item.title} ${item.summary ?? ""}`.toLowerCase();
 
-  // Keyword score: fraction of keywords found, weighted to 0.6
   const hits = KEYWORDS.filter((kw) => text.includes(kw)).length;
   const keywordScore = (hits / KEYWORDS.length) * 0.6;
 
-  // Recency score: exponential decay with 24h half-life, weighted to 0.4
-  let recencyScore = 0.4; // default to full if no date
+  let recencyScore = 0.4;
   if (item.publishedAt) {
     const ageHours = (Date.now() - item.publishedAt.getTime()) / (1000 * 60 * 60);
     const halfLife = 24;
