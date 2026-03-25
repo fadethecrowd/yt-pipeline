@@ -1,4 +1,5 @@
 import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
@@ -10,6 +11,8 @@ import type { PipelineContext, ScriptSegment, StageResult } from "../types";
 const execFile = promisify(execFileCb);
 
 const TITLE_CARD_DURATION = 4;
+const MIN_CLIP_DURATION = 3; // seconds — clips shorter than this are rejected
+const DURATION_TOLERANCE = 5; // seconds — allowed drift in final duration validation
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -17,14 +20,23 @@ const TITLE_CARD_DURATION = 4;
 const FFMPEG_FULL = "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg";
 const FFPROBE_FULL = "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe";
 
-const FFMPEG = require("fs").existsSync(FFMPEG_FULL) ? FFMPEG_FULL : "ffmpeg";
-const FFPROBE = require("fs").existsSync(FFPROBE_FULL) ? FFPROBE_FULL : "ffprobe";
+const FFMPEG = existsSync(FFMPEG_FULL) ? FFMPEG_FULL : "ffmpeg";
+const FFPROBE = existsSync(FFPROBE_FULL) ? FFPROBE_FULL : "ffprobe";
 
 async function ff(...args: string[]): Promise<void> {
   console.log(`[assembly] ffmpeg ${args.slice(0, 4).join(" ")}...`);
   await execFile(FFMPEG, ["-y", "-loglevel", "error", ...args], {
     maxBuffer: 50 * 1024 * 1024,
   });
+}
+
+/**
+ * Run ffmpeg with raw args (no -y / -loglevel prepended).
+ * Used when -stream_loop must be the very first input flag.
+ */
+async function ffRaw(args: string[]): Promise<void> {
+  console.log(`[assembly] ffmpeg ${args.slice(0, 6).join(" ")}...`);
+  await execFile(FFMPEG, args, { maxBuffer: 50 * 1024 * 1024 });
 }
 
 async function probeDuration(filePath: string): Promise<number> {
@@ -34,14 +46,16 @@ async function probeDuration(filePath: string): Promise<number> {
     "-of", "csv=p=0",
     filePath,
   ]);
-  return parseFloat(stdout.trim());
+  const dur = parseFloat(stdout.trim());
+  if (isNaN(dur)) throw new Error(`Could not probe duration: ${filePath}`);
+  return dur;
 }
 
 async function searchPexels(
   query: string,
-  apiKey: string
+  apiKey: string,
 ): Promise<string | null> {
-  const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape&size=medium`;
+  const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=3&orientation=landscape&size=medium`;
   const res = await fetch(url, { headers: { Authorization: apiKey } });
   if (!res.ok) {
     console.warn(`[assembly] Pexels search failed: ${res.status}`);
@@ -50,15 +64,19 @@ async function searchPexels(
   const data = (await res.json()) as any;
   if (!data.videos?.length) return null;
 
-  const files = data.videos[0].video_files as any[];
-  // Prefer HD quality closest to 1080p
-  const best = files
-    .filter((f: any) => f.width >= 1280)
-    .sort(
-      (a: any, b: any) =>
-        Math.abs(a.height - 1080) - Math.abs(b.height - 1080)
-    )[0];
-  return best?.link || files[0]?.link || null;
+  // Try up to 3 results to find a usable clip
+  for (const video of data.videos) {
+    const files = video.video_files as any[];
+    const best = files
+      .filter((f: any) => f.width >= 1280)
+      .sort(
+        (a: any, b: any) =>
+          Math.abs(a.height - 1080) - Math.abs(b.height - 1080),
+      )[0];
+    const link = best?.link || files[0]?.link;
+    if (link) return link;
+  }
+  return null;
 }
 
 async function downloadFile(url: string, dest: string): Promise<void> {
@@ -94,7 +112,7 @@ function formatSRTTime(totalSeconds: number): string {
 function generateSRT(
   segments: ScriptSegment[],
   actualDurations: number[],
-  titleOffset: number
+  titleOffset: number,
 ): string {
   const entries: string[] = [];
   let idx = 1;
@@ -115,7 +133,7 @@ function generateSRT(
       const start = offset + i * chunkDur;
       const end = offset + (i + 1) * chunkDur;
       entries.push(
-        `${idx}\n${formatSRTTime(start)} --> ${formatSRTTime(end)}\n${chunks[i]}`
+        `${idx}\n${formatSRTTime(start)} --> ${formatSRTTime(end)}\n${chunks[i]}`,
       );
       idx++;
     }
@@ -133,6 +151,122 @@ function escapeFilterPath(p: string): string {
     .replace(/'/g, "'\\''");
 }
 
+// ── Clip preparation ────────────────────────────────────────────────────
+
+/**
+ * Generate a solid-color fallback card with segment title text.
+ * Used when Pexels returns nothing or clip is too short.
+ */
+async function generateFallbackClip(
+  titleText: string,
+  duration: number,
+  outputPath: string,
+  tmpDir: string,
+  segIdx: number,
+): Promise<void> {
+  const titleFile = join(tmpDir, `seg-title-${segIdx}.txt`);
+  await writeFile(titleFile, wrapText(titleText));
+  await ff(
+    "-f", "lavfi",
+    "-i", `color=c=#2d2d44:s=1920x1080:d=${duration}:r=30`,
+    "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=40:fontcolor=white:x=(w-tw)/2:y=(h-th)/2`,
+    "-c:v", "libx264", "-preset", "fast",
+    "-t", String(duration),
+    outputPath,
+  );
+}
+
+/**
+ * Download a Pexels clip, verify duration, loop if needed, scale, and trim.
+ * Returns true if successful, false if fallback should be used.
+ */
+async function prepareClip(
+  seg: ScriptSegment,
+  segAudioDuration: number,
+  pexelsApiKey: string,
+  tmpDir: string,
+  clipPath: string,
+): Promise<boolean> {
+  const idx = seg.segmentIndex;
+
+  // Step 1: Search Pexels
+  console.log(`[assembly] Segment ${idx}: searching Pexels for "${seg.visual_prompt.slice(0, 50)}..."`);
+  const clipUrl = await searchPexels(seg.visual_prompt, pexelsApiKey);
+  if (!clipUrl) {
+    console.log(`[assembly] Segment ${idx}: no Pexels result`);
+    return false;
+  }
+
+  // Step 2: Download
+  const rawPath = join(tmpDir, `raw-${idx}.mp4`);
+  console.log(`[assembly] Segment ${idx}: downloading clip...`);
+  await downloadFile(clipUrl, rawPath);
+
+  // Step 3: Probe actual clip duration
+  let clipDuration: number;
+  try {
+    clipDuration = await probeDuration(rawPath);
+  } catch {
+    console.warn(`[assembly] Segment ${idx}: could not probe downloaded clip, using fallback`);
+    return false;
+  }
+
+  console.log(`[assembly] Segment ${idx}: clip duration ${clipDuration.toFixed(1)}s, need ${segAudioDuration.toFixed(1)}s`);
+
+  // Step 4: Reject clips under minimum duration
+  if (clipDuration < MIN_CLIP_DURATION) {
+    console.warn(`[assembly] Segment ${idx}: clip too short (${clipDuration.toFixed(1)}s < ${MIN_CLIP_DURATION}s), using fallback`);
+    return false;
+  }
+
+  // Step 5: Loop if clip is shorter than needed audio
+  let inputPath = rawPath;
+  if (clipDuration < segAudioDuration) {
+    const loopCount = Math.ceil(segAudioDuration / clipDuration) - 1;
+    const loopedPath = join(tmpDir, `looped-${idx}.mp4`);
+    console.log(`[assembly] Segment ${idx}: looping ${loopCount + 1}x (${clipDuration.toFixed(1)}s × ${loopCount + 1} = ${((loopCount + 1) * clipDuration).toFixed(1)}s)`);
+
+    // -stream_loop MUST be an input flag immediately before -i
+    await ffRaw([
+      "-y", "-loglevel", "error",
+      "-stream_loop", String(loopCount),
+      "-i", rawPath,
+      "-t", String(segAudioDuration),
+      "-c", "copy",
+      loopedPath,
+    ]);
+
+    // Verify the looped file has sufficient duration
+    const loopedDur = await probeDuration(loopedPath);
+    if (loopedDur < segAudioDuration - 1) {
+      console.warn(`[assembly] Segment ${idx}: loop produced ${loopedDur.toFixed(1)}s, need ${segAudioDuration.toFixed(1)}s — using fallback`);
+      return false;
+    }
+    inputPath = loopedPath;
+  }
+
+  // Step 6: Scale to 1080p and trim to exact segment duration
+  await ff(
+    "-i", inputPath,
+    "-t", String(segAudioDuration),
+    "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p",
+    "-r", "30",
+    "-c:v", "libx264", "-preset", "fast",
+    "-an",
+    clipPath,
+  );
+
+  // Step 7: Verify final clip duration
+  const finalDur = await probeDuration(clipPath);
+  console.log(`[assembly] Segment ${idx}: final clip ${finalDur.toFixed(1)}s (target: ${segAudioDuration.toFixed(1)}s)`);
+  if (finalDur < segAudioDuration - 1) {
+    console.warn(`[assembly] Segment ${idx}: final clip short (${finalDur.toFixed(1)}s vs ${segAudioDuration.toFixed(1)}s) — using fallback`);
+    return false;
+  }
+
+  return true;
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 /**
@@ -140,7 +274,7 @@ function escapeFilterPath(p: string): string {
  * Lays voiceover audio, burns subtitles, adds title card.
  */
 export async function videoAssembly(
-  ctx: PipelineContext
+  ctx: PipelineContext,
 ): Promise<StageResult> {
   const start = Date.now();
 
@@ -186,9 +320,11 @@ export async function videoAssembly(
     const dur = await probeDuration(mp3Path);
     actualDurations.push(dur);
     console.log(
-      `[assembly] Segment ${seg.segmentIndex} audio: ${dur.toFixed(1)}s (script estimate: ${seg.duration_seconds}s)`
+      `[assembly] Segment ${seg.segmentIndex} audio: ${dur.toFixed(1)}s (script estimate: ${seg.duration_seconds}s)`,
     );
   }
+
+  const expectedTotalDuration = TITLE_CARD_DURATION + actualDurations.reduce((a, b) => a + b, 0);
 
   // ── 2. Download Pexels clips & prepare each segment ────────────────
 
@@ -198,75 +334,43 @@ export async function videoAssembly(
     const idx = seg.segmentIndex;
     const clipPath = join(tmpDir, `clip-${idx}.mp4`);
 
-    console.log(
-      `[assembly] Segment ${idx}: searching Pexels for "${seg.visual_prompt.slice(0, 50)}..."`
-    );
-    const clipUrl = await searchPexels(seg.visual_prompt, config.PEXELS_API_KEY);
-
-    if (clipUrl) {
-      const rawPath = join(tmpDir, `raw-${idx}.mp4`);
-      console.log(`[assembly] Downloading clip for segment ${idx}...`);
-      await downloadFile(clipUrl, rawPath);
-
-      // Scale to 1080p, trim/loop to actual audio duration
-      await ff(
-        "-stream_loop", "-1",
-        "-i", rawPath,
-        "-t", String(duration),
-        "-vf",
-        "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p",
-        "-r", "30",
-        "-c:v", "libx264", "-preset", "fast",
-        "-an",
-        clipPath
-      );
-      console.log(
-        `[assembly] Prepared clip-${idx}.mp4 (${duration.toFixed(1)}s)`
-      );
-    } else {
-      // Fallback: dark background with segment title
-      console.log(
-        `[assembly] No Pexels result for segment ${idx}, using fallback`
-      );
-      const titleFile = join(tmpDir, `seg-title-${idx}.txt`);
-      await writeFile(titleFile, wrapText(seg.title));
-      await ff(
-        "-f", "lavfi",
-        "-i",
-        `color=c=#2d2d44:s=1920x1080:d=${duration}:r=30`,
-        "-vf",
-        `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=40:fontcolor=white:x=(w-tw)/2:y=(h-th)/2`,
-        "-c:v", "libx264", "-preset", "fast",
-        "-t", String(duration),
-        clipPath
-      );
+    let ok = false;
+    try {
+      ok = await prepareClip(seg, duration, config.PEXELS_API_KEY, tmpDir, clipPath);
+    } catch (err) {
+      console.warn(`[assembly] Segment ${idx}: clip preparation error: ${err instanceof Error ? err.message : err}`);
     }
+
+    if (!ok) {
+      console.log(`[assembly] Segment ${idx}: generating fallback card`);
+      await generateFallbackClip(seg.title, duration, clipPath, tmpDir, idx);
+    }
+
+    console.log(`[assembly] Prepared clip-${idx}.mp4 (${duration.toFixed(1)}s)`);
   }
 
-  // ── 2. Title card ──────────────────────────────────────────────────
+  // ── 3. Title card ──────────────────────────────────────────────────
 
   const titleTextFile = join(tmpDir, "title.txt");
   await writeFile(titleTextFile, wrapText(ctx.topic.title));
   const titlePath = join(tmpDir, "title.mp4");
   await ff(
     "-f", "lavfi",
-    "-i",
-    `color=c=#1a1a2e:s=1920x1080:d=${TITLE_CARD_DURATION}:r=30`,
-    "-vf",
-    `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleTextFile)}':fontsize=54:fontcolor=white:x=(w-tw)/2:y=(h-th)/2:line_spacing=10`,
+    "-i", `color=c=#1a1a2e:s=1920x1080:d=${TITLE_CARD_DURATION}:r=30`,
+    "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleTextFile)}':fontsize=54:fontcolor=white:x=(w-tw)/2:y=(h-th)/2:line_spacing=10`,
     "-c:v", "libx264", "-preset", "fast",
     "-t", String(TITLE_CARD_DURATION),
-    titlePath
+    titlePath,
   );
   console.log(`[assembly] Created title card (${TITLE_CARD_DURATION}s)`);
 
-  // ── 3. Generate SRT subtitles ──────────────────────────────────────
+  // ── 4. Generate SRT subtitles ──────────────────────────────────────
 
   const srtPath = join(tmpDir, "subtitles.srt");
   await writeFile(srtPath, generateSRT(segments, actualDurations, TITLE_CARD_DURATION));
   console.log(`[assembly] Generated subtitles.srt`);
 
-  // ── 4. Concatenate all clips ───────────────────────────────────────
+  // ── 5. Concatenate all clips ───────────────────────────────────────
 
   const concatEntries = [
     `file '${titlePath}'`,
@@ -280,13 +384,11 @@ export async function videoAssembly(
     "-f", "concat", "-safe", "0",
     "-i", concatFile,
     "-c", "copy",
-    concatPath
+    concatPath,
   );
-  console.log(
-    `[assembly] Concatenated ${segments.length + 1} clips`
-  );
+  console.log(`[assembly] Concatenated ${segments.length + 1} clips`);
 
-  // ── 5. Final pass: add audio + burn subtitles ──────────────────────
+  // ── 6. Final pass: add audio + burn subtitles ──────────────────────
 
   const finalPath = join(outputDir, "final.mp4");
   const subtitleFilter = `subtitles=${escapeFilterPath(srtPath)}:force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=40'`;
@@ -300,15 +402,46 @@ export async function videoAssembly(
     "-map", "0:v", "-map", "1:a",
     "-shortest",
     "-movflags", "+faststart",
-    finalPath
+    finalPath,
   );
   console.log(`[assembly] Final video: ${finalPath}`);
 
-  // ── 6. Cleanup tmp ─────────────────────────────────────────────────
+  // ── 7. Validate final video duration ───────────────────────────────
+
+  const finalDuration = await probeDuration(finalPath);
+  const drift = Math.abs(finalDuration - expectedTotalDuration);
+  console.log(`[assembly] Final duration: ${finalDuration.toFixed(1)}s (expected: ${expectedTotalDuration.toFixed(1)}s, drift: ${drift.toFixed(1)}s)`);
+
+  if (drift > DURATION_TOLERANCE) {
+    // Identify which segment(s) may have caused the mismatch
+    let offset = TITLE_CARD_DURATION;
+    for (let s = 0; s < segments.length; s++) {
+      const clipPath = join(tmpDir, `clip-${segments[s].segmentIndex}.mp4`);
+      if (existsSync(clipPath)) {
+        try {
+          const clipDur = await probeDuration(clipPath);
+          const expected = actualDurations[s];
+          const segDrift = Math.abs(clipDur - expected);
+          if (segDrift > 2) {
+            console.warn(
+              `[assembly] WARNING: Segment ${segments[s].segmentIndex} ("${segments[s].title}") clip is ${clipDur.toFixed(1)}s but audio is ${expected.toFixed(1)}s (drift: ${segDrift.toFixed(1)}s)`,
+            );
+          }
+        } catch {
+          // clip may have been cleaned up already
+        }
+      }
+      offset += actualDurations[s];
+    }
+
+    console.warn(`[assembly] WARNING: Final video duration drift ${drift.toFixed(1)}s exceeds ${DURATION_TOLERANCE}s tolerance`);
+  }
+
+  // ── 8. Cleanup tmp ─────────────────────────────────────────────────
 
   await rm(tmpDir, { recursive: true, force: true });
 
-  // ── 7. Update DB ───────────────────────────────────────────────────
+  // ── 9. Update DB ───────────────────────────────────────────────────
 
   await prisma.video.update({
     where: { id: ctx.video.id },
@@ -322,7 +455,7 @@ export async function videoAssembly(
 
   return {
     success: true,
-    data: { videoPath: finalPath },
+    data: { videoPath: finalPath, duration: finalDuration, expectedDuration: expectedTotalDuration },
     durationMs: Date.now() - start,
   };
 }
