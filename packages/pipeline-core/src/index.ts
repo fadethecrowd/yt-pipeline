@@ -19,7 +19,7 @@ export { env } from "./config";
 export type { Env } from "./config";
 
 // ── Lib ────────────────────────────────────────────────────────────────────
-export { prisma } from "./lib/db";
+export { prisma, disconnect } from "./lib/db";
 export { withAdvisoryLock } from "./lib/lock";
 export { withRetry } from "./lib/retry";
 

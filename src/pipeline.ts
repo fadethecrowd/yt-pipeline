@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { TopicStatus, VideoStatus } from "@prisma/client";
 import {
   prisma,
+  disconnect,
   withAdvisoryLock,
   withRetry,
   env,
@@ -278,9 +279,10 @@ const isDirectRun =
 
 if (isDirectRun) {
   runPipeline()
-    .catch((err) => {
+    .then(() => disconnect())
+    .catch(async (err) => {
       console.error("[pipeline] Fatal:", err);
-      process.exit(1);
-    })
-    .finally(() => prisma.$disconnect());
+      await disconnect();
+      process.exitCode = 1;
+    });
 }

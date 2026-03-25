@@ -1,10 +1,28 @@
-import { createReadStream, existsSync } from "node:fs";
-import FormData from "form-data";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { env } from "../config";
 import type { PipelineContext, StageResult } from "../types";
 
 /**
- * Send a Telegram media group with 3 thumbnail variants.
+ * Send a plain text message via Telegram.
+ */
+async function sendTextMessage(token: string, chatId: string, text: string): Promise<void> {
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`[notify] Telegram sendMessage failed: ${res.status} ${body}`);
+  }
+}
+
+/**
+ * Send a Telegram media group with thumbnail variants.
+ * Uses Node.js built-in FormData + Blob (requires Node 18+).
  */
 async function sendThumbnailGroup(ctx: PipelineContext): Promise<void> {
   const config = env();
@@ -13,7 +31,8 @@ async function sendThumbnailGroup(ctx: PipelineContext): Promise<void> {
     return;
   }
 
-  const paths = [ctx.thumbnailA, ctx.thumbnailB, ctx.thumbnailC].filter(
+  const allPaths = [ctx.thumbnailA, ctx.thumbnailB, ctx.thumbnailC];
+  const paths = allPaths.filter(
     (p): p is string => !!p && existsSync(p),
   );
 
@@ -23,6 +42,7 @@ async function sendThumbnailGroup(ctx: PipelineContext): Promise<void> {
   }
 
   const title = ctx.seo?.title ?? ctx.topic.title;
+  const youtubeUrl = ctx.youtubeId ? `https://youtu.be/${ctx.youtubeId}` : "";
   const caption = [
     `Thumbnail variants ready — "${title}"`,
     "",
@@ -33,6 +53,7 @@ async function sendThumbnailGroup(ctx: PipelineContext): Promise<void> {
     "C = Frame + big text overlay",
     "",
     "~2 min to set up. YouTube picks winner in 48-72hrs.",
+    ...(youtubeUrl ? ["", youtubeUrl] : []),
   ].join("\n");
 
   const labels = ["A", "B", "C"];
@@ -42,41 +63,62 @@ async function sendThumbnailGroup(ctx: PipelineContext): Promise<void> {
     ...(i === 0 ? { caption } : {}),
   }));
 
+  // Build multipart form using Node.js built-in FormData + Blob
   const form = new FormData();
   form.append("chat_id", config.TELEGRAM_CHAT_ID);
   form.append("media", JSON.stringify(media));
+
   for (let i = 0; i < paths.length; i++) {
-    form.append(`photo${i}`, createReadStream(paths[i]));
+    const buffer = await readFile(paths[i]);
+    const blob = new Blob([buffer], { type: "image/jpeg" });
+    form.append(`photo${i}`, blob, `thumbnail_${labels[i]}.jpg`);
   }
 
   const url = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendMediaGroup`;
   const res = await fetch(url, {
     method: "POST",
-    body: form as any,
-    headers: form.getHeaders(),
+    body: form,
   });
 
   if (!res.ok) {
     const body = await res.text();
-    console.error(`[notify] Telegram media group failed: ${res.status} ${body}`);
-  } else {
-    console.log(`[notify] Sent ${paths.length} thumbnail variants to Telegram`);
+    throw new Error(`sendMediaGroup ${res.status}: ${body}`);
   }
+
+  console.log(`[notify] Sent ${paths.length} thumbnail variants to Telegram`);
 }
 
 /**
  * Stage: Notify on pipeline result + deliver thumbnails to Telegram.
+ * Falls back to plain text if media group fails.
  */
 export async function notify(
-  ctx: PipelineContext
+  ctx: PipelineContext,
 ): Promise<StageResult> {
   const start = Date.now();
+  const config = env();
+  const hasTelegram = config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID;
   const failed = !!ctx.video.failReason;
 
   if (failed) {
     console.log(`[notify] Pipeline failed for video ${ctx.video.id}`);
     console.log(`[notify]   Topic:  ${ctx.topic.title}`);
     console.log(`[notify]   Reason: ${ctx.video.failReason}`);
+
+    // Send failure notification
+    if (hasTelegram) {
+      const text = [
+        `Pipeline failed for "${ctx.topic.title}"`,
+        `Reason: ${ctx.video.failReason}`,
+        `Video ID: ${ctx.video.id}`,
+      ].join("\n");
+
+      try {
+        await sendTextMessage(config.TELEGRAM_BOT_TOKEN!, config.TELEGRAM_CHAT_ID!, text);
+      } catch (err) {
+        console.error("[notify] Failure notification failed (non-fatal):", err instanceof Error ? err.message : err);
+      }
+    }
   } else {
     console.log(`[notify] Pipeline succeeded for video ${ctx.video.id}`);
     console.log(`[notify]   Topic:   ${ctx.topic.title}`);
@@ -84,11 +126,29 @@ export async function notify(
       console.log(`[notify]   YouTube: https://youtu.be/${ctx.youtubeId}`);
     }
 
-    // Send thumbnail variants to Telegram
-    try {
-      await sendThumbnailGroup(ctx);
-    } catch (err) {
-      console.error("[notify] Thumbnail delivery failed (non-fatal):", err instanceof Error ? err.message : err);
+    // Try media group with thumbnails, fall back to plain text
+    if (hasTelegram) {
+      try {
+        await sendThumbnailGroup(ctx);
+      } catch (err) {
+        console.error("[notify] Thumbnail delivery failed, sending text fallback:", err instanceof Error ? err.message : err);
+
+        // Fallback: plain text with YouTube URL
+        const title = ctx.seo?.title ?? ctx.topic.title;
+        const youtubeUrl = ctx.youtubeId ? `https://youtu.be/${ctx.youtubeId}` : "n/a";
+        const text = [
+          `Video uploaded: "${title}"`,
+          `YouTube: ${youtubeUrl}`,
+          "",
+          "(Thumbnail delivery failed — upload manually from tmp/)",
+        ].join("\n");
+
+        try {
+          await sendTextMessage(config.TELEGRAM_BOT_TOKEN!, config.TELEGRAM_CHAT_ID!, text);
+        } catch (fallbackErr) {
+          console.error("[notify] Text fallback also failed (non-fatal):", fallbackErr instanceof Error ? fallbackErr.message : fallbackErr);
+        }
+      }
     }
   }
 
