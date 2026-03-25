@@ -7,8 +7,6 @@ import {
   withAdvisoryLock,
   withRetry,
   env,
-  voiceover,
-  videoAssembly,
   notify,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
@@ -18,6 +16,8 @@ import { scriptGenerator } from "./stages/scriptGenerator";
 import { qualityGate } from "./stages/qualityGate";
 import { seoGenerator } from "./stages/seoGenerator";
 import { wcThumbnailGenerator } from "./stages/thumbnailGenerator";
+import { wcVoiceover } from "./stages/voiceover";
+import { wcVideoAssembly } from "./stages/videoAssembly";
 import { wcYoutubeUpload } from "./stages/youtubeUpload";
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -39,8 +39,8 @@ const STAGES: StageDefinition[] = [
   { name: "qualityGate",          execute: qualityGate,          retries: 0 },
   { name: "seoGenerator",         execute: seoGenerator,         retries: 2 },
   { name: "wcThumbnailGenerator", execute: wcThumbnailGenerator, retries: 2 },
-  { name: "voiceover",            execute: voiceover,            retries: 3 },
-  { name: "videoAssembly",        execute: videoAssembly,        retries: 3 },
+  { name: "voiceover",            execute: wcVoiceover,          retries: 3 },
+  { name: "videoAssembly",        execute: wcVideoAssembly,      retries: 3 },
   { name: "youtubeUpload",        execute: wcYoutubeUpload,      retries: 3 },
   { name: "notify",               execute: notify,               retries: 2 },
 ];
