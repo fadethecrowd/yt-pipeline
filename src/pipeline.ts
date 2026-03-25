@@ -279,10 +279,13 @@ const isDirectRun =
 
 if (isDirectRun) {
   runPipeline()
-    .then(() => disconnect())
+    .then(async () => {
+      await disconnect();
+      process.exit(0);
+    })
     .catch(async (err) => {
       console.error("[pipeline] Fatal:", err);
       await disconnect();
-      process.exitCode = 1;
+      process.exit(1);
     });
 }
