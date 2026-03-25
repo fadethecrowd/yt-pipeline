@@ -17,6 +17,7 @@ import { topicDiscovery } from "./stages/topicDiscovery";
 import { scriptGenerator } from "./stages/scriptGenerator";
 import { qualityGate } from "./stages/qualityGate";
 import { seoGenerator } from "./stages/seoGenerator";
+import { wcThumbnailGenerator } from "./stages/thumbnailGenerator";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -28,26 +29,27 @@ const WC_LOCK_ID = 789012;
 
 // ── Stage definitions (sequential) ────────────────────────────────────────
 //
-// Order: discover → script → quality gate → SEO → voiceover → assembly → upload → notify
-// SEO runs before voiceover because it only needs the script, not audio.
+// Order: discover → script → quality gate → SEO → thumbnail → voiceover → assembly → upload → notify
+// SEO + thumbnails run before voiceover because they only need the script, not audio.
 
 const STAGES: StageDefinition[] = [
-  { name: "topicDiscovery",  execute: topicDiscovery,  retries: 2 },
-  { name: "scriptGenerator", execute: scriptGenerator,  retries: 2 },
-  { name: "qualityGate",     execute: qualityGate,      retries: 0 },
-  { name: "seoGenerator",    execute: seoGenerator,     retries: 2 },
-  { name: "voiceover",       execute: voiceover,        retries: 3 },
-  { name: "videoAssembly",   execute: videoAssembly,    retries: 3 },
-  { name: "youtubeUpload",   execute: youtubeUpload,    retries: 3 },
-  { name: "notify",          execute: notify,           retries: 2 },
+  { name: "topicDiscovery",       execute: topicDiscovery,       retries: 2 },
+  { name: "scriptGenerator",      execute: scriptGenerator,      retries: 2 },
+  { name: "qualityGate",          execute: qualityGate,          retries: 0 },
+  { name: "seoGenerator",         execute: seoGenerator,         retries: 2 },
+  { name: "wcThumbnailGenerator", execute: wcThumbnailGenerator, retries: 2 },
+  { name: "voiceover",            execute: voiceover,            retries: 3 },
+  { name: "videoAssembly",        execute: videoAssembly,        retries: 3 },
+  { name: "youtubeUpload",        execute: youtubeUpload,        retries: 3 },
+  { name: "notify",               execute: notify,               retries: 2 },
 ];
 
 // Map video status → stage index to resume from.
 // Only statuses that indicate a stage completed but the next one hasn't started.
 const RESUME_FROM: Partial<Record<VideoStatus, number>> = {
-  [VideoStatus.SEO_DONE]:       4, // SEO done → resume at voiceover
-  [VideoStatus.VOICEOVER_DONE]: 5, // voiceover done → resume at videoAssembly
-  [VideoStatus.ASSEMBLY_DONE]:  6, // assembly done → resume at youtubeUpload
+  [VideoStatus.SEO_DONE]:       4, // SEO done → resume at wcThumbnailGenerator
+  [VideoStatus.VOICEOVER_DONE]: 6, // voiceover done → resume at videoAssembly
+  [VideoStatus.ASSEMBLY_DONE]:  7, // assembly done → resume at youtubeUpload
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
