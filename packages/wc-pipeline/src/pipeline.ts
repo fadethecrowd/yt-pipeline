@@ -9,7 +9,6 @@ import {
   env,
   voiceover,
   videoAssembly,
-  youtubeUpload,
   notify,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
@@ -19,6 +18,7 @@ import { scriptGenerator } from "./stages/scriptGenerator";
 import { qualityGate } from "./stages/qualityGate";
 import { seoGenerator } from "./stages/seoGenerator";
 import { wcThumbnailGenerator } from "./stages/thumbnailGenerator";
+import { wcYoutubeUpload } from "./stages/youtubeUpload";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ const STAGES: StageDefinition[] = [
   { name: "wcThumbnailGenerator", execute: wcThumbnailGenerator, retries: 2 },
   { name: "voiceover",            execute: voiceover,            retries: 3 },
   { name: "videoAssembly",        execute: videoAssembly,        retries: 3 },
-  { name: "youtubeUpload",        execute: youtubeUpload,        retries: 3 },
+  { name: "youtubeUpload",        execute: wcYoutubeUpload,      retries: 3 },
   { name: "notify",               execute: notify,               retries: 2 },
 ];
 
