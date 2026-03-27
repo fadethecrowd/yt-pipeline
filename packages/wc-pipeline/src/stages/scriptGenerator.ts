@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { VideoStatus } from "@prisma/client";
-import { prisma, env } from "@yt-pipeline/pipeline-core";
+import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 
 // ── Zod schema for Claude's JSON output ────────────────────────────────────
@@ -229,7 +229,7 @@ export async function generateScript(
 
   const userPrompt = parts.filter(Boolean).join("\n");
 
-  const message = await anthropic.messages.create({
+  const message = await createMessage(anthropic, {
     model: "claude-sonnet-4-6",
     max_tokens: 4096,
     system: systemPrompt,

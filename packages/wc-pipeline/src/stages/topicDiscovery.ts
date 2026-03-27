@@ -1,7 +1,7 @@
 import Parser from "rss-parser";
 import Anthropic from "@anthropic-ai/sdk";
 import { TopicStatus } from "@prisma/client";
-import { prisma, env } from "@yt-pipeline/pipeline-core";
+import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
 import type { FeedItem, PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
 
 // ── Configuration ───────────────────────────────────────────────────────────
@@ -325,7 +325,7 @@ async function classifyPillars(items: ScoredItem[]): Promise<ScoredItem[]> {
     .join("\n");
 
   try {
-    const message = await anthropic.messages.create({
+    const message = await createMessage(anthropic, {
       model: "claude-sonnet-4-6",
       max_tokens: 512,
       system: PILLAR_SYSTEM,

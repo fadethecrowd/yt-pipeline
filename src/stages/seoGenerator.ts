@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { VideoStatus } from "@prisma/client";
-import { prisma, env } from "@yt-pipeline/pipeline-core";
+import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, SEOMetadata, StageResult } from "@yt-pipeline/pipeline-core";
 
 const execFile = promisify(execFileCb);
@@ -81,7 +81,7 @@ async function callClaude(
   userPrompt: string,
   maxTokens = 2048,
 ): Promise<string> {
-  const message = await anthropic.messages.create({
+  const message = await createMessage(anthropic, {
     model: "claude-sonnet-4-6",
     max_tokens: maxTokens,
     system,

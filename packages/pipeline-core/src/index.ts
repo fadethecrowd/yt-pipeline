@@ -22,6 +22,7 @@ export type { Env } from "./config";
 export { prisma, disconnect } from "./lib/db";
 export { withAdvisoryLock } from "./lib/lock";
 export { withRetry } from "./lib/retry";
+export { createMessage } from "./lib/anthropic";
 
 // ── Shared Stages ──────────────────────────────────────────────────────────
 export { voiceover } from "./stages/voiceover";
