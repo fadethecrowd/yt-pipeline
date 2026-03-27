@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { google } from "googleapis";
 import { VideoStatus } from "@prisma/client";
 import { prisma, env } from "@yt-pipeline/pipeline-core";
@@ -124,6 +124,22 @@ export async function wcYoutubeUpload(
   }
 
   console.log(`[wc:youtubeUpload] Uploaded: https://youtu.be/${youtubeId}${preLaunch ? " (PRIVATE until launch)" : ""}`);
+
+  // Auto-set thumbnail (Variant A) immediately after upload
+  const thumbnailPath = ctx.thumbnailA;
+  if (thumbnailPath && existsSync(thumbnailPath)) {
+    try {
+      await youtube.thumbnails.set({
+        videoId: youtubeId,
+        media: { body: createReadStream(thumbnailPath) },
+      });
+      console.log(`[wc:youtubeUpload] Thumbnail applied: ${thumbnailPath}`);
+    } catch (err) {
+      console.error(`[wc:youtubeUpload] Thumbnail set failed (non-fatal): ${err instanceof Error ? err.message : err}`);
+    }
+  } else {
+    console.log("[wc:youtubeUpload] No thumbnail available to set");
+  }
 
   const result: UploadResult = {
     youtubeId,

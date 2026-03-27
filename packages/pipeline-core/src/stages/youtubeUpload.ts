@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { google } from "googleapis";
 import { VideoStatus } from "@prisma/client";
 import { prisma } from "../lib/db";
@@ -131,6 +131,22 @@ export async function youtubeUpload(
   }
 
   console.log(`[youtubeUpload] Uploaded: https://youtu.be/${youtubeId}`);
+
+  // Auto-set thumbnail (Variant A) immediately after upload
+  const thumbnailPath = ctx.thumbnailA;
+  if (thumbnailPath && existsSync(thumbnailPath)) {
+    try {
+      await youtube.thumbnails.set({
+        videoId: youtubeId,
+        media: { body: createReadStream(thumbnailPath) },
+      });
+      console.log(`[youtubeUpload] Thumbnail applied: ${thumbnailPath}`);
+    } catch (err) {
+      console.error(`[youtubeUpload] Thumbnail set failed (non-fatal): ${err instanceof Error ? err.message : err}`);
+    }
+  } else {
+    console.log("[youtubeUpload] No thumbnail available to set");
+  }
 
   const result: UploadResult = { youtubeId, scheduledAt };
 

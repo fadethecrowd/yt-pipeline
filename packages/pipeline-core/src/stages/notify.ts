@@ -21,76 +21,53 @@ async function sendTextMessage(token: string, chatId: string, text: string): Pro
 }
 
 /**
- * Send a Telegram media group with thumbnail variants.
- * Uses Node.js built-in FormData + Blob (requires Node 18+).
+ * Send the applied thumbnail to Telegram as a single photo with caption.
  */
-async function sendThumbnailGroup(ctx: PipelineContext): Promise<void> {
+async function sendAppliedThumbnail(ctx: PipelineContext): Promise<void> {
   const config = env();
   if (!config.TELEGRAM_BOT_TOKEN || !config.TELEGRAM_CHAT_ID) {
-    console.log("[notify] Telegram not configured, skipping thumbnail delivery");
+    console.log("[notify] Telegram not configured, skipping");
     return;
   }
 
-  const allPaths = [ctx.thumbnailA, ctx.thumbnailB, ctx.thumbnailC];
-  const paths = allPaths.filter(
-    (p): p is string => !!p && existsSync(p),
-  );
-
-  if (paths.length === 0) {
-    console.log("[notify] No thumbnail files found, skipping media group");
+  const thumbnailPath = ctx.thumbnailA;
+  if (!thumbnailPath || !existsSync(thumbnailPath)) {
+    console.log("[notify] No thumbnail file to send");
     return;
   }
 
   const title = ctx.seo?.title ?? ctx.topic.title;
   const youtubeUrl = ctx.youtubeId ? `https://youtu.be/${ctx.youtubeId}` : "";
   const caption = [
-    `Thumbnail variants ready — "${title}"`,
+    `Thumbnail applied — "${title}"`,
     "",
-    "Upload winner to YouTube Studio > Edit > Test & Compare",
-    "",
-    "A = Terminal (text only)",
-    "B = Frame + bottom strip",
-    "C = Frame + big text overlay",
-    "",
-    "~2 min to set up. YouTube picks winner in 48-72hrs.",
+    `Variant A (auto-selected)`,
     ...(youtubeUrl ? ["", youtubeUrl] : []),
   ].join("\n");
 
-  const labels = ["A", "B", "C"];
-  const media = paths.map((_, i) => ({
-    type: "photo" as const,
-    media: `attach://photo${i}`,
-    ...(i === 0 ? { caption } : {}),
-  }));
-
-  // Build multipart form using Node.js built-in FormData + Blob
   const form = new FormData();
   form.append("chat_id", config.TELEGRAM_CHAT_ID);
-  form.append("media", JSON.stringify(media));
+  form.append("caption", caption);
 
-  for (let i = 0; i < paths.length; i++) {
-    const buffer = await readFile(paths[i]);
-    const blob = new Blob([buffer], { type: "image/jpeg" });
-    form.append(`photo${i}`, blob, `thumbnail_${labels[i]}.jpg`);
-  }
+  const buffer = await readFile(thumbnailPath);
+  const blob = new Blob([buffer], { type: "image/jpeg" });
+  form.append("photo", blob, "thumbnail.jpg");
 
-  const url = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendMediaGroup`;
-  const res = await fetch(url, {
-    method: "POST",
-    body: form,
-  });
+  const url = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendPhoto`;
+  const res = await fetch(url, { method: "POST", body: form });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`sendMediaGroup ${res.status}: ${body}`);
+    throw new Error(`sendPhoto ${res.status}: ${body}`);
   }
 
-  console.log(`[notify] Sent ${paths.length} thumbnail variants to Telegram`);
+  console.log(`[notify] Sent applied thumbnail to Telegram`);
 }
 
 /**
- * Stage: Notify on pipeline result + deliver thumbnails to Telegram.
- * Falls back to plain text if media group fails.
+ * Stage: Notify on pipeline result via Telegram.
+ * On success: sends the applied thumbnail as confirmation (no approval required).
+ * On failure: sends error details as text.
  */
 export async function notify(
   ctx: PipelineContext,
@@ -105,7 +82,6 @@ export async function notify(
     console.log(`[notify]   Topic:  ${ctx.topic.title}`);
     console.log(`[notify]   Reason: ${ctx.video.failReason}`);
 
-    // Send failure notification
     if (hasTelegram) {
       const text = [
         `Pipeline failed for "${ctx.topic.title}"`,
@@ -126,21 +102,18 @@ export async function notify(
       console.log(`[notify]   YouTube: https://youtu.be/${ctx.youtubeId}`);
     }
 
-    // Try media group with thumbnails, fall back to plain text
     if (hasTelegram) {
       try {
-        await sendThumbnailGroup(ctx);
+        await sendAppliedThumbnail(ctx);
       } catch (err) {
-        console.error("[notify] Thumbnail delivery failed, sending text fallback:", err instanceof Error ? err.message : err);
+        console.error("[notify] Thumbnail notification failed, sending text fallback:", err instanceof Error ? err.message : err);
 
-        // Fallback: plain text with YouTube URL
         const title = ctx.seo?.title ?? ctx.topic.title;
         const youtubeUrl = ctx.youtubeId ? `https://youtu.be/${ctx.youtubeId}` : "n/a";
         const text = [
           `Video uploaded: "${title}"`,
           `YouTube: ${youtubeUrl}`,
-          "",
-          "(Thumbnail delivery failed — upload manually from tmp/)",
+          `Thumbnail: Variant A (applied to YouTube)`,
         ].join("\n");
 
         try {
