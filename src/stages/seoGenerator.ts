@@ -67,6 +67,28 @@ const titleRewriteSchema = z.array(
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
+/**
+ * Sanitize tags for YouTube API compliance.
+ * - Strip whitespace, remove special chars (<, >, &, quotes)
+ * - Truncate individual tags to 100 chars
+ * - Cap total character count at 500
+ */
+function sanitizeTags(tags: string[]): string[] {
+  const cleaned = tags
+    .map((t) => t.trim().replace(/[<>&"']/g, ""))
+    .filter((t) => t.length > 0)
+    .map((t) => t.slice(0, 100));
+
+  const result: string[] = [];
+  let totalChars = 0;
+  for (const tag of cleaned) {
+    if (totalChars + tag.length > 500) break;
+    result.push(tag);
+    totalChars += tag.length;
+  }
+  return result;
+}
+
 function parseJSON(text: string): unknown {
   let raw = text.trim();
   if (raw.startsWith("```")) {
@@ -306,9 +328,10 @@ ${JSON.stringify(ctx.script, null, 2)}`;
 
   // Override the title with our 3-round winner
   const seo: SEOMetadata = { ...validation.data, title: titles.primary };
+  seo.tags = sanitizeTags(seo.tags);
 
   console.log(`[seoGenerator] Title: ${seo.title}`);
-  console.log(`[seoGenerator] Tags: ${seo.tags.length}`);
+  console.log(`[seoGenerator] Tags (${seo.tags.length}): ${seo.tags.join(", ")}`);
   console.log(`[seoGenerator] Chapters: ${seo.chapters.length}`);
 
   await prisma.video.update({
