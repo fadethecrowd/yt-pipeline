@@ -295,10 +295,24 @@ export async function scriptGenerator(
     `[wc:scriptGenerator] Generated ${script.segments.length} segments, ~${script.estimatedTotalDuration}s, ~${wordCount} words`,
   );
 
+  // Compute hookSegment: hook narration + first segment, with timestamp range
+  const TITLE_CARD_OFFSET = 4;
+  const firstSeg = script.segments[0];
+  const hookEndSeconds = TITLE_CARD_OFFSET + (firstSeg?.duration_seconds ?? 45);
+  const hookSegment = JSON.stringify({
+    text: `${script.hook} ${firstSeg?.narration ?? ""}`.trim(),
+    startTime: "0:00",
+    endTime: `0:${String(Math.min(hookEndSeconds, 59)).padStart(2, "0")}`,
+    segmentIndex: 0,
+  });
+
+  console.log(`[wc:scriptGenerator] hookSegment: 0:00-0:${String(Math.min(hookEndSeconds, 59)).padStart(2, "0")}`);
+
   await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: {
       scriptJson: script as any,
+      hookSegment,
       status: VideoStatus.SCRIPT_DONE,
     },
   });

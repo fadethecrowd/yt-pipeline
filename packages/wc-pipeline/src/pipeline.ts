@@ -19,6 +19,7 @@ import { wcThumbnailGenerator } from "./stages/thumbnailGenerator";
 import { wcVoiceover } from "./stages/voiceover";
 import { wcVideoAssembly } from "./stages/videoAssembly";
 import { wcYoutubeUpload } from "./stages/youtubeUpload";
+import { wcShortsGenerator } from "./stages/shortsGenerator";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ const STAGES: StageDefinition[] = [
   { name: "voiceover",            execute: wcVoiceover,          retries: 3 },
   { name: "videoAssembly",        execute: wcVideoAssembly,      retries: 3 },
   { name: "youtubeUpload",        execute: wcYoutubeUpload,      retries: 3 },
+  { name: "shortsGenerator",      execute: wcShortsGenerator,    retries: 1 },
   { name: "notify",               execute: notify,               retries: 2 },
 ];
 
