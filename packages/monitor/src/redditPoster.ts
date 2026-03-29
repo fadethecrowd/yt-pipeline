@@ -3,6 +3,7 @@ import { prisma } from "./lib/prisma";
 import { env } from "./config";
 import { ActionType } from "./lib/types";
 import type { Decision } from "./lib/types";
+import { sendTelegram } from "./telegram";
 
 const SUBREDDIT_MAP: Record<string, string[]> = {
   ai: ["artificial", "ChatGPT"],
@@ -34,10 +35,7 @@ function pickSubreddit(title: string, summary: string): string {
  */
 export async function generateRedditPosts(): Promise<Decision[]> {
   const config = env();
-  if (!config.REDDIT_CLIENT_ID) {
-    console.log("[redditPoster] Reddit not configured, skipping");
-    return [];
-  }
+  const redditConfigured = !!(config.REDDIT_CLIENT_ID && config.REDDIT_CLIENT_SECRET && config.REDDIT_USERNAME && config.REDDIT_PASSWORD);
 
   const decisions: Decision[] = [];
 
@@ -124,19 +122,39 @@ Respond with ONLY JSON: {"title": "...", "body": "..."}`,
         },
       });
 
-      decisions.push({
-        videoId: video.id,
-        type: ActionType.REDDIT_POST,
-        payload: {
-          subreddit,
-          postTitle: parsed.title,
-          postBody: parsed.body,
-          youtubeUrl: `https://youtu.be/${video.youtubeId}`,
-        },
-        reason: `Draft Reddit post for r/${subreddit}`,
-      });
+      if (redditConfigured) {
+        // Reddit credentials available — route through approval flow for auto-posting
+        decisions.push({
+          videoId: video.id,
+          type: ActionType.REDDIT_POST,
+          payload: {
+            subreddit,
+            postTitle: parsed.title,
+            postBody: parsed.body,
+            youtubeUrl: `https://youtu.be/${video.youtubeId}`,
+          },
+          reason: `Draft Reddit post for r/${subreddit}`,
+        });
+      } else {
+        // No Reddit credentials — send draft to Telegram for manual posting
+        const telegramMsg = [
+          `*Reddit Draft* — r/${subreddit}`,
+          "",
+          `*${parsed.title}*`,
+          "",
+          parsed.body,
+          "",
+          `⚠️ Reddit auto-posting not active — copy and paste this manually to Reddit`,
+        ].join("\n");
 
-      console.log(`[redditPoster] Drafted post for ${video.id} → r/${subreddit}`);
+        try {
+          await sendTelegram(telegramMsg);
+        } catch {
+          // Non-fatal
+        }
+      }
+
+      console.log(`[redditPoster] Drafted post for ${video.id} → r/${subreddit}${redditConfigured ? "" : " (sent to Telegram for manual posting)"}`);
     } catch (err) {
       console.error(`[redditPoster] Failed to draft for ${video.id}:`, err instanceof Error ? err.message : err);
     }
@@ -148,11 +166,33 @@ Respond with ONLY JSON: {"title": "...", "body": "..."}`,
 /**
  * Post an approved Reddit draft using snoowrap.
  */
+/**
+ * Send a Reddit draft to Telegram for manual copy-paste.
+ */
+async function sendDraftToTelegram(draft: { subreddit: string; title: string; body: string }, reason: string): Promise<void> {
+  const msg = [
+    `*Reddit Draft* — r/${draft.subreddit}`,
+    "",
+    `*${draft.title}*`,
+    "",
+    draft.body,
+    "",
+    `⚠️ ${reason} — copy and paste this manually to Reddit`,
+  ].join("\n");
+
+  try {
+    await sendTelegram(msg);
+  } catch {
+    // Non-fatal
+  }
+}
+
+/**
+ * Post an approved Reddit draft using snoowrap.
+ * Falls back to Telegram delivery if credentials are missing or posting fails.
+ */
 export async function submitRedditPost(videoId: string): Promise<{ success: boolean; message: string }> {
   const config = env();
-  if (!config.REDDIT_CLIENT_ID || !config.REDDIT_CLIENT_SECRET || !config.REDDIT_USERNAME || !config.REDDIT_PASSWORD) {
-    return { success: false, message: "Reddit credentials not configured" };
-  }
 
   const draft = await prisma.redditPost.findFirst({
     where: { videoId, status: "DRAFT" },
@@ -161,6 +201,11 @@ export async function submitRedditPost(videoId: string): Promise<{ success: bool
 
   if (!draft) {
     return { success: false, message: "No draft Reddit post found" };
+  }
+
+  if (!config.REDDIT_CLIENT_ID || !config.REDDIT_CLIENT_SECRET || !config.REDDIT_USERNAME || !config.REDDIT_PASSWORD) {
+    await sendDraftToTelegram(draft, "Reddit auto-posting not active");
+    return { success: true, message: "Reddit not configured — draft sent to Telegram for manual posting" };
   }
 
   try {
@@ -195,13 +240,17 @@ export async function submitRedditPost(videoId: string): Promise<{ success: bool
     console.log(`[redditPoster] Posted to r/${draft.subreddit}: ${redditUrl}`);
     return { success: true, message: `Posted to r/${draft.subreddit}: ${redditUrl}` };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[redditPoster] Submit failed: ${msg}`);
+
+    // Auth rejection or other failure — send to Telegram as fallback
+    await sendDraftToTelegram(draft, `Reddit posting failed (${msg.slice(0, 60)})`);
+
     await prisma.redditPost.update({
       where: { id: draft.id },
       data: { status: "FAILED" },
     });
 
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[redditPoster] Submit failed: ${msg}`);
-    return { success: false, message: msg };
+    return { success: true, message: `Reddit post failed — draft sent to Telegram for manual posting` };
   }
 }
