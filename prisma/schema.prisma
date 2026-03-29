@@ -60,6 +60,7 @@ model Video {
 
   // Script stage
   scriptJson     Json?       // structured script: hook, segments[], cta
+  hookSegment    String?     // best hook excerpt + timestamp range for Shorts clipping
   qualityScore   Int?        // 0-100 from quality gate
 
   // Voiceover stage

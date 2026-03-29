@@ -56,6 +56,48 @@ export async function sendDailyDigest(): Promise<void> {
   const totalViews = entries.reduce((s, e) => s + e.views, 0);
   const totalDelta = entries.reduce((s, e) => s + e.viewsDelta, 0);
 
+  // ── Reddit posts this week ──────────────────────────────────────────
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const recentRedditPosts = await prisma.redditPost.findMany({
+    where: { status: "POSTED", postedAt: { gte: weekAgo } },
+  });
+
+  const redditLines: string[] = [];
+  if (recentRedditPosts.length > 0) {
+    redditLines.push("", "*Reddit Posts (7d)*");
+    for (const rp of recentRedditPosts) {
+      redditLines.push(`  r/${rp.subreddit}: ${rp.title.slice(0, 60)}`);
+    }
+  }
+
+  // ── Shorts this week ──────────────────────────────────────────────
+  const recentShorts = await prisma.monitorAction.findMany({
+    where: {
+      type: "GENERATE_SHORT",
+      status: "EXECUTED",
+      executedAt: { gte: weekAgo },
+    },
+  });
+
+  const shortsLines: string[] = [];
+  if (recentShorts.length > 0) {
+    shortsLines.push("", `*Shorts Uploaded (7d):* ${recentShorts.length}`);
+
+    // Find best performing Short vs its parent
+    for (const shortAction of recentShorts) {
+      const parentVideo = await prisma.video.findUnique({
+        where: { id: shortAction.videoId },
+        select: { seoTitle: true, youtubeId: true },
+      });
+      if (parentVideo) {
+        const resultUrl = shortAction.result?.match(/https:\/\/youtube\.com\/shorts\/\S+/)?.[0];
+        if (resultUrl) {
+          shortsLines.push(`  "${parentVideo.seoTitle?.slice(0, 40) ?? "Unknown"}" → ${resultUrl}`);
+        }
+      }
+    }
+  }
+
   const message = [
     `📊 *Daily Digest* — ${new Date().toISOString().slice(0, 10)}`,
     "",
@@ -63,6 +105,8 @@ export async function sendDailyDigest(): Promise<void> {
     `Videos tracked: ${entries.length}`,
     "",
     ...lines,
+    ...redditLines,
+    ...shortsLines,
   ].join("\n");
 
   await sendTelegram(message);

@@ -12,6 +12,12 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_CHAT_ID: z.coerce.string().min(1),
   POLL_INTERVAL_MS: z.coerce.number().default(900_000), // 15 min
+  // Reddit auto-posting (optional — disabled if not set)
+  REDDIT_CLIENT_ID: z.string().min(1).optional(),
+  REDDIT_CLIENT_SECRET: z.string().min(1).optional(),
+  REDDIT_USERNAME: z.string().min(1).optional(),
+  REDDIT_PASSWORD: z.string().min(1).optional(),
+  REDDIT_USER_AGENT: z.string().min(1).optional(),
 });
 
 let _env: MonitorConfig | null = null;

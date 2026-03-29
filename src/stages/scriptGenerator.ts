@@ -4,6 +4,8 @@ import { VideoStatus } from "@prisma/client";
 import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 
+const TITLE_CARD_OFFSET = 4; // seconds — matches videoAssembly title card duration
+
 // ── Zod schema for Claude's JSON output ────────────────────────────────────
 
 const segmentSchema = z.object({
@@ -145,11 +147,25 @@ export async function scriptGenerator(
     `[scriptGenerator] Generated ${script.segments.length} segments, ~${script.estimatedTotalDuration}s total`
   );
 
+  // Compute hookSegment: hook narration + first segment, with timestamp range
+  const hookText = script.hook;
+  const firstSeg = script.segments[0];
+  const hookEndSeconds = TITLE_CARD_OFFSET + (firstSeg?.duration_seconds ?? 45);
+  const hookSegment = JSON.stringify({
+    text: `${hookText} ${firstSeg?.narration ?? ""}`.trim(),
+    startTime: "0:00",
+    endTime: `0:${String(Math.min(hookEndSeconds, 59)).padStart(2, "0")}`,
+    segmentIndex: 0,
+  });
+
+  console.log(`[scriptGenerator] hookSegment: 0:00-0:${String(Math.min(hookEndSeconds, 59)).padStart(2, "0")}`);
+
   // Persist script and update status
   await prisma.video.update({
     where: { id: ctx.video.id },
     data: {
       scriptJson: script as any,
+      hookSegment,
       status: VideoStatus.SCRIPT_DONE,
     },
   });

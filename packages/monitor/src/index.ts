@@ -12,6 +12,8 @@ import { sendDailyDigest, shouldSendDigest } from "./digest";
 import { startBot, setLastTickTime } from "./telegram";
 import { scrapeRedditTopics } from "./redditScraper";
 import { detectLifecycleEvents } from "./lifecycleDetector";
+import { generateRedditPosts } from "./redditPoster";
+import { detectShortsNeeded } from "./shortsGenerator";
 
 const DAILY_MS = 24 * 60 * 60 * 1000;
 const DIGEST_HOUR_UTC = 14; // ~9 AM EST
@@ -50,6 +52,26 @@ async function tick(): Promise<void> {
     }
   } catch (err) {
     console.error("[monitor] Lifecycle detection failed (non-fatal):", err instanceof Error ? err.message : err);
+  }
+
+  // 3c. Reddit auto-posting for published videos (sends Telegram approval)
+  try {
+    const redditDecisions = await generateRedditPosts();
+    if (redditDecisions.length > 0) {
+      await executeDecisions(redditDecisions);
+    }
+  } catch (err) {
+    console.error("[monitor] Reddit posting failed (non-fatal):", err instanceof Error ? err.message : err);
+  }
+
+  // 3d. Shorts generation for published videos (auto-executes, no approval)
+  try {
+    const shortsDecisions = await detectShortsNeeded();
+    if (shortsDecisions.length > 0) {
+      await executeDecisions(shortsDecisions);
+    }
+  } catch (err) {
+    console.error("[monitor] Shorts generation failed (non-fatal):", err instanceof Error ? err.message : err);
   }
 
   // 4. Daily tasks — skip the first tick; only run at the scheduled hour

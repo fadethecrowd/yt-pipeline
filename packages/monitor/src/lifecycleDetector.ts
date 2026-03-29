@@ -148,6 +148,14 @@ Respond with ONLY a JSON object: {"youtubeId": "...", "title": "...", "reasoning
       const views = viewsMap.get(video.id) ?? 0;
       if (views >= avgViews) continue; // performing fine
 
+      // Gate: only re-promote if views > 50 AND avgViewDuration > 40s
+      if (views <= 50) continue;
+      const latestSnap = await prisma.videoSnapshot.findFirst({
+        where: { videoId: video.id },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!latestSnap?.avgViewDuration || latestSnap.avgViewDuration <= 40) continue;
+
       if (await hasExistingAction(video.id, ActionType.REPROMOTE)) continue;
 
       try {

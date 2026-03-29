@@ -10,6 +10,8 @@ import {
   regenerateThumbnail,
 } from "./executor";
 import { sendAlert, sendThumbnailVariants } from "./telegram";
+import { submitRedditPost } from "./redditPoster";
+import { generateAndUploadShort } from "./shortsGenerator";
 
 type ActionHandler = (decision: Decision) => Promise<ActionResult>;
 
@@ -117,6 +119,14 @@ const handlers: Record<ActionType, ActionHandler> = {
       `Re-Promotion Draft (copy-paste to YouTube Community)\n\n${draftText}\n\nVideo: https://youtu.be/${ytId}\nViews: ${views} (channel avg: ${Math.round(avgViews)})\n\nPost at: https://studio.youtube.com/channel/community`,
     );
     return { success: true, message: "Re-promotion draft sent to Telegram" };
+  },
+
+  [ActionType.REDDIT_POST]: async (d) => {
+    return submitRedditPost(d.videoId);
+  },
+
+  [ActionType.GENERATE_SHORT]: async (d) => {
+    return generateAndUploadShort(d.videoId);
   },
 
   [ActionType.ALERT]: async (d) => {

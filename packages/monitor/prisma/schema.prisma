@@ -59,6 +59,7 @@ model Video {
   status         VideoStatus @default(SCRIPT_PENDING)
 
   scriptJson     Json?
+  hookSegment    String?     // best hook excerpt + timestamp range for Shorts clipping
   qualityScore   Int?
 
   voiceoverUrls  String[]
@@ -94,6 +95,60 @@ model Video {
   @@index([createdAt])
 }
 
+// ── Wet Circuit models (shared DB, not used by monitor but must be present) ──
+
+model WcTopic {
+  id        String      @id @default(cuid())
+  title     String
+  url       String      @unique
+  source    String
+  summary   String?
+  score     Float?
+  status    TopicStatus @default(DISCOVERED)
+  videos    WcVideo[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@map("wc_topic")
+  @@index([status])
+  @@index([source])
+  @@index([createdAt])
+}
+
+model WcVideo {
+  id             String      @id @default(cuid())
+  topicId        String
+  topic          WcTopic     @relation(fields: [topicId], references: [id])
+  status         VideoStatus @default(SCRIPT_PENDING)
+  scriptJson     Json?
+  qualityScore   Int?
+  voiceoverUrls  String[]
+  voiceoverPath  String?
+  videoPath      String?
+  videoUrl       String?
+  thumbnailA     String?
+  thumbnailB     String?
+  thumbnailC     String?
+  seoTitle       String?
+  titleVariantB  String?
+  titleVariantC  String?
+  seoDescription String?
+  seoTags        String[]
+  seoChapters    Json?
+  youtubeId      String?
+  scheduledAt    DateTime?
+  publishedAt    DateTime?
+  failReason     String?
+  retryCount     Int         @default(0)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@map("wc_video")
+  @@index([status])
+  @@index([topicId])
+  @@index([createdAt])
+}
+
 // ── Monitor enums ───────────────────────────────────────────────────────
 
 enum ActionType {
@@ -107,6 +162,8 @@ enum ActionType {
   COMMUNITY_POST
   END_SCREEN
   REPROMOTE
+  REDDIT_POST
+  GENERATE_SHORT
   ALERT
 }
 
@@ -195,4 +252,20 @@ model TopicSeed {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+model RedditPost {
+  id            String   @id @default(cuid())
+  videoId       String
+  subreddit     String   // e.g. "r/artificial"
+  title         String
+  body          String
+  redditPostId  String?  // Reddit's thing ID after posting
+  redditUrl     String?  // full URL to the posted thread
+  status        String   @default("DRAFT") // DRAFT, APPROVED, POSTED, FAILED
+  createdAt     DateTime @default(now())
+  postedAt      DateTime?
+
+  @@index([videoId])
+  @@index([status])
 }

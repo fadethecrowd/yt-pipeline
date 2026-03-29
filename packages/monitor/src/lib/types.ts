@@ -11,6 +11,8 @@ export const ActionType = {
   COMMUNITY_POST: "COMMUNITY_POST",
   END_SCREEN: "END_SCREEN",
   REPROMOTE: "REPROMOTE",
+  REDDIT_POST: "REDDIT_POST",
+  GENERATE_SHORT: "GENERATE_SHORT",
   ALERT: "ALERT",
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
@@ -24,6 +26,7 @@ export const REQUIRES_APPROVAL: ReadonlySet<ActionType> = new Set([
   ActionType.REPLY_COMMENT,
   ActionType.COMMUNITY_POST,
   ActionType.REPROMOTE,
+  ActionType.REDDIT_POST,
 ]);
 
 export const ActionStatus = {
@@ -106,4 +109,9 @@ export interface MonitorConfig {
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
   POLL_INTERVAL_MS: number;
+  REDDIT_CLIENT_ID?: string;
+  REDDIT_CLIENT_SECRET?: string;
+  REDDIT_USERNAME?: string;
+  REDDIT_PASSWORD?: string;
+  REDDIT_USER_AGENT?: string;
 }

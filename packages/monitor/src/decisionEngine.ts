@@ -137,18 +137,22 @@ ${JSON.stringify(metricsContext, null, 2)}${commentsContext}
 
 Available actions:
 - UPDATE_TITLE: Video CTR is significantly below channel average and has enough impressions to be meaningful. Include a "newTitle" suggestion in payload. (Requires user approval.)
-- REGENERATE_THUMBNAIL: Thumbnail appears to be underperforming based on low CTR despite good content signals. (Requires user approval.)
+- REGENERATE_THUMBNAIL: ONLY when impressions > 100 AND CTR < 3%. Thumbnail is underperforming. (Requires user approval.)
 - UPDATE_DESCRIPTION: Video description needs improvement for better engagement or SEO. Include "newDescription" with the full rewritten description in payload. (Requires user approval.)
-- UPDATE_TAGS: Video discovery seems poor relative to its quality. You MUST include a "tags" array in the payload with 10-15 specific tag strings. (Requires user approval.)
+- UPDATE_TAGS: ONLY when impressions > 100 AND CTR < 3%. Discovery seems poor. You MUST include a "tags" array in the payload with 10-15 specific tag strings. (Requires user approval.)
 - PIN_COMMENT: A viewer comment deserves to be pinned (great question, useful summary, high engagement). Include "commentId" and "commentText" in payload. (Auto-sends alert.)
 - REPLY_COMMENT: A comment warrants a thoughtful channel reply. Include "commentId", "commentText" (the original), and "replyText" (your drafted reply) in payload. Keep replies authentic and conversational. (Requires user approval.)
-- ALERT: Anomalous performance worth flagging.
 - NO_ACTION: Metrics look normal or there's not enough data to act.
+
+HARD RULES:
+- NEVER suggest REGENERATE_THUMBNAIL or UPDATE_TAGS unless impressions > 100 AND CTR < 3%
+- NEVER suggest any action on videos with fewer than 10 views
+- Do NOT use the ALERT action — it has been removed
 
 You may suggest multiple actions per video if warranted (e.g. UPDATE_TAGS + REPLY_COMMENT).
 
 Respond with ONLY a JSON array:
-[{"videoId": "...", "action": "NO_ACTION|UPDATE_TITLE|REGENERATE_THUMBNAIL|UPDATE_DESCRIPTION|UPDATE_TAGS|PIN_COMMENT|REPLY_COMMENT|ALERT", "reasoning": "...", "payload": {}}]
+[{"videoId": "...", "action": "NO_ACTION|UPDATE_TITLE|REGENERATE_THUMBNAIL|UPDATE_DESCRIPTION|UPDATE_TAGS|PIN_COMMENT|REPLY_COMMENT", "reasoning": "...", "payload": {}}]
 
 Payload requirements by action type:
 - UPDATE_TITLE: payload MUST include {"newTitle": "..."}
@@ -277,6 +281,9 @@ export async function evaluate(
 
   // ── Rule-based: heart high-engagement comments ──────────────────────
   for (const m of metrics) {
+    // Skip videos with < 10 views — not enough data to act on
+    if (m.views < 10) continue;
+
     const unhearted = await prisma.comment.findMany({
       where: {
         videoId: m.videoId,
@@ -294,34 +301,8 @@ export async function evaluate(
       });
     }
 
-    // ── Alert on rapid view growth ──────────────────────────────────
-    const snapshots = await prisma.videoSnapshot.findMany({
-      where: { videoId: m.videoId },
-      orderBy: { createdAt: "desc" },
-      take: 2,
-    });
-
-    if (snapshots.length === 2) {
-      const viewDelta = snapshots[0].views - snapshots[1].views;
-      if (viewDelta > 1000) {
-        // Allow one ALERT per video per 24 hours
-        const recentAlert = await prisma.monitorAction.findFirst({
-          where: {
-            videoId: m.videoId,
-            type: ActionType.ALERT,
-            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-          },
-        });
-        if (!recentAlert) {
-          decisions.push({
-            videoId: m.videoId,
-            type: ActionType.ALERT,
-            payload: { viewDelta, currentViews: m.views },
-            reason: `Rapid growth: +${viewDelta} views since last poll`,
-          });
-        }
-      }
-    }
+    // NOTE: Standalone ALERT messages removed — bot only sends approval
+    // requests, action confirmations, and daily digest (no toothless alerts)
   }
 
   console.log(`[decisionEngine] Generated ${decisions.length} total decisions`);

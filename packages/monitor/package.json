@@ -16,6 +16,7 @@
     "dotenv": "^17.3.1",
     "googleapis": "^144.0.0",
     "node-telegram-bot-api": "^0.67.0",
+    "snoowrap": "^1.23.0",
     "sharp": "^0.34.5",
     "zod": "^3.24.0"
   },

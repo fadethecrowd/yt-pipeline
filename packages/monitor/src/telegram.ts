@@ -151,6 +151,12 @@ export async function sendApprovalRequest(actionId: string, decision: Decision):
     lines.push(`\nDraft:\n${decision.payload.draftText}`);
   }
 
+  if (decision.type === "REDDIT_POST") {
+    lines.push(`\nSubreddit: r/${decision.payload.subreddit}`);
+    lines.push(`Title: ${decision.payload.postTitle}`);
+    lines.push(`\nBody:\n${decision.payload.postBody}`);
+  }
+
   try {
     await bot.sendMessage(config.TELEGRAM_CHAT_ID, lines.join("\n"), {
       reply_markup: {
