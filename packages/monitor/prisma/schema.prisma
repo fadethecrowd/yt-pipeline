@@ -122,6 +122,7 @@ model WcVideo {
   topic          WcTopic     @relation(fields: [topicId], references: [id])
   status         VideoStatus @default(SCRIPT_PENDING)
   scriptJson     Json?
+  hookSegment    String?
   qualityScore   Int?
   voiceoverUrls  String[]
   voiceoverPath  String?
@@ -137,6 +138,7 @@ model WcVideo {
   seoTags        String[]
   seoChapters    Json?
   youtubeId      String?
+  shortsUrl      String?
   scheduledAt    DateTime?
   publishedAt    DateTime?
   failReason     String?

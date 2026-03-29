@@ -129,6 +129,7 @@ model WcVideo {
 
   // Script stage
   scriptJson     Json?
+  hookSegment    String?
   qualityScore   Int?
 
   // Voiceover stage
@@ -154,6 +155,7 @@ model WcVideo {
 
   // Upload stage
   youtubeId      String?
+  shortsUrl      String?
   scheduledAt    DateTime?
   publishedAt    DateTime?
 
