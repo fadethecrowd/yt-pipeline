@@ -7,7 +7,6 @@ import {
   withAdvisoryLock,
   withRetry,
   env,
-  notify,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -20,6 +19,7 @@ import { wcVoiceover } from "./stages/voiceover";
 import { wcVideoAssembly } from "./stages/videoAssembly";
 import { wcYoutubeUpload } from "./stages/youtubeUpload";
 import { wcShortsGenerator } from "./stages/shortsGenerator";
+import { wcNotify } from "./stages/notify";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ const STAGES: StageDefinition[] = [
   { name: "videoAssembly",        execute: wcVideoAssembly,      retries: 3 },
   { name: "youtubeUpload",        execute: wcYoutubeUpload,      retries: 3 },
   { name: "shortsGenerator",      execute: wcShortsGenerator,    retries: 1 },
-  { name: "notify",               execute: notify,               retries: 2 },
+  { name: "notify",               execute: wcNotify,             retries: 2 },
 ];
 
 // Map video status → stage index to resume from.
@@ -86,7 +86,7 @@ async function failVideo(
   ctx.video = { ...ctx.video, failReason };
 
   // Best-effort failure notification
-  await notify(ctx).catch(() => {});
+  await wcNotify(ctx).catch(() => {});
 }
 
 async function cleanupTmpDir(videoId: string): Promise<void> {

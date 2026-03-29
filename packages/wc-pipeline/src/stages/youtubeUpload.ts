@@ -126,7 +126,8 @@ export async function wcYoutubeUpload(
   console.log(`[wc:youtubeUpload] Uploaded: https://youtu.be/${youtubeId}${preLaunch ? " (PRIVATE until launch)" : ""}`);
 
   // Auto-set thumbnail (Variant A) immediately after upload
-  const thumbnailPath = ctx.thumbnailA;
+  // Try ctx first (set by wcThumbnailGenerator), fall back to DB record
+  const thumbnailPath = ctx.thumbnailA ?? video.thumbnailA;
   if (thumbnailPath && existsSync(thumbnailPath)) {
     try {
       await youtube.thumbnails.set({
