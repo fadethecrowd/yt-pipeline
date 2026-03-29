@@ -11,7 +11,6 @@ import {
 } from "./executor";
 import { sendAlert, sendThumbnailVariants } from "./telegram";
 import { submitRedditPost } from "./redditPoster";
-import { generateAndUploadShort } from "./shortsGenerator";
 
 type ActionHandler = (decision: Decision) => Promise<ActionResult>;
 
@@ -125,8 +124,8 @@ const handlers: Record<ActionType, ActionHandler> = {
     return submitRedditPost(d.videoId);
   },
 
-  [ActionType.GENERATE_SHORT]: async (d) => {
-    return generateAndUploadShort(d.videoId);
+  [ActionType.GENERATE_SHORT]: async () => {
+    return { success: false, message: "Shorts generation moved to pipeline — no longer handled by monitor" };
   },
 
   [ActionType.ALERT]: async (d) => {

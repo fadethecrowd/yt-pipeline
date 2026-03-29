@@ -86,6 +86,7 @@ model Video {
 
   // Upload stage
   youtubeId      String?     // YouTube video ID after upload
+  shortsUrl      String?     // YouTube Shorts URL after Short upload
   scheduledAt    DateTime?   // scheduled publish time
   publishedAt    DateTime?
 

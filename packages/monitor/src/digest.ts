@@ -70,31 +70,20 @@ export async function sendDailyDigest(): Promise<void> {
     }
   }
 
-  // ── Shorts this week ──────────────────────────────────────────────
-  const recentShorts = await prisma.monitorAction.findMany({
+  // ── Shorts this week (stored on Video by pipeline shortsGenerator) ──
+  const videosWithShorts = await prisma.video.findMany({
     where: {
-      type: "GENERATE_SHORT",
-      status: "EXECUTED",
-      executedAt: { gte: weekAgo },
+      shortsUrl: { not: null },
+      updatedAt: { gte: weekAgo },
     },
+    select: { seoTitle: true, youtubeId: true, shortsUrl: true },
   });
 
   const shortsLines: string[] = [];
-  if (recentShorts.length > 0) {
-    shortsLines.push("", `*Shorts Uploaded (7d):* ${recentShorts.length}`);
-
-    // Find best performing Short vs its parent
-    for (const shortAction of recentShorts) {
-      const parentVideo = await prisma.video.findUnique({
-        where: { id: shortAction.videoId },
-        select: { seoTitle: true, youtubeId: true },
-      });
-      if (parentVideo) {
-        const resultUrl = shortAction.result?.match(/https:\/\/youtube\.com\/shorts\/\S+/)?.[0];
-        if (resultUrl) {
-          shortsLines.push(`  "${parentVideo.seoTitle?.slice(0, 40) ?? "Unknown"}" → ${resultUrl}`);
-        }
-      }
+  if (videosWithShorts.length > 0) {
+    shortsLines.push("", `*Shorts Uploaded (7d):* ${videosWithShorts.length}`);
+    for (const v of videosWithShorts) {
+      shortsLines.push(`  "${v.seoTitle?.slice(0, 40) ?? "Unknown"}" → ${v.shortsUrl}`);
     }
   }
 

@@ -19,6 +19,7 @@ import { topicDiscovery } from "./stages/topicDiscovery";
 import { scriptGenerator } from "./stages/scriptGenerator";
 import { qualityGate } from "./stages/qualityGate";
 import { seoGenerator } from "./stages/seoGenerator";
+import { shortsGenerator } from "./stages/shortsGenerator";
 
 // ── Stage definitions (sequential) ────────────────────────────────────────
 
@@ -31,6 +32,7 @@ const STAGES: StageDefinition[] = [
   { name: "thumbnailGenerator", execute: thumbnailGenerator, retries: 2 },
   { name: "seoGenerator", execute: seoGenerator, retries: 2 },
   { name: "youtubeUpload", execute: youtubeUpload, retries: 3 },
+  { name: "shortsGenerator", execute: shortsGenerator, retries: 1 },
   { name: "notify", execute: notify, retries: 2 },
 ];
 

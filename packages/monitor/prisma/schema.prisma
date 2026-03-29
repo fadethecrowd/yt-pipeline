@@ -80,6 +80,7 @@ model Video {
   seoChapters    Json?
 
   youtubeId      String?
+  shortsUrl      String?
   scheduledAt    DateTime?
   publishedAt    DateTime?
 
