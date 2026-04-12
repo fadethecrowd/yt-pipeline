@@ -50,18 +50,25 @@ export async function verifyChannel(
   }
 
   const actualId = channel.id ?? "";
-  const actualTitle = channel.snippet?.title ?? "";
+  const actualTitle = (channel.snippet?.title ?? "").trim();
+  const expectedTitle = expected.title.trim();
 
   console.log(
     `[${serviceLabel}] Authenticated YouTube channel: title="${actualTitle}" id=${actualId}`,
   );
 
-  if (actualId !== expected.id || actualTitle !== expected.title) {
+  if (actualId !== expected.id) {
     throw new Error(
-      `[${serviceLabel}] YouTube channel mismatch — expected title="${expected.title}" id=${expected.id}, ` +
-        `but refresh token authenticates as title="${actualTitle}" id=${actualId}. ` +
+      `[${serviceLabel}] YouTube channel ID mismatch — expected id=${expected.id} ("${expected.title}"), ` +
+        `but refresh token authenticates as id=${actualId} ("${actualTitle}"). ` +
         `This service is pinned to "${expected.title}" only. Set YOUTUBE_REFRESH_TOKEN on this Railway ` +
         `service to the refresh_token from token-${expected.key}.json.`,
+    );
+  }
+
+  if (actualTitle !== expectedTitle) {
+    console.warn(
+      `[${serviceLabel}] Channel title differs from expected (ID matches, continuing): expected="${expectedTitle}" actual="${actualTitle}"`,
     );
   }
 
