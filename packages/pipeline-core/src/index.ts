@@ -18,6 +18,14 @@ export type {
 export { env } from "./config";
 export type { Env } from "./config";
 
+// ── YouTube Auth ───────────────────────────────────────────────────────────
+export {
+  buildYouTubeAuth,
+  verifyChannel,
+  CHANNELS,
+} from "./youtubeAuth";
+export type { ChannelKey, ChannelSpec } from "./youtubeAuth";
+
 // ── Lib ────────────────────────────────────────────────────────────────────
 export { prisma, disconnect } from "./lib/db";
 export { withAdvisoryLock } from "./lib/lock";

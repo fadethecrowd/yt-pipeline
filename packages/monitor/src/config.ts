@@ -8,6 +8,7 @@ const envSchema = z.object({
   YOUTUBE_CLIENT_SECRET: z.string().min(1),
   YOUTUBE_REFRESH_TOKEN: z.string().min(1),
   YOUTUBE_CHANNEL_ID: z.string().min(1),
+  CHANNEL: z.enum(["wet-circuit", "ai-doom-scroll"]),
   ANTHROPIC_API_KEY: z.string().min(1),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_CHAT_ID: z.coerce.string().min(1),

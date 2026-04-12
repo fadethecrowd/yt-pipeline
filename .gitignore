@@ -5,3 +5,8 @@ dist/
 *.mp3
 *.mp4
 .DS_Store
+
+# Local-only YouTube OAuth token files — never commit
+token-ai-doom-scroll.json
+token-wet-circuit.json
+token.json

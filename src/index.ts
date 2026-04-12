@@ -2,7 +2,7 @@
 export { runPipeline } from "./pipeline";
 
 import { runPipeline } from "./pipeline";
-import { disconnect } from "@yt-pipeline/pipeline-core";
+import { disconnect, verifyChannel, CHANNELS } from "@yt-pipeline/pipeline-core";
 
 // ── Hard timeout: kill the process if pipeline exceeds 30 minutes ────────
 const PIPELINE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -20,7 +20,17 @@ process.on("SIGTERM", async () => {
 });
 
 // ── Run pipeline ─────────────────────────────────────────────────────────
-runPipeline()
+verifyChannel(CHANNELS["ai-doom-scroll"], "pipeline")
+  .then(async () => {
+    if (process.env.PIPELINE_MODE === "auth_check") {
+      console.log(
+        "[pipeline] PIPELINE_MODE=auth_check — skipping runPipeline(), exiting 0",
+      );
+      await disconnect();
+      process.exit(0);
+    }
+    return runPipeline();
+  })
   .then(async () => {
     await disconnect();
     process.exit(0);

@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@prisma/client": "^6.3.0",
+    "@yt-pipeline/pipeline-core": "*",
     "dotenv": "^17.3.1",
     "googleapis": "^144.0.0",
     "node-telegram-bot-api": "^0.67.0",

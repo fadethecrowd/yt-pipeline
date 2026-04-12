@@ -17,8 +17,11 @@
  *   4. Print the refresh token — add it to .env as YOUTUBE_REFRESH_TOKEN
  */
 import "dotenv/config";
+import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { google } from "googleapis";
+
+const TOKEN_FILE = "token-ai-doom-scroll.json";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
@@ -77,13 +80,24 @@ async function main() {
       process.exit(1);
     }
 
+    writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2));
+
     console.log("\n=== Success! ===\n");
-    console.log("Add this to your .env file:\n");
+    console.log(`Credentials saved to ${TOKEN_FILE}`);
+    console.log("\nAdd this to your .env file:\n");
     console.log(`YOUTUBE_REFRESH_TOKEN="${tokens.refresh_token}"`);
-    console.log(
-      "\nAccess token (expires, for reference only):",
-      tokens.access_token?.slice(0, 20) + "..."
-    );
+
+    auth.setCredentials(tokens);
+    const yt = google.youtube({ version: "v3", auth });
+    const res = await yt.channels.list({ part: ["snippet"], mine: true });
+    const channel = res.data.items?.[0];
+    if (!channel) {
+      console.error("\nNo channel returned for this token.");
+      process.exit(1);
+    }
+    console.log("\n=== Authenticated YouTube Channel ===");
+    console.log(`Title: ${channel.snippet?.title}`);
+    console.log(`ID:    ${channel.id}`);
   } catch (err: any) {
     console.error("\nFailed to exchange code for tokens:", err.message);
     process.exit(1);

@@ -2,6 +2,7 @@
 if (!process.env.RAILWAY_ENVIRONMENT) {
   require("dotenv/config");
 }
+import { verifyChannel, CHANNELS } from "@yt-pipeline/pipeline-core";
 import { prisma } from "./lib/prisma";
 import { env } from "./config";
 import { pollVideoMetrics } from "./poller";
@@ -89,8 +90,19 @@ async function tick(): Promise<void> {
 
 async function main(): Promise<void> {
   const config = env();
+  const serviceLabel = `monitor:${config.CHANNEL}`;
+  const expected = CHANNELS[config.CHANNEL];
+
+  await verifyChannel(expected, serviceLabel);
+
+  if (config.YOUTUBE_CHANNEL_ID !== expected.id) {
+    throw new Error(
+      `[${serviceLabel}] YOUTUBE_CHANNEL_ID (${config.YOUTUBE_CHANNEL_ID}) does not match pinned channel ${expected.id} for CHANNEL=${config.CHANNEL}`,
+    );
+  }
+
   console.log(
-    `[monitor] Starting with poll interval ${config.POLL_INTERVAL_MS}ms`,
+    `[${serviceLabel}] Starting with poll interval ${config.POLL_INTERVAL_MS}ms`,
   );
 
   // Check for ChannelGoal

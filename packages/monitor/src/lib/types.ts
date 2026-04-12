@@ -105,6 +105,7 @@ export interface MonitorConfig {
   YOUTUBE_CLIENT_SECRET: string;
   YOUTUBE_REFRESH_TOKEN: string;
   YOUTUBE_CHANNEL_ID: string;
+  CHANNEL: "wet-circuit" | "ai-doom-scroll";
   ANTHROPIC_API_KEY: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
