@@ -23,11 +23,15 @@ RUN npm ci \
 # .dockerignore keeps node_modules, dist, secrets, and scripts out.
 COPY . .
 
+# ── Generate Prisma client BEFORE TypeScript builds ─────────────────────
+# Monitor's schema is a superset of the root schema — it defines the
+# pipeline models (Topic/Video/VideoStatus — imported by pipeline-core)
+# plus the channel-scoped monitor tables (imported by monitor). A single
+# generate against this schema satisfies both packages.
+RUN npx prisma generate --schema=packages/monitor/prisma/schema.prisma
+
 # pipeline-core must build first (monitor imports from its dist/).
 RUN npm run build --workspace=packages/pipeline-core \
  && npm run build --workspace=packages/monitor
-
-# Generate Prisma client against monitor's schema (the one with channel columns).
-RUN npx prisma generate --schema=packages/monitor/prisma/schema.prisma
 
 CMD ["node", "packages/monitor/dist/index.js"]
