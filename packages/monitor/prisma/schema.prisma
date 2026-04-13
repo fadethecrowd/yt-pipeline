@@ -89,7 +89,8 @@ model Video {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  snapshots      VideoSnapshot[]
+  // VideoSnapshot relation removed — monitor tables are now channel-scoped
+  // and reference videoId as a plain string (see packages/monitor/src/lib/channelDb.ts).
 
   @@index([status])
   @@index([topicId])
@@ -178,43 +179,52 @@ enum ActionStatus {
   SKIPPED
 }
 
-// ── Monitor models ──────────────────────────────────────────────────────
+// ── Monitor models (channel-scoped) ─────────────────────────────────────
+//
+// All monitor-owned tables carry a `channel` column so a single Postgres
+// instance can host state for multiple channel deploys (CHANNEL env var).
+// FKs from these tables to Video are intentionally dropped so a row's
+// videoId can reference either `Video` (ai-doom-scroll) or `wc_video`
+// (wet-circuit). App-level integrity is enforced in channelDb.ts.
 
 model VideoSnapshot {
-  id                    String   @id @default(cuid())
-  videoId               String
-  video                 Video    @relation(fields: [videoId], references: [id])
-  views                 Int
-  likes                 Int
-  comments              Int
-  ctr                   Float?
-  impressions           Int?
-  avgViewDuration       Float?
-  avgViewPercentage     Float?
+  id                      String   @id @default(cuid())
+  channel                 String
+  videoId                 String
+  views                   Int
+  likes                   Int
+  comments                Int
+  ctr                     Float?
+  impressions             Int?
+  avgViewDuration         Float?
+  avgViewPercentage       Float?
   estimatedMinutesWatched Float?
-  createdAt             DateTime @default(now())
+  createdAt               DateTime @default(now())
 
-  @@index([videoId, createdAt])
+  @@index([channel, videoId, createdAt])
 }
 
 model Comment {
-  id            String   @id @default(cuid())
-  videoId       String
-  youtubeCommentId String @unique
-  authorName    String
-  authorChannel String?
-  text          String
-  likeCount     Int      @default(0)
-  isHearted     Boolean  @default(false)
-  isPinned      Boolean  @default(false)
-  publishedAt   DateTime
-  scrapedAt     DateTime @default(now())
+  id               String   @id @default(cuid())
+  channel          String
+  videoId          String
+  youtubeCommentId String
+  authorName       String
+  authorChannel    String?
+  text             String
+  likeCount        Int      @default(0)
+  isHearted        Boolean  @default(false)
+  isPinned         Boolean  @default(false)
+  publishedAt      DateTime
+  scrapedAt        DateTime @default(now())
 
-  @@index([videoId, publishedAt])
+  @@unique([channel, youtubeCommentId])
+  @@index([channel, videoId, publishedAt])
 }
 
 model MonitorAction {
   id         String       @id @default(cuid())
+  channel    String
   videoId    String
   type       ActionType
   status     ActionStatus @default(PENDING)
@@ -224,21 +234,27 @@ model MonitorAction {
   createdAt  DateTime     @default(now())
   executedAt DateTime?
 
-  @@index([videoId])
-  @@index([status])
+  @@index([channel, videoId])
+  @@index([channel, status])
+  @@index([channel, videoId, type, status])
 }
 
 model DigestLog {
   id         String   @id @default(cuid())
+  channel    String
   period     String
   videoCount Int
   summary    String
   sentVia    String
   createdAt  DateTime @default(now())
+
+  @@unique([channel, period, createdAt])
+  @@index([channel, period, createdAt])
 }
 
 model ChannelGoal {
   id                  String   @id @default(cuid())
+  channel             String   @unique
   goal                String
   autonomyTier        Int      @default(2)
   bootstrapBenchmarks Json     @default("{\"avgCtr\":4.5,\"avgViewDuration\":40,\"avgViews48hr\":500,\"avgSubsPerVideo\":10}")
@@ -248,27 +264,30 @@ model ChannelGoal {
 
 model TopicSeed {
   id        String   @id @default(cuid())
+  channel   String
   title     String
   rationale String
   source    String   // e.g. "reddit:r/artificial"
   usedAt    DateTime?
   createdAt DateTime @default(now())
 
-  @@index([createdAt])
+  @@index([channel, createdAt])
 }
 
 model RedditPost {
-  id            String   @id @default(cuid())
-  videoId       String
-  subreddit     String   // e.g. "r/artificial"
-  title         String
-  body          String
-  redditPostId  String?  // Reddit's thing ID after posting
-  redditUrl     String?  // full URL to the posted thread
-  status        String   @default("DRAFT") // DRAFT, APPROVED, POSTED, FAILED
-  createdAt     DateTime @default(now())
-  postedAt      DateTime?
+  id           String    @id @default(cuid())
+  channel      String
+  videoId      String
+  subreddit    String    // e.g. "r/artificial"
+  title        String
+  body         String
+  redditPostId String?   // Reddit's thing ID after posting
+  redditUrl    String?   // full URL to the posted thread
+  status       String    @default("DRAFT") // DRAFT, APPROVED, POSTED, FAILED
+  createdAt    DateTime  @default(now())
+  postedAt     DateTime?
 
-  @@index([videoId])
-  @@index([status])
+  @@unique([channel, videoId, subreddit])
+  @@index([channel, videoId])
+  @@index([channel, status])
 }
