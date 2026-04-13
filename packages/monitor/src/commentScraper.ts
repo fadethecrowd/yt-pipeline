@@ -1,23 +1,23 @@
-import { prisma } from "./lib/prisma";
+import { videos, comments } from "./lib/channelDb";
 import { youtube } from "./lib/youtube";
 import type { YouTubeComment } from "./lib/types";
 
 /**
  * Scrape new comments for all uploaded videos.
- * Deduplicates by YouTube comment ID.
+ * Deduplicates by (channel, YouTube comment ID).
  */
 export async function scrapeComments(): Promise<YouTubeComment[]> {
-  const videos = await prisma.video.findMany({
+  const videoRows = await videos.findMany({
     where: { youtubeId: { not: null } },
     select: { id: true, youtubeId: true },
   });
 
-  if (videos.length === 0) return [];
+  if (videoRows.length === 0) return [];
 
   const yt = youtube();
   const allComments: YouTubeComment[] = [];
 
-  for (const video of videos) {
+  for (const video of videoRows) {
     try {
       const res = await yt.commentThreads.list({
         part: ["snippet"],
@@ -49,14 +49,12 @@ export async function scrapeComments(): Promise<YouTubeComment[]> {
 
   if (allComments.length === 0) return [];
 
-  // Upsert to avoid duplicates
+  // Upsert to avoid duplicates (scoped by channel + youtubeCommentId)
   let inserted = 0;
   for (const c of allComments) {
-    const existing = await prisma.comment.findUnique({
-      where: { youtubeCommentId: c.youtubeCommentId },
-    });
+    const existing = await comments.findByYoutubeCommentId(c.youtubeCommentId);
     if (!existing) {
-      await prisma.comment.create({
+      await comments.create({
         data: {
           videoId: c.videoId,
           youtubeCommentId: c.youtubeCommentId,

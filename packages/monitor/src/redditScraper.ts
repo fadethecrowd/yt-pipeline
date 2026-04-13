@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { prisma } from "./lib/prisma";
+import { goal as goalDb, topicSeeds } from "./lib/channelDb";
+import { getChannelConfig } from "./lib/channelConfig";
 import { env } from "./config";
 
-const SUBREDDITS = ["artificial", "MachineLearning", "ChatGPT"];
 const USER_AGENT = "yt-pipeline-monitor/0.1.0";
 
 interface RedditPost {
@@ -73,10 +73,11 @@ async function fetchTopComments(subreddit: string, postId: string): Promise<stri
  */
 export async function scrapeRedditTopics(): Promise<void> {
   const config = env();
+  const channelConfig = getChannelConfig();
 
-  // 1. Fetch posts from all subreddits
+  // 1. Fetch posts from all subreddits configured for this channel
   const allPosts: RedditPost[] = [];
-  for (const sub of SUBREDDITS) {
+  for (const sub of channelConfig.scrapeSubreddits) {
     const posts = await fetchSubreddit(sub);
     allPosts.push(...posts);
   }
@@ -92,22 +93,21 @@ export async function scrapeRedditTopics(): Promise<void> {
 
   console.log(`[redditScraper] Fetched ${allPosts.length} posts, using top ${topPosts.length}`);
 
-  // 2. Get channel goal for context
-  const goal = await prisma.channelGoal.findFirst({
-    orderBy: { updatedAt: "desc" },
-  });
-  const goalText = goal?.goal ?? "AI and technology news for a general audience";
+  // 2. Get channel goal for context (current channel only)
+  const goal = await goalDb.find();
+  const goalText = goal?.goal ?? channelConfig.contentDescription;
 
   // 3. Build prompt with post data
   const postSummary = topPosts
     .map((p, i) => `${i + 1}. [r/${p.subreddit}] (score: ${p.score}) ${p.title}`)
     .join("\n");
 
-  const prompt = `You are a YouTube content strategist for an AI/tech channel.
+  const prompt = `You are a YouTube content strategist.
 
+Channel content domain: ${channelConfig.contentDescription}
 Channel goal: ${goalText}
 
-Below are today's top Reddit posts from AI/ML subreddits:
+Below are today's top Reddit posts from subreddits relevant to this channel:
 
 ${postSummary}
 
@@ -143,13 +143,12 @@ Example: [{"title": "...", "rationale": "..."}]`;
     return;
   }
 
-  // 6. Write to TopicSeed table
+  // 6. Write to TopicSeed table (current channel only)
   let inserted = 0;
+  const source = `reddit:${channelConfig.scrapeSubreddits.map((s) => `r/${s}`).join("+")}`;
   for (const c of candidates) {
     if (!c.title) continue;
-    // Determine primary source subreddit from the posts that inspired it
-    const source = `reddit:${SUBREDDITS.map((s) => `r/${s}`).join("+")}`;
-    await prisma.topicSeed.create({
+    await topicSeeds.create({
       data: {
         title: c.title,
         rationale: c.rationale ?? "",

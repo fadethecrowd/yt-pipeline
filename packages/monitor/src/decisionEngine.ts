@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ActionType } from "./lib/types";
-import { prisma } from "./lib/prisma";
+import { videos, snapshots, comments, actions, goal as goalDb } from "./lib/channelDb";
 import { env } from "./config";
 import type { BootstrapBenchmarks, Decision, VideoMetrics } from "./lib/types";
 
@@ -20,15 +20,13 @@ interface Baseline {
  * Otherwise compute from actual data.
  */
 async function getBaseline(): Promise<Baseline> {
-  // ── 1. ChannelGoal lookup ───────────────────────────────────────────
-  const goal = await prisma.channelGoal.findFirst({
-    orderBy: { updatedAt: "desc" },
-  });
+  // ── 1. ChannelGoal lookup (current channel only) ────────────────────
+  const goal = await goalDb.find();
 
   if (goal) {
-    console.log(`[decisionEngine] ChannelGoal FOUND (id=${goal.id}, goal="${goal.goal}")`);
+    console.log(`[decisionEngine] ChannelGoal FOUND (channel=${goal.channel}, id=${goal.id}, goal="${goal.goal}")`);
   } else {
-    console.log(`[decisionEngine] ChannelGoal NOT FOUND — no goal set in DB`);
+    console.log(`[decisionEngine] ChannelGoal NOT FOUND for this channel — no goal set`);
   }
 
   let bm: BootstrapBenchmarks | null = null;
@@ -40,7 +38,7 @@ async function getBaseline(): Promise<Baseline> {
   }
 
   // ── 2. Count unique videos with snapshots ───────────────────────────
-  const snapshotVideoCount = await prisma.videoSnapshot.groupBy({
+  const snapshotVideoCount = await snapshots.groupBy({
     by: ["videoId"],
     _count: true,
   });
@@ -62,13 +60,13 @@ async function getBaseline(): Promise<Baseline> {
     return result;
   }
 
-  // Warm channel — compute from actual snapshots
-  const avgCtr = await prisma.videoSnapshot.aggregate({
+  // Warm channel — compute from actual snapshots (current channel only)
+  const avgCtr = await snapshots.aggregate({
     _avg: { ctr: true },
     where: { ctr: { not: null } },
   });
 
-  const computedCtr = avgCtr._avg.ctr ?? 3;
+  const computedCtr = avgCtr._avg?.ctr ?? 3;
   const result: Baseline = {
     ctrThreshold: computedCtr / 100,
     viewsThreshold: 100,
@@ -104,8 +102,8 @@ async function claudeEvaluate(
     avgViewDuration: m.avgViewDuration ?? "unknown",
   }));
 
-  // Fetch recent comments for comment-based actions
-  const recentComments = await prisma.comment.findMany({
+  // Fetch recent comments for comment-based actions (current channel only)
+  const recentComments = await comments.findMany({
     where: { videoId: { in: metrics.map((m) => m.videoId) } },
     orderBy: { likeCount: "desc" },
     take: 20,
@@ -200,7 +198,7 @@ Be specific in your reasoning — reference the actual numbers. Only suggest act
       }
 
       // Validate videoId exists in DB — Claude sometimes hallucinates IDs
-      const videoExists = await prisma.video.findUnique({ where: { id: cd.videoId }, select: { id: true } });
+      const videoExists = await videos.findUnique({ where: { id: cd.videoId }, select: { id: true } });
       if (!videoExists) {
         console.warn(`[decisionEngine] Skipping ${cd.action} — videoId ${cd.videoId} not found in DB`);
         continue;
@@ -208,7 +206,7 @@ Be specific in your reasoning — reference the actual numbers. Only suggest act
 
       // Dedup: ALERTs are allowed once per video per 24h; other types blocked if pending/executed/awaiting
       const isAlert = cd.action === ActionType.ALERT;
-      const existing = await prisma.monitorAction.findFirst({
+      const existing = await actions.findFirst({
         where: {
           videoId: cd.videoId,
           type: cd.action as ActionType,
@@ -259,7 +257,7 @@ export async function evaluate(
       // Fallback: rule-based CTR check
       for (const m of metrics) {
         if (m.ctr !== undefined && m.ctr < baseline.ctrThreshold && m.views > baseline.viewsThreshold) {
-          const existing = await prisma.monitorAction.findFirst({
+          const existing = await actions.findFirst({
             where: {
               videoId: m.videoId,
               type: ActionType.UPDATE_TITLE,
@@ -284,7 +282,7 @@ export async function evaluate(
     // Skip videos with < 10 views — not enough data to act on
     if (m.views < 10) continue;
 
-    const unhearted = await prisma.comment.findMany({
+    const unhearted = await comments.findMany({
       where: {
         videoId: m.videoId,
         likeCount: { gte: HIGH_LIKE_COMMENT },

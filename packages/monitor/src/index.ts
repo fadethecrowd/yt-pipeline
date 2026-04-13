@@ -4,6 +4,7 @@ if (!process.env.RAILWAY_ENVIRONMENT) {
 }
 import { verifyChannel, CHANNELS } from "@yt-pipeline/pipeline-core";
 import { prisma } from "./lib/prisma";
+import { goal as goalDb } from "./lib/channelDb";
 import { env } from "./config";
 import { pollVideoMetrics } from "./poller";
 import { scrapeComments } from "./commentScraper";
@@ -105,16 +106,14 @@ async function main(): Promise<void> {
     `[${serviceLabel}] Starting with poll interval ${config.POLL_INTERVAL_MS}ms`,
   );
 
-  // Check for ChannelGoal
-  const goal = await prisma.channelGoal.findFirst({
-    orderBy: { updatedAt: "desc" },
-  });
+  // Check for ChannelGoal for this channel
+  const goal = await goalDb.find();
   if (!goal) {
     console.warn(
-      "[monitor] ⚠ No ChannelGoal found in the database! The decision engine needs a goal to evaluate videos effectively. Send /goal via Telegram to set one.",
+      `[${serviceLabel}] ⚠ No ChannelGoal found for channel=${config.CHANNEL}. Decision engine needs a goal to evaluate videos effectively. Send /goal via Telegram to set one.`,
     );
   } else {
-    console.log(`[monitor] ChannelGoal loaded: "${goal.goal}" (tier ${goal.autonomyTier})`);
+    console.log(`[${serviceLabel}] ChannelGoal loaded: "${goal.goal}" (tier ${goal.autonomyTier})`);
   }
 
   // Start Telegram bot listener

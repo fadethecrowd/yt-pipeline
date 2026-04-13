@@ -1,6 +1,11 @@
 import TelegramBot from "node-telegram-bot-api";
 import { env } from "./config";
-import { prisma } from "./lib/prisma";
+import {
+  videos,
+  snapshots,
+  actions,
+  goal as goalDb,
+} from "./lib/channelDb";
 import { ActionStatus } from "./lib/types";
 import type { Decision } from "./lib/types";
 
@@ -233,13 +238,14 @@ async function handleStart(msg: TelegramBot.Message): Promise<void> {
 
 async function handleStatus(msg: TelegramBot.Message): Promise<void> {
   try {
-    const videoCount = await prisma.video.count({
+    const config = env();
+    const videoCount = await videos.count({
       where: { youtubeId: { not: null } },
     });
-    const recentDecisions = await prisma.monitorAction.count({
+    const recentDecisions = await actions.count({
       where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     });
-    const lastSnapshot = await prisma.videoSnapshot.findFirst({
+    const lastSnapshot = await snapshots.findFirst({
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     });
@@ -247,6 +253,7 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
     const lines = [
       "📊 *Monitor Status*",
       "",
+      `Channel: ${config.CHANNEL}`,
       `Last tick: ${lastTickTime ? lastTickTime.toISOString() : "not yet"}`,
       `Last snapshot: ${lastSnapshot ? lastSnapshot.createdAt.toISOString() : "none"}`,
       `Videos tracked: ${videoCount}`,
@@ -263,42 +270,32 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
 async function handleGoal(msg: TelegramBot.Message): Promise<void> {
   const text = msg.text ?? "";
   const args = text.replace(/^\/goal\s*/, "").trim();
+  const config = env();
 
   try {
     if (!args) {
-      // Show current goal
-      const goal = await prisma.channelGoal.findFirst({
-        orderBy: { updatedAt: "desc" },
-      });
+      // Show current goal (this channel only)
+      const goal = await goalDb.find();
       if (!goal) {
-        await bot!.sendMessage(msg.chat.id, "No goal set. Use `/goal <text>` to set one.", { parse_mode: "Markdown" });
+        await bot!.sendMessage(
+          msg.chat.id,
+          `No goal set for *${config.CHANNEL}*. Use \`/goal <text>\` to set one.`,
+          { parse_mode: "Markdown" },
+        );
       } else {
         await bot!.sendMessage(
           msg.chat.id,
-          `🎯 *Current Goal*\n${goal.goal}\n\nAutonomy tier: ${goal.autonomyTier}`,
+          `🎯 *Current Goal* (${config.CHANNEL})\n${goal.goal}\n\nAutonomy tier: ${goal.autonomyTier}`,
           { parse_mode: "Markdown" },
         );
       }
       return;
     }
 
-    // Upsert goal — update existing or create new
-    const existing = await prisma.channelGoal.findFirst({
-      orderBy: { updatedAt: "desc" },
-    });
+    // Upsert goal for this channel
+    await goalDb.upsert({ goal: args });
 
-    if (existing) {
-      await prisma.channelGoal.update({
-        where: { id: existing.id },
-        data: { goal: args },
-      });
-    } else {
-      await prisma.channelGoal.create({
-        data: { goal: args },
-      });
-    }
-
-    await bot!.sendMessage(msg.chat.id, `✅ Goal saved: ${args}`);
+    await bot!.sendMessage(msg.chat.id, `✅ Goal saved for *${config.CHANNEL}*: ${args}`, { parse_mode: "Markdown" });
   } catch (err) {
     console.error("[telegram] /goal failed:", err instanceof Error ? err.message : err);
     await bot!.sendMessage(msg.chat.id, "Failed to save goal.");
@@ -316,19 +313,14 @@ async function handleTier(msg: TelegramBot.Message): Promise<void> {
   }
 
   try {
-    const existing = await prisma.channelGoal.findFirst({
-      orderBy: { updatedAt: "desc" },
-    });
+    const existing = await goalDb.find();
 
     if (!existing) {
       await bot!.sendMessage(msg.chat.id, "Set a goal first with `/goal <text>`", { parse_mode: "Markdown" });
       return;
     }
 
-    await prisma.channelGoal.update({
-      where: { id: existing.id },
-      data: { autonomyTier: tier },
-    });
+    await goalDb.updateAutonomyTier(tier);
 
     await bot!.sendMessage(msg.chat.id, `✅ Autonomy tier set to ${tier}`);
   } catch (err) {
@@ -346,7 +338,7 @@ async function handleApprovalCallback(query: TelegramBot.CallbackQuery): Promise
   const [verb, actionId] = data.split(":");
   if (!actionId || (verb !== "approve" && verb !== "reject")) return;
 
-  const monitorAction = await prisma.monitorAction.findUnique({
+  const monitorAction = await actions.findUnique({
     where: { id: actionId },
   });
 
@@ -372,7 +364,7 @@ async function handleApprovalCallback(query: TelegramBot.CallbackQuery): Promise
     const { routeAction } = await import("./actionRouter");
     const result = await routeAction(decision);
 
-    await prisma.monitorAction.update({
+    await actions.update({
       where: { id: actionId },
       data: {
         status: result.success ? ActionStatus.EXECUTED : ActionStatus.FAILED,
@@ -392,7 +384,7 @@ async function handleApprovalCallback(query: TelegramBot.CallbackQuery): Promise
     await bot!.answerCallbackQuery(query.id, { text: result.success ? "Executed!" : "Execution failed" });
     console.log(`[telegram] Action ${actionId} approved → ${result.success ? "EXECUTED" : "FAILED"}: ${result.message}`);
   } else {
-    await prisma.monitorAction.update({
+    await actions.update({
       where: { id: actionId },
       data: { status: ActionStatus.SKIPPED, result: "Rejected by user" },
     });
@@ -419,13 +411,13 @@ async function handleTitleOverride(
   chatId: number,
 ): Promise<void> {
   // Update the video's seoTitle to the selected variant
-  await prisma.video.update({
+  await videos.update({
     where: { id: videoId },
     data: { seoTitle: selectedTitle },
   });
 
   // Update the MonitorAction payload to reflect the override
-  await prisma.monitorAction.update({
+  await actions.update({
     where: { id: actionId },
     data: {
       result: `User selected title #${choiceNum}: "${selectedTitle}"`,

@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { prisma } from "./lib/prisma";
+import { videos, snapshots, actions } from "./lib/channelDb";
 import { env } from "./config";
 import { ActionType } from "./lib/types";
 import type { Decision } from "./lib/types";
@@ -19,7 +19,7 @@ async function callClaude(prompt: string): Promise<string> {
 }
 
 async function hasExistingAction(videoId: string, type: string): Promise<boolean> {
-  const existing = await prisma.monitorAction.findFirst({
+  const existing = await actions.findFirst({
     where: {
       videoId,
       type: type as any,
@@ -38,7 +38,7 @@ export async function detectLifecycleEvents(): Promise<Decision[]> {
   const now = new Date();
 
   // Find published videos (scheduledAt in the past, has youtubeId)
-  const publishedVideos = await prisma.video.findMany({
+  const publishedVideos = await videos.findMany({
     where: {
       youtubeId: { not: null },
       scheduledAt: { lte: now },
@@ -134,7 +134,7 @@ Respond with ONLY a JSON object: {"youtubeId": "...", "title": "...", "reasoning
     // Get latest snapshot for each
     const viewsMap = new Map<string, number>();
     for (const v of matureVideos) {
-      const snap = await prisma.videoSnapshot.findFirst({
+      const snap = await snapshots.findFirst({
         where: { videoId: v.id },
         orderBy: { createdAt: "desc" },
       });
@@ -150,7 +150,7 @@ Respond with ONLY a JSON object: {"youtubeId": "...", "title": "...", "reasoning
 
       // Gate: only re-promote if views > 50 AND avgViewDuration > 40s
       if (views <= 50) continue;
-      const latestSnap = await prisma.videoSnapshot.findFirst({
+      const latestSnap = await snapshots.findFirst({
         where: { videoId: video.id },
         orderBy: { createdAt: "desc" },
       });

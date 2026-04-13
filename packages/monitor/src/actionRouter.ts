@@ -1,6 +1,6 @@
 import { ActionType } from "./lib/types";
 import type { Decision, ActionResult } from "./lib/types";
-import { prisma } from "./lib/prisma";
+import { videos } from "./lib/channelDb";
 import {
   heartComment,
   updateVideoTitle,
@@ -50,7 +50,7 @@ const handlers: Record<ActionType, ActionHandler> = {
 
   [ActionType.REGENERATE_THUMBNAIL]: async (d) => {
     const { variantBuffers, uploadedVariant } = await regenerateThumbnail(d.videoId);
-    const video = await prisma.video.findUnique({
+    const video = await videos.findUnique({
       where: { id: d.videoId },
       select: { seoTitle: true, youtubeId: true },
     });
@@ -65,7 +65,7 @@ const handlers: Record<ActionType, ActionHandler> = {
 
   [ActionType.PIN_COMMENT]: async (d) => {
     const commentText = (d.payload.commentText as string) ?? "N/A";
-    const video = await prisma.video.findUnique({
+    const video = await videos.findUnique({
       where: { id: d.videoId },
       select: { youtubeId: true, seoTitle: true },
     });
@@ -99,7 +99,7 @@ const handlers: Record<ActionType, ActionHandler> = {
     const suggestedTitle = (d.payload.suggestedTitle as string) ?? "";
     const suggestedYtId = (d.payload.suggestedYoutubeId as string) ?? "";
     const reasoning = (d.payload.reasoning as string) ?? "";
-    const video = await prisma.video.findUnique({
+    const video = await videos.findUnique({
       where: { id: d.videoId },
       select: { youtubeId: true, seoTitle: true },
     });

@@ -1,32 +1,24 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { prisma } from "./lib/prisma";
+import { videos, actions, redditPosts } from "./lib/channelDb";
+import { getChannelConfig } from "./lib/channelConfig";
 import { env } from "./config";
 import { ActionType } from "./lib/types";
 import type { Decision } from "./lib/types";
 import { sendTelegram } from "./telegram";
 
-const SUBREDDIT_MAP: Record<string, string[]> = {
-  ai: ["artificial", "ChatGPT"],
-  llm: ["artificial", "MachineLearning"],
-  openai: ["ChatGPT", "artificial"],
-  anthropic: ["artificial", "MachineLearning"],
-  google: ["artificial", "ChatGPT"],
-  model: ["MachineLearning", "artificial"],
-  agent: ["artificial", "ChatGPT"],
-  default: ["artificial"],
-};
-
 /**
- * Pick the best subreddit based on topic keywords.
+ * Pick the best subreddit for this channel based on topic keywords.
+ * Falls back to the channel's defaultPostSubreddit when no keyword matches.
  */
 function pickSubreddit(title: string, summary: string): string {
+  const config = getChannelConfig();
   const text = `${title} ${summary}`.toLowerCase();
-  for (const [keyword, subs] of Object.entries(SUBREDDIT_MAP)) {
-    if (keyword !== "default" && text.includes(keyword)) {
+  for (const [keyword, subs] of Object.entries(config.postSubredditMap)) {
+    if (text.includes(keyword)) {
       return subs[0];
     }
   }
-  return "artificial";
+  return config.defaultPostSubreddit;
 }
 
 /**
@@ -35,12 +27,17 @@ function pickSubreddit(title: string, summary: string): string {
  */
 export async function generateRedditPosts(): Promise<Decision[]> {
   const config = env();
-  const redditConfigured = !!(config.REDDIT_CLIENT_ID && config.REDDIT_CLIENT_SECRET && config.REDDIT_USERNAME && config.REDDIT_PASSWORD);
+  const redditConfigured = !!(
+    config.REDDIT_CLIENT_ID &&
+    config.REDDIT_CLIENT_SECRET &&
+    config.REDDIT_USERNAME &&
+    config.REDDIT_PASSWORD
+  );
 
   const decisions: Decision[] = [];
 
-  // Find published videos that don't have a RedditPost yet
-  const publishedVideos = await prisma.video.findMany({
+  // Find published videos that don't have a RedditPost yet (current channel only)
+  const publishedVideos = await videos.findMany({
     where: {
       youtubeId: { not: null },
       scheduledAt: { lte: new Date() },
@@ -50,13 +47,13 @@ export async function generateRedditPosts(): Promise<Decision[]> {
 
   for (const video of publishedVideos) {
     // Check if RedditPost already exists for this video
-    const existing = await prisma.redditPost.findFirst({
+    const existing = await redditPosts.findFirst({
       where: { videoId: video.id },
     });
     if (existing) continue;
 
     // Also check MonitorAction dedup
-    const existingAction = await prisma.monitorAction.findFirst({
+    const existingAction = await actions.findFirst({
       where: {
         videoId: video.id,
         type: "REDDIT_POST",
@@ -112,7 +109,7 @@ Respond with ONLY JSON: {"title": "...", "body": "..."}`,
       }
 
       // Save draft to DB
-      await prisma.redditPost.create({
+      await redditPosts.create({
         data: {
           videoId: video.id,
           subreddit,
@@ -154,7 +151,9 @@ Respond with ONLY JSON: {"title": "...", "body": "..."}`,
         }
       }
 
-      console.log(`[redditPoster] Drafted post for ${video.id} → r/${subreddit}${redditConfigured ? "" : " (sent to Telegram for manual posting)"}`);
+      console.log(
+        `[redditPoster] Drafted post for ${video.id} → r/${subreddit}${redditConfigured ? "" : " (sent to Telegram for manual posting)"}`,
+      );
     } catch (err) {
       console.error(`[redditPoster] Failed to draft for ${video.id}:`, err instanceof Error ? err.message : err);
     }
@@ -164,12 +163,12 @@ Respond with ONLY JSON: {"title": "...", "body": "..."}`,
 }
 
 /**
- * Post an approved Reddit draft using snoowrap.
- */
-/**
  * Send a Reddit draft to Telegram for manual copy-paste.
  */
-async function sendDraftToTelegram(draft: { subreddit: string; title: string; body: string }, reason: string): Promise<void> {
+async function sendDraftToTelegram(
+  draft: { subreddit: string; title: string; body: string },
+  reason: string,
+): Promise<void> {
   const msg = [
     `*Reddit Draft* — r/${draft.subreddit}`,
     "",
@@ -191,10 +190,12 @@ async function sendDraftToTelegram(draft: { subreddit: string; title: string; bo
  * Post an approved Reddit draft using snoowrap.
  * Falls back to Telegram delivery if credentials are missing or posting fails.
  */
-export async function submitRedditPost(videoId: string): Promise<{ success: boolean; message: string }> {
+export async function submitRedditPost(
+  videoId: string,
+): Promise<{ success: boolean; message: string }> {
   const config = env();
 
-  const draft = await prisma.redditPost.findFirst({
+  const draft = await redditPosts.findFirst({
     where: { videoId, status: "DRAFT" },
     orderBy: { createdAt: "desc" },
   });
@@ -203,9 +204,17 @@ export async function submitRedditPost(videoId: string): Promise<{ success: bool
     return { success: false, message: "No draft Reddit post found" };
   }
 
-  if (!config.REDDIT_CLIENT_ID || !config.REDDIT_CLIENT_SECRET || !config.REDDIT_USERNAME || !config.REDDIT_PASSWORD) {
+  if (
+    !config.REDDIT_CLIENT_ID ||
+    !config.REDDIT_CLIENT_SECRET ||
+    !config.REDDIT_USERNAME ||
+    !config.REDDIT_PASSWORD
+  ) {
     await sendDraftToTelegram(draft, "Reddit auto-posting not active");
-    return { success: true, message: "Reddit not configured — draft sent to Telegram for manual posting" };
+    return {
+      success: true,
+      message: "Reddit not configured — draft sent to Telegram for manual posting",
+    };
   }
 
   try {
@@ -227,7 +236,7 @@ export async function submitRedditPost(videoId: string): Promise<{ success: bool
     const redditUrl = `https://www.reddit.com${submission.permalink}`;
     const redditPostId = submission.name;
 
-    await prisma.redditPost.update({
+    await redditPosts.update({
       where: { id: draft.id },
       data: {
         status: "POSTED",
@@ -243,10 +252,9 @@ export async function submitRedditPost(videoId: string): Promise<{ success: bool
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[redditPoster] Submit failed: ${msg}`);
 
-    // Auth rejection or other failure — send to Telegram as fallback
     await sendDraftToTelegram(draft, `Reddit posting failed (${msg.slice(0, 60)})`);
 
-    await prisma.redditPost.update({
+    await redditPosts.update({
       where: { id: draft.id },
       data: { status: "FAILED" },
     });

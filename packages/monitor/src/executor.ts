@@ -1,5 +1,5 @@
 import { ActionStatus, REQUIRES_APPROVAL } from "./lib/types";
-import { prisma } from "./lib/prisma";
+import { videos, actions } from "./lib/channelDb";
 import { youtube } from "./lib/youtube";
 import type { Decision } from "./lib/types";
 import { routeAction } from "./actionRouter";
@@ -28,7 +28,7 @@ export async function updateVideoTitle(
   videoId: string,
   newTitle: string,
 ): Promise<void> {
-  const video = await prisma.video.findUniqueOrThrow({
+  const video = await videos.findUniqueOrThrow({
     where: { id: videoId },
   });
 
@@ -53,7 +53,7 @@ export async function updateVideoTags(
   videoId: string,
   tags: string[],
 ): Promise<void> {
-  const video = await prisma.video.findUniqueOrThrow({
+  const video = await videos.findUniqueOrThrow({
     where: { id: videoId },
   });
 
@@ -91,7 +91,7 @@ export async function updateVideoDescription(
   videoId: string,
   newDescription: string,
 ): Promise<void> {
-  const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId } });
+  const video = await videos.findUniqueOrThrow({ where: { id: videoId } });
   const yt = youtube();
 
   const current = await yt.videos.list({
@@ -143,7 +143,7 @@ export async function regenerateThumbnail(videoId: string): Promise<{
   uploadedVariant: string;
 }> {
   const { generateThumbnailVariants } = await import("./thumbnailGen");
-  const video = await prisma.video.findUniqueOrThrow({
+  const video = await videos.findUniqueOrThrow({
     where: { id: videoId },
     include: { topic: true },
   });
@@ -185,7 +185,7 @@ export async function executeDecisions(decisions: Decision[]): Promise<void> {
   for (const decision of decisions) {
     if (REQUIRES_APPROVAL.has(decision.type)) {
       // Save as awaiting approval — do NOT execute
-      const action = await prisma.monitorAction.create({
+      const action = await actions.create({
         data: {
           videoId: decision.videoId,
           type: decision.type,
@@ -203,7 +203,7 @@ export async function executeDecisions(decisions: Decision[]): Promise<void> {
     }
 
     // Auto-execute non-approval actions
-    const action = await prisma.monitorAction.create({
+    const action = await actions.create({
       data: {
         videoId: decision.videoId,
         type: decision.type,
@@ -214,7 +214,7 @@ export async function executeDecisions(decisions: Decision[]): Promise<void> {
 
     const result = await routeAction(decision);
 
-    await prisma.monitorAction.update({
+    await actions.update({
       where: { id: action.id },
       data: {
         status: result.success ? ActionStatus.EXECUTED : ActionStatus.FAILED,

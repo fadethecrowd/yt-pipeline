@@ -1,4 +1,4 @@
-import { prisma } from "./lib/prisma";
+import { videos, snapshots } from "./lib/channelDb";
 import { youtube, youtubeAnalytics } from "./lib/youtube";
 import type { VideoMetrics } from "./lib/types";
 
@@ -49,7 +49,7 @@ async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
  * Returns the metrics for downstream stages.
  */
 export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
-  const videos = await prisma.video.findMany({
+  const videoRows = await videos.findMany({
     where: {
       youtubeId: { not: null },
       // Only poll videos that have already published (scheduledAt in the past or null)
@@ -61,12 +61,12 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     select: { id: true, youtubeId: true },
   });
 
-  if (videos.length === 0) {
+  if (videoRows.length === 0) {
     console.log("[poller] No uploaded videos to poll");
     return [];
   }
 
-  const youtubeIds = videos.map((v: { id: string; youtubeId: string | null }) => v.youtubeId!);
+  const youtubeIds = videoRows.map((v: { id: string; youtubeId: string | null }) => v.youtubeId!);
   const yt = youtube();
 
   // Batch fetch basic stats (max 50 per request)
@@ -80,7 +80,7 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     });
 
     for (const item of res.data.items ?? []) {
-      const video = videos.find((v: { id: string; youtubeId: string | null }) => v.youtubeId === item.id);
+      const video = videoRows.find((v: { id: string; youtubeId: string | null }) => v.youtubeId === item.id);
       if (!video || !item.statistics) continue;
 
       metrics.push({
@@ -103,7 +103,7 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
   }
 
   // Store snapshots with analytics data
-  await prisma.videoSnapshot.createMany({
+  await snapshots.createMany({
     data: metrics.map((m) => {
       const a = analyticsMap.get(m.videoId) ?? {};
       return {
