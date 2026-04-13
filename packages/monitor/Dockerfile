@@ -14,15 +14,14 @@ RUN npm ci \
     --workspace=packages/monitor \
     --include-workspace-root
 
-# ── Copy sources explicitly (no whole-directory COPY) ────────────────────
-# Enumerate each required path inside packages/* to avoid BuildKit failing
-# a whole-directory COPY with a spurious "source not found" error.
-COPY packages/pipeline-core/src       ./packages/pipeline-core/src/
-COPY packages/pipeline-core/tsconfig.json ./packages/pipeline-core/tsconfig.json
-
-COPY packages/monitor/src             ./packages/monitor/src/
-COPY packages/monitor/prisma          ./packages/monitor/prisma/
-COPY packages/monitor/tsconfig.json   ./packages/monitor/tsconfig.json
+# ── Copy entire repo context (robust pattern) ────────────────────────────
+# Nested COPYs like `COPY packages/monitor/src ./packages/monitor/src/` were
+# failing on Railway BuildKit with a spurious "source not found" error even
+# though the paths are tracked in git. `COPY . .` is a single blanket
+# operation that matches what the repo-root Dockerfile (yt-pipeline / AI
+# Doom Scroll service) has been using successfully on Railway for months.
+# .dockerignore keeps node_modules, dist, secrets, and scripts out.
+COPY . .
 
 # pipeline-core must build first (monitor imports from its dist/).
 RUN npm run build --workspace=packages/pipeline-core \
