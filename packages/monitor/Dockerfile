@@ -14,12 +14,15 @@ RUN npm ci \
     --workspace=packages/monitor \
     --include-workspace-root
 
-# ── Copy sources and build ────────────────────────────────────────────────
-# Whole-directory COPY mirrors packages/wc-pipeline/Dockerfile exactly.
-# Do NOT pre-copy any subdirectory of packages/monitor here — doing so
-# confuses BuildKit's directory bookkeeping for the final whole-dir COPY.
-COPY packages/pipeline-core ./packages/pipeline-core/
-COPY packages/monitor ./packages/monitor/
+# ── Copy sources explicitly (no whole-directory COPY) ────────────────────
+# Enumerate each required path inside packages/* to avoid BuildKit failing
+# a whole-directory COPY with a spurious "source not found" error.
+COPY packages/pipeline-core/src       ./packages/pipeline-core/src/
+COPY packages/pipeline-core/tsconfig.json ./packages/pipeline-core/tsconfig.json
+
+COPY packages/monitor/src             ./packages/monitor/src/
+COPY packages/monitor/prisma          ./packages/monitor/prisma/
+COPY packages/monitor/tsconfig.json   ./packages/monitor/tsconfig.json
 
 # pipeline-core must build first (monitor imports from its dist/).
 RUN npm run build --workspace=packages/pipeline-core \
