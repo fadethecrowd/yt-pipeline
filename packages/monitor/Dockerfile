@@ -1,16 +1,13 @@
 # Build context: repository root (NOT packages/monitor).
-# In Railway: Root Directory = repo root, Dockerfile Path = packages/monitor/Dockerfile.
+# railway.toml sets dockerfilePath = "packages/monitor/Dockerfile" to pick this up.
 FROM node:22-slim
 WORKDIR /app
 
 # ── Install workspace deps ───────────────────────────────────────────────
-# Copy manifests first so Docker can cache the install layer.
+# Copy manifests only, then npm ci, so this layer caches across source changes.
 COPY package*.json ./
 COPY packages/pipeline-core/package.json ./packages/pipeline-core/
 COPY packages/monitor/package.json ./packages/monitor/
-
-# Monitor has its own Prisma schema at packages/monitor/prisma.
-COPY packages/monitor/prisma ./packages/monitor/prisma/
 
 RUN npm ci \
     --workspace=packages/pipeline-core \
@@ -18,6 +15,9 @@ RUN npm ci \
     --include-workspace-root
 
 # ── Copy sources and build ────────────────────────────────────────────────
+# Whole-directory COPY mirrors packages/wc-pipeline/Dockerfile exactly.
+# Do NOT pre-copy any subdirectory of packages/monitor here — doing so
+# confuses BuildKit's directory bookkeeping for the final whole-dir COPY.
 COPY packages/pipeline-core ./packages/pipeline-core/
 COPY packages/monitor ./packages/monitor/
 
