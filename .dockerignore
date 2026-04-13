@@ -1,0 +1,27 @@
+**/node_modules
+**/dist
+**/.DS_Store
+
+# Local env + secrets
+.env
+.env.save
+**/.env
+**/.env.local
+
+# Local-only OAuth token files
+token-*.json
+token.json
+
+# Media artefacts from pipeline runs
+*.mp3
+*.mp4
+tmp/
+
+# Git + editor metadata
+.git
+.gitignore
+.vscode
+.idea
+
+# Helper scripts not needed inside the image
+scripts/
