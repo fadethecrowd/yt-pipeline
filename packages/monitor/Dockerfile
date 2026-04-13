@@ -34,4 +34,13 @@ RUN npx prisma generate --schema=packages/monitor/prisma/schema.prisma
 RUN npm run build --workspace=packages/pipeline-core \
  && npm run build --workspace=packages/monitor
 
+# ── Safety net: make /app/dist resolve to monitor's build output ─────────
+# Railway may run `npm start` from /app, which invokes the ROOT
+# package.json's start script (`node dist/index.js`) — that path belongs to
+# the AI Doom Scroll service and doesn't exist here. Symlink /app/dist to
+# monitor's dist so `node dist/index.js` works regardless of which command
+# Railway ends up running (Dockerfile CMD, dashboard override, npm start,
+# or a cloned config from another service).
+RUN ln -s packages/monitor/dist /app/dist
+
 CMD ["node", "packages/monitor/dist/index.js"]
