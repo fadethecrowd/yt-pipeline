@@ -50,10 +50,21 @@ const STAGES: StageDefinition[] = [
 // Map video status → stage index to resume from.
 // Only statuses that indicate a stage completed but the next one hasn't started.
 const RESUME_FROM: Partial<Record<VideoStatus, number>> = {
-  [VideoStatus.SEO_DONE]:       4, // SEO done → resume at wcThumbnailGenerator
-  [VideoStatus.VOICEOVER_DONE]: 6, // voiceover done → resume at videoAssembly
-  [VideoStatus.ASSEMBLY_DONE]:  7, // assembly done → resume at youtubeUpload
+  [VideoStatus.SEO_DONE]:         4, // SEO done → resume at wcThumbnailGenerator
+  [VideoStatus.VOICEOVER_DONE]:   6, // voiceover done → resume at videoAssembly
+  [VideoStatus.ASSEMBLY_DONE]:    7, // assembly done → resume at youtubeUpload
+  // Mid-stage crash recovery (container died between status update and stage completion).
+  // Safe to auto-retry: these stages don't make external paid API calls.
+  [VideoStatus.ASSEMBLY_PENDING]: 6, // assembly crashed mid-flight → retry videoAssembly
+  [VideoStatus.UPLOAD_PENDING]:   7, // upload crashed mid-flight → retry youtubeUpload
+  // Deliberately NOT included: VOICEOVER_PENDING / SCRIPT_PENDING / SEO_PENDING.
+  // Auto-resuming those would re-spend ElevenLabs / Anthropic credits — operator must decide.
 };
+
+// ── Halt-on-failure guard ───────────────────────────────────────────────
+// Window beyond which an unacknowledged FAILED row stops blocking new work.
+// Operator can also acknowledge sooner by prefixing failReason with "[ack]".
+const FAILURE_HALT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -147,6 +158,38 @@ export async function runPipeline(): Promise<void> {
 
   await withAdvisoryLock(prisma, WC_LOCK_ID, async () => {
     console.log(`${LOG} Advisory lock acquired (id: ${WC_LOCK_ID})`);
+
+    // ── Halt-on-failure guard ────────────────────────────────────────
+    // Refuse to start any new work (resume OR topicDiscovery) while there
+    // are unacknowledged recent FAILED videos. Prevents a failed resume
+    // from cascading into expensive new-topic generation on the next run.
+    // To clear: prefix the row's failReason with "[ack]" (or wait out the
+    // 24h window, or change status away from FAILED).
+    const unackFailures = await prisma.wcVideo.findMany({
+      where: {
+        status: VideoStatus.FAILED,
+        updatedAt: { gte: new Date(Date.now() - FAILURE_HALT_WINDOW_MS) },
+        NOT: { failReason: { startsWith: "[ack]" } },
+      },
+      select: { id: true, failReason: true, updatedAt: true },
+      orderBy: { updatedAt: "desc" },
+      take: 5,
+    });
+
+    if (unackFailures.length > 0) {
+      console.warn(
+        `${LOG} HALT: ${unackFailures.length} unacknowledged WC failure(s) within ${FAILURE_HALT_WINDOW_MS / 3600000}h:`,
+      );
+      for (const f of unackFailures) {
+        console.warn(
+          `${LOG}   - ${f.id} @ ${f.updatedAt.toISOString()}: ${(f.failReason ?? "").slice(0, 120)}`,
+        );
+      }
+      console.warn(
+        `${LOG} To proceed: retry by setting status to a stuck state (SEO_DONE/VOICEOVER_DONE/ASSEMBLY_DONE), or acknowledge by prefixing failReason with "[ack]".`,
+      );
+      return;
+    }
 
     // ── Check for stuck videos that can be resumed ────────────────────
 
