@@ -46,6 +46,40 @@ function getNextPublishSlot(): Date {
   return fallback;
 }
 
+// ── Tag sanitizer (defense in depth before YouTube API call) ───────────
+//
+// YouTube rejects uploads with "invalid video keywords" if tags contain
+// emoji, non-ASCII chars, certain punctuation, or are too numerous/long.
+// SEO stage already does light cleaning; this is the strict last line of
+// defense applied at the API boundary on EVERY upload (including resumes
+// from DB-stored tags).
+
+const SAFE_DEFAULT_TAGS = ["marine electronics", "fishfinder", "sonar"];
+
+function sanitizeTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+
+  for (const raw of tags ?? []) {
+    if (typeof raw !== "string") continue;
+    // Keep only ASCII letters, digits, spaces, hyphens. Strips emoji,
+    // accented chars, punctuation, quotes, ampersands, etc.
+    const stripped = raw
+      .replace(/[^a-zA-Z0-9 \-]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 30);
+    if (!stripped) continue;
+    const key = stripped.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(stripped);
+    if (cleaned.length >= 20) break;
+  }
+
+  return cleaned.length > 0 ? cleaned : [...SAFE_DEFAULT_TAGS];
+}
+
 function getYouTubeClient() {
   const config = env();
   const auth = new google.auth.OAuth2(
@@ -97,13 +131,16 @@ export async function wcYoutubeUpload(
 
   const youtube = getYouTubeClient();
 
+  const safeTags = sanitizeTags(ctx.seo.tags);
+  console.log(`[wc:youtubeUpload] Sanitized tags (${safeTags.length}): ${safeTags.join(", ")}`);
+
   const res = await youtube.videos.insert({
     part: ["snippet", "status"],
     requestBody: {
       snippet: {
         title: ctx.seo.title,
         description: ctx.seo.description,
-        tags: ctx.seo.tags,
+        tags: safeTags,
         categoryId: "28", // Science & Technology
         defaultLanguage: "en",
       },
