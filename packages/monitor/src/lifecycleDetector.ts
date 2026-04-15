@@ -10,7 +10,7 @@ async function callClaude(prompt: string): Promise<string> {
   const config = env();
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     max_tokens: 512,
     messages: [{ role: "user", content: prompt }],
   });
