@@ -34,24 +34,24 @@ const SOURCE_WEIGHTS: Record<string, number> = {
   venturebeat: 0.6,
 };
 
-// Negative keyword penalties — subtracted from raw keyword hit count
+// Negative-keyword penalties — subtracted from raw keyword hit count
 // (floored at 0) before computing keywordScore. Targets funding-round
 // PR, vertical-SaaS launches, and generic "AI-powered X" marketing fluff.
-const NEGATIVE_KEYWORDS: Record<string, number> = {
-  "raised": 5,
-  "funding": 5,
-  "series a": 5,
-  "series b": 5,
-  "series c": 5,
-  "valuation": 4,
-  "now available": 4,
-  "ai-powered": 4,
-  "for marketing": 4,
-  "for hr": 4,
-  "for sales": 4,
-  "launches tool": 4,
-  "new ai tool": 4,
-};
+//
+// Regex with word boundaries + simple stemming so all conjugations match
+// (e.g. raised/raises/raising/raise; launched/launches/launching/launch).
+// Substring matching (the prior approach) missed every conjugation
+// variant — see the e427e1e dry-run report for the leak this closes.
+const NEGATIVE_PATTERNS: Array<{ pattern: RegExp; penalty: number }> = [
+  { pattern: /\brais(e|es|ed|ing)\b/i, penalty: 5 },
+  { pattern: /\bfund(ed|ing)?\b/i, penalty: 5 },
+  { pattern: /\blaunch(es|ed|ing)?\b/i, penalty: 4 },
+  { pattern: /\bvalu(e|ation)\b/i, penalty: 4 },
+  { pattern: /\bseries\s+[abc]\b/i, penalty: 5 },
+  { pattern: /\bnow\s+available\b/i, penalty: 4 },
+  { pattern: /\bai-powered\b/i, penalty: 4 },
+  { pattern: /\bfor\s+(marketing|sales|hr)\b/i, penalty: 4 },
+];
 
 // Mild technical/doom-depth bias. If a topic mentions NONE of these, its
 // final score is multiplied by 0.75. Topics are NOT rejected, only
@@ -191,9 +191,10 @@ function scoreTopic(item: FeedItem): number {
   const hits = KEYWORDS.filter((kw) => text.includes(kw)).length;
 
   // Negative-keyword penalty subtracted from hit count, floored at 0.
+  // Regex matching catches conjugation variants substring matching missed.
   let negativePoints = 0;
-  for (const [kw, penalty] of Object.entries(NEGATIVE_KEYWORDS)) {
-    if (text.includes(kw)) negativePoints += penalty;
+  for (const { pattern, penalty } of NEGATIVE_PATTERNS) {
+    if (pattern.test(text)) negativePoints += penalty;
   }
   const adjustedHits = Math.max(0, hits - negativePoints);
   const keywordScore = (adjustedHits / KEYWORDS.length) * 0.6;
