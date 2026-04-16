@@ -70,6 +70,7 @@ const NEGATIVE_PATTERNS: Array<{ pattern: RegExp; penalty: number }> = [
 // final score is multiplied by 0.75. Topics are NOT rejected, only
 // deprioritised in favor of items with substantive technical content.
 const TECHNICAL_CORE_KEYWORDS = [
+  // Original set
   "benchmark",
   "alignment",
   "capability",
@@ -84,6 +85,29 @@ const TECHNICAL_CORE_KEYWORDS = [
   "regression",
   "exploit",
   "jailbreak",
+  // Appended (commit notes: 3 duplicates from spec — autonomous, inference,
+  // exploit — already above; new additions only):
+  "coding",
+  "code",
+  "cyber",
+  "defense",
+  "tts",
+  "speech",
+  "multimodal",
+  "embedding",
+  "reranker",
+  "transformer",
+  "tool use",
+  "reasoning",
+  "evaluation",
+  "benchmarking",
+  "agentic",
+  "fine-tuning",
+  "finetuning",
+  "prompting",
+  "cve",
+  "phishing",
+  "malware",
 ];
 
 const parser = new Parser();
