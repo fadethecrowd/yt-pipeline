@@ -130,9 +130,16 @@ function svgVariantA(headline: string, subtitle: string): Buffer {
   // Vertical layout: three text elements stacked. Baselines chosen so the
   // 180pt punch word lands near vertical center; flanking lines hug it.
   // Y positions here are SVG text baselines.
-  const beforeY = 230;
-  const punchY = 440;
-  const afterY = 610;
+  //
+  // Tightened spacing (vs previous 230 / 440 / 610 / subtitle=680):
+  //   top padding     : 230 → 205   (-11%)
+  //   before → punch  : 210 → 175   (-17%)
+  //   punch → after   : 170 → 145   (-15%)
+  //   after → subtitle:  70 →  60   (-14%)
+  // Font sizes unchanged; highlighting/alignment/positioning rules preserved.
+  const beforeY = 205;
+  const punchY = 380;
+  const afterY = 525;
 
   const parts: string[] = [];
   if (before) {
@@ -152,10 +159,9 @@ function svgVariantA(headline: string, subtitle: string): Buffer {
   }
   const headlineSvg = parts.join("\n");
 
-  // Subtitle sits below the stack. If only punch rendered, this is below
-  // the punch; otherwise below the `after` line. Keep a constant position
-  // for simplicity.
-  const subtitleY = 680;
+  // Subtitle sits below the stack. Tightened from 680 → 585 (gap from
+  // `after` line: 70 → 60, −14%).
+  const subtitleY = 585;
 
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
     <rect width="${WIDTH}" height="${HEIGHT}" fill="#0a0a0a"/>
