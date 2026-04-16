@@ -14,6 +14,24 @@ export async function voiceover(
 ): Promise<StageResult> {
   const start = Date.now();
 
+  if (process.env.DISABLE_ELEVEN === "true") {
+    console.log("[guard] DISABLE_ELEVEN active — skipping ElevenLabs calls");
+    const outputDir = join(process.cwd(), "audio", ctx.video.id);
+    await mkdir(outputDir, { recursive: true });
+    const placeholderPath = join(outputDir, "final.mp3");
+    await writeFile(placeholderPath, Buffer.from([]));
+    await prisma.video.update({
+      where: { id: ctx.video.id },
+      data: {
+        voiceoverPath: placeholderPath,
+        voiceoverUrls: [placeholderPath],
+        status: VideoStatus.VOICEOVER_DONE,
+      },
+    });
+    ctx.voiceoverUrls = [placeholderPath];
+    return { success: true, durationMs: Date.now() - start };
+  }
+
   if (!ctx.script || ctx.script.segments.length === 0) {
     return { success: false, error: "No script segments", durationMs: Date.now() - start };
   }
