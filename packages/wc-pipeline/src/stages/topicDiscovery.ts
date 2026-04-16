@@ -7,9 +7,15 @@ import type { FeedItem, PipelineContext, StageResult } from "@yt-pipeline/pipeli
 // ── Configuration ───────────────────────────────────────────────────────────
 
 const RSS_FEEDS: Record<string, string> = {
+  // Vendor feeds
   garmin: "https://www.garmin.com/en-US/newsroom/feed/",
   humminbird: "https://www.humminbird.com/rss.xml",
+  victron: "https://www.victronenergy.com/blog/feed/",
+  minnkota: "https://www.minnkotamotors.com/rss.xml",
+  // Independent publications / how-to
   panbo: "https://panbo.com/feed/",
+  marinehowto: "https://marinehowto.com/feed/",
+  practical_sailor: "https://www.practical-sailor.com/feed/",
   passagemaker: "https://www.passagemaker.com/feed",
   sportfishing: "https://www.sportfishingmag.com/feed/",
   wired2fish: "https://wired2fish.com/feed/",
@@ -66,11 +72,16 @@ const MAX_SCORING_POINTS = Object.values(SCORING_KEYWORDS).reduce((a, b) => a + 
 const SOURCE_WEIGHTS: Record<string, number> = {
   // High-value marine tech sources
   panbo: 1.5,
+  marinehowto: 1.4,
   garmin: 1.3,
   humminbird: 1.3,
+  victron: 1.3,
   "reddit:r/livescope": 1.3,
   // Neutral
+  minnkota: 1.0,
   "reddit:r/boating": 1.0,
+  // Slight demote — independent testing, some off-topic sailboat content
+  practical_sailor: 0.9,
   // Demote — broad publications
   sportfishing: 0.8,
   passagemaker: 0.8,
