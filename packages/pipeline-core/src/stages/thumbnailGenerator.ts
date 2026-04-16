@@ -184,7 +184,15 @@ export async function thumbnailGenerator(
 ): Promise<StageResult> {
   const start = Date.now();
 
-  if (process.env.DISABLE_ELEVEN === "true") {
+  // DISABLE_ELEVEN gate — skips rendering and writes 0-byte placeholders.
+  // FORCE_THUMBNAIL_RENDER=true is an escape hatch that lets thumbnail
+  // rendering execute even under DISABLE_ELEVEN, so we can validate
+  // sharp/librsvg/Bebas Neue without burning ElevenLabs spend on
+  // voiceover/assembly. Variants B and C may still fail if there's no
+  // assembled video frame to extract — that's acceptable; we render
+  // Variant A (pure SVG, no frame needed) as the validation target.
+  const forceRender = process.env.FORCE_THUMBNAIL_RENDER === "true";
+  if (process.env.DISABLE_ELEVEN === "true" && !forceRender) {
     console.log("[guard] DISABLE_ELEVEN active — skipping thumbnail generation");
     const thumbDir = join(process.cwd(), "thumbnail", ctx.video.id);
     await mkdir(thumbDir, { recursive: true });
@@ -203,10 +211,17 @@ export async function thumbnailGenerator(
     ctx.thumbnailC = placeholderPath;
     return { success: true, durationMs: Date.now() - start };
   }
+  if (forceRender) {
+    console.log("[guard] FORCE_THUMBNAIL_RENDER active — rendering thumbnails despite DISABLE_ELEVEN");
+  }
 
   const video = await prisma.video.findUnique({ where: { id: ctx.video.id } });
   const videoPath = video?.videoPath ?? ctx.videoUrl;
-  if (!videoPath) {
+
+  // Under FORCE_THUMBNAIL_RENDER we tolerate a missing/empty video file
+  // because variants B and C are best-effort in that mode. Variant A
+  // (pure SVG) does not need a frame and will always render.
+  if (!videoPath && !forceRender) {
     return { success: false, error: "No videoPath available", durationMs: Date.now() - start };
   }
 
@@ -229,41 +244,66 @@ export async function thumbnailGenerator(
   const pathB = join(outDir, "thumbnail_b.jpg");
   const pathC = join(outDir, "thumbnail_c.jpg");
 
-  // Extract frame at 20% duration
-  const duration = await getVideoDuration(videoPath);
-  const timestamp = duration * 0.2;
-  console.log(`[thumbnailGenerator] Extracting frame at ${timestamp.toFixed(1)}s (20% of ${duration.toFixed(1)}s)`);
-  await extractFrame(videoPath, framePath, timestamp);
+  // Extract frame at 20% duration. Wrapped in try/catch so a 0-byte mp4
+  // (from DISABLE_ELEVEN videoAssembly placeholder) doesn't kill the stage —
+  // Variant A renders without a frame.
+  let frameAvailable = false;
+  if (videoPath) {
+    try {
+      const duration = await getVideoDuration(videoPath);
+      const timestamp = duration * 0.2;
+      console.log(`[thumbnailGenerator] Extracting frame at ${timestamp.toFixed(1)}s (20% of ${duration.toFixed(1)}s)`);
+      await extractFrame(videoPath, framePath, timestamp);
+      frameAvailable = true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (forceRender) {
+        console.warn(`[thumbnailGenerator] Frame extraction failed under FORCE_THUMBNAIL_RENDER (Variants B/C will be skipped): ${msg}`);
+      } else {
+        throw err;
+      }
+    }
+  }
 
-  // Generate 3 variants
+  // Variant A is pure SVG — always rendered.
   console.log("[thumbnailGenerator] Generating variant A (Terminal)...");
   await generateVariantA(headline, subtitle, pathA);
 
-  console.log("[thumbnailGenerator] Generating variant B (Frame + strip)...");
-  await generateVariantB(framePath, headline, pathB);
+  // Variants B and C require a real video frame.
+  let variantBPath: string | null = null;
+  let variantCPath: string | null = null;
+  if (frameAvailable) {
+    console.log("[thumbnailGenerator] Generating variant B (Frame + strip)...");
+    await generateVariantB(framePath, headline, pathB);
+    variantBPath = pathB;
 
-  console.log("[thumbnailGenerator] Generating variant C (Frame + big text)...");
-  await generateVariantC(framePath, headline, pathC);
+    console.log("[thumbnailGenerator] Generating variant C (Frame + big text)...");
+    await generateVariantC(framePath, headline, pathC);
+    variantCPath = pathC;
+  } else {
+    console.log("[thumbnailGenerator] Frame unavailable — skipping Variants B and C");
+  }
 
-  // Save paths to DB
+  // Save paths to DB. Only the variants we actually produced; null where skipped.
   await prisma.video.update({
     where: { id: ctx.video.id },
     data: {
       thumbnailA: pathA,
-      thumbnailB: pathB,
-      thumbnailC: pathC,
+      thumbnailB: variantBPath,
+      thumbnailC: variantCPath,
     },
   });
 
   ctx.thumbnailA = pathA;
-  ctx.thumbnailB = pathB;
-  ctx.thumbnailC = pathC;
+  ctx.thumbnailB = variantBPath ?? undefined;
+  ctx.thumbnailC = variantCPath ?? undefined;
 
-  console.log(`[thumbnailGenerator] 3 thumbnails saved to ${outDir}`);
+  const rendered = [pathA, variantBPath, variantCPath].filter(Boolean).length;
+  console.log(`[thumbnailGenerator] ${rendered} thumbnail(s) saved to ${outDir}`);
 
   return {
     success: true,
-    data: { thumbnailA: pathA, thumbnailB: pathB, thumbnailC: pathC },
+    data: { thumbnailA: pathA, thumbnailB: variantBPath, thumbnailC: variantCPath },
     durationMs: Date.now() - start,
   };
 }
