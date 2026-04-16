@@ -253,6 +253,23 @@ export async function wcVideoAssembly(
 ): Promise<StageResult> {
   const start = Date.now();
 
+  if (process.env.DISABLE_ELEVEN === "true") {
+    console.log("[guard] DISABLE_ELEVEN active — skipping video assembly");
+    const outputDir = join(process.cwd(), "video", ctx.video.id);
+    await mkdir(outputDir, { recursive: true });
+    const placeholderVideoPath = join(outputDir, "final.mp4");
+    await writeFile(placeholderVideoPath, Buffer.from([]));
+    await prisma.wcVideo.update({
+      where: { id: ctx.video.id },
+      data: {
+        videoPath: placeholderVideoPath,
+        status: VideoStatus.ASSEMBLY_DONE,
+      },
+    });
+    ctx.videoUrl = placeholderVideoPath;
+    return { success: true, durationMs: Date.now() - start };
+  }
+
   if (!ctx.script || ctx.script.segments.length === 0) {
     return { success: false, error: "No script segments", durationMs: Date.now() - start };
   }
