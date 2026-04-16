@@ -102,17 +102,12 @@ export async function thumbnailHeadlineGenerator(
 ): Promise<StageResult> {
   const start = Date.now();
 
-  if (process.env.DISABLE_ELEVEN === "true") {
-    console.log("[guard] DISABLE_ELEVEN active — skipping thumbnail headline generation");
-    await prisma.video.update({
-      where: { id: ctx.video.id },
-      data: {
-        thumbnailHeadline: "DRY RUN",
-        thumbnailSubtext: "TEST",
-      },
-    });
-    return { success: true, durationMs: Date.now() - start };
-  }
+  // NOTE: No DISABLE_ELEVEN guard here by design. This stage calls
+  // Anthropic (LLM), not ElevenLabs, and produces text that downstream
+  // thumbnailGenerator needs regardless of whether voiceover/assembly
+  // are skipped in dry-run. DISABLE_ELEVEN now only gates: voiceover,
+  // videoAssembly, youtubeUpload, shortsGenerator (and thumbnailGenerator
+  // under its own FORCE_THUMBNAIL_RENDER override).
 
   const config = env();
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
