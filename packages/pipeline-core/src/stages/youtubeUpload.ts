@@ -69,6 +69,20 @@ export async function youtubeUpload(
 ): Promise<StageResult> {
   const start = Date.now();
 
+  if (process.env.DISABLE_ELEVEN === "true") {
+    console.log("[guard] DISABLE_ELEVEN active — skipping YouTube upload");
+    const placeholderYoutubeId = `dryrun-${ctx.video.id}`;
+    await prisma.video.update({
+      where: { id: ctx.video.id },
+      data: {
+        youtubeId: placeholderYoutubeId,
+        status: VideoStatus.UPLOADED,
+      },
+    });
+    ctx.youtubeId = placeholderYoutubeId;
+    return { success: true, durationMs: Date.now() - start };
+  }
+
   // Re-read video from DB to get videoPath and SEO fields
   const video = await prisma.video.findUnique({
     where: { id: ctx.video.id },

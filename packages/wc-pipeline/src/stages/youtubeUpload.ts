@@ -103,6 +103,20 @@ export async function wcYoutubeUpload(
 ): Promise<StageResult> {
   const start = Date.now();
 
+  if (process.env.DISABLE_ELEVEN === "true") {
+    console.log("[wc:guard] DISABLE_ELEVEN active — skipping YouTube upload");
+    const placeholderYoutubeId = `dryrun-${ctx.video.id}`;
+    await prisma.wcVideo.update({
+      where: { id: ctx.video.id },
+      data: {
+        youtubeId: placeholderYoutubeId,
+        status: VideoStatus.UPLOADED,
+      },
+    });
+    ctx.youtubeId = placeholderYoutubeId;
+    return { success: true, durationMs: Date.now() - start };
+  }
+
   const video = await prisma.wcVideo.findUnique({
     where: { id: ctx.video.id },
   });

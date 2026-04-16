@@ -51,6 +51,11 @@ export async function shortsGenerator(
 ): Promise<StageResult> {
   const start = Date.now();
 
+  if (process.env.DISABLE_ELEVEN === "true") {
+    console.log("[guard] DISABLE_ELEVEN active — skipping Shorts generation");
+    return { success: true, durationMs: Date.now() - start };
+  }
+
   const video = await prisma.video.findUnique({
     where: { id: ctx.video.id },
     include: { topic: true },

@@ -45,6 +45,11 @@ export async function wcShortsGenerator(
 ): Promise<StageResult> {
   const start = Date.now();
 
+  if (process.env.DISABLE_ELEVEN === "true") {
+    console.log("[wc:guard] DISABLE_ELEVEN active — skipping Shorts generation");
+    return { success: true, durationMs: Date.now() - start };
+  }
+
   const video = await prisma.wcVideo.findUnique({
     where: { id: ctx.video.id },
     include: { topic: true },
