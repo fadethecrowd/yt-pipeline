@@ -5,10 +5,17 @@ import type { FeedItem, PipelineContext, StageResult } from "@yt-pipeline/pipeli
 
 // RSS feed sources for AI/tech news
 const FEEDS: Record<string, string> = {
+  // Existing publication / aggregator sources
   techcrunch: "https://techcrunch.com/category/artificial-intelligence/feed/",
   ars_technica: "https://feeds.arstechnica.com/arstechnica/technology-lab",
   hackernews: "https://hnrss.org/best?q=AI+OR+LLM+OR+GPT+OR+machine+learning",
   venturebeat: "https://venturebeat.com/category/ai/feed/",
+  // AI lab official blogs (verified working as of 2026-04-16)
+  openai_blog: "https://openai.com/blog/rss.xml",         // redirects to /news/rss.xml (~939 items)
+  deepmind_blog: "https://deepmind.com/blog/feed/basic/", // ~100 items
+  huggingface_blog: "https://huggingface.co/blog/feed.xml", // ~764 items
+  // Probed but unavailable (no RSS published; do not add):
+  //   anthropic_news, meta_ai, mistral_news — all 404 on every variant tried.
 };
 
 // Keywords to score relevance against. Editorial direction: AI Doom Scroll —
@@ -147,7 +154,7 @@ async function fetchFeeds(): Promise<FeedItem[]> {
     Object.entries(FEEDS).map(async ([source, url]) => {
       try {
         const feed = await parser.parseURL(url);
-        return (feed.items ?? []).map((item): FeedItem | null => {
+        const items = (feed.items ?? []).map((item): FeedItem | null => {
           const link = item.link?.trim();
           if (!link) return null;
           return {
@@ -158,8 +165,11 @@ async function fetchFeeds(): Promise<FeedItem[]> {
             publishedAt: item.isoDate ? new Date(item.isoDate) : undefined,
           };
         });
+        const valid = items.filter((i): i is FeedItem => i !== null);
+        console.log(`[topicDiscovery]   ${source.padEnd(18)} → ${valid.length} items`);
+        return items;
       } catch (err) {
-        console.warn(`[topicDiscovery] Failed to fetch ${source}: ${err}`);
+        console.warn(`[topicDiscovery]   ${source.padEnd(18)} FAILED: ${err instanceof Error ? err.message : err}`);
         return [];
       }
     })
