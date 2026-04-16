@@ -292,12 +292,17 @@ export async function wcThumbnailGenerator(
   const pillar = extractPillar(summary);
   const badge = PILLAR_BADGES[pillar];
 
-  // Derive headline from SEO title, subtext from topic title
+  // Headline / subtext preference order:
+  //   1. wcThumbnailHeadlineGenerator output (thumbnailHeadline on the row)
+  //   2. seoTitle → ctx.seo.title → topic.title (existing fallback chain)
+  // Rendering logic below is unchanged; only the text source shifts.
   const seoTitle = video?.seoTitle ?? ctx.seo?.title ?? ctx.topic.title;
-  const headline = seoTitle;
-  const subtext = seoTitle !== ctx.topic.title
+  const defaultSubtext = seoTitle !== ctx.topic.title
     ? ctx.topic.title
     : summary.replace(/^\[.*?\]\s*/, "").slice(0, 60) || ctx.topic.title;
+
+  const headline = video?.thumbnailHeadline ?? seoTitle;
+  const subtext = video?.thumbnailSubtext ?? defaultSubtext;
 
   // Optional badge (e.g. year)
   const year = new Date().getFullYear().toString();

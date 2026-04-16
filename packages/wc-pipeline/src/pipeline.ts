@@ -15,6 +15,7 @@ import { scriptGenerator } from "./stages/scriptGenerator";
 import { qualityGate } from "./stages/qualityGate";
 import { seoGenerator } from "./stages/seoGenerator";
 import { wcThumbnailGenerator } from "./stages/thumbnailGenerator";
+import { wcThumbnailHeadlineGenerator } from "./stages/thumbnailHeadlineGenerator";
 import { wcVoiceover } from "./stages/voiceover";
 import { wcVideoAssembly } from "./stages/videoAssembly";
 import { wcYoutubeUpload } from "./stages/youtubeUpload";
@@ -35,28 +36,31 @@ const WC_LOCK_ID = 789012;
 // SEO + thumbnails run before voiceover because they only need the script, not audio.
 
 const STAGES: StageDefinition[] = [
-  { name: "topicDiscovery",       execute: topicDiscovery,       retries: 2 },
-  { name: "scriptGenerator",      execute: scriptGenerator,      retries: 2 },
-  { name: "qualityGate",          execute: qualityGate,          retries: 0 },
-  { name: "seoGenerator",         execute: seoGenerator,         retries: 2 },
-  { name: "wcThumbnailGenerator", execute: wcThumbnailGenerator, retries: 2 },
-  { name: "voiceover",            execute: wcVoiceover,          retries: 3 },
-  { name: "videoAssembly",        execute: wcVideoAssembly,      retries: 3 },
-  { name: "youtubeUpload",        execute: wcYoutubeUpload,      retries: 3 },
-  { name: "shortsGenerator",      execute: wcShortsGenerator,    retries: 1 },
-  { name: "notify",               execute: wcNotify,             retries: 2 },
+  { name: "topicDiscovery",               execute: topicDiscovery,               retries: 2 },
+  { name: "scriptGenerator",              execute: scriptGenerator,              retries: 2 },
+  { name: "qualityGate",                  execute: qualityGate,                  retries: 0 },
+  { name: "seoGenerator",                 execute: seoGenerator,                 retries: 2 },
+  { name: "wcThumbnailHeadlineGenerator", execute: wcThumbnailHeadlineGenerator, retries: 2 },
+  { name: "wcThumbnailGenerator",         execute: wcThumbnailGenerator,         retries: 2 },
+  { name: "voiceover",                    execute: wcVoiceover,                  retries: 3 },
+  { name: "videoAssembly",                execute: wcVideoAssembly,              retries: 3 },
+  { name: "youtubeUpload",                execute: wcYoutubeUpload,              retries: 3 },
+  { name: "shortsGenerator",              execute: wcShortsGenerator,            retries: 1 },
+  { name: "notify",                       execute: wcNotify,                     retries: 2 },
 ];
 
 // Map video status → stage index to resume from.
 // Only statuses that indicate a stage completed but the next one hasn't started.
+// Indices shifted +1 for everything after seoGenerator because
+// wcThumbnailHeadlineGenerator was inserted at index 4.
 const RESUME_FROM: Partial<Record<VideoStatus, number>> = {
-  [VideoStatus.SEO_DONE]:         4, // SEO done → resume at wcThumbnailGenerator
-  [VideoStatus.VOICEOVER_DONE]:   6, // voiceover done → resume at videoAssembly
-  [VideoStatus.ASSEMBLY_DONE]:    7, // assembly done → resume at youtubeUpload
+  [VideoStatus.SEO_DONE]:         4, // SEO done → resume at wcThumbnailHeadlineGenerator (then thumbnail)
+  [VideoStatus.VOICEOVER_DONE]:   7, // voiceover done → resume at videoAssembly (was 6)
+  [VideoStatus.ASSEMBLY_DONE]:    8, // assembly done → resume at youtubeUpload (was 7)
   // Mid-stage crash recovery (container died between status update and stage completion).
   // Safe to auto-retry: these stages don't make external paid API calls.
-  [VideoStatus.ASSEMBLY_PENDING]: 6, // assembly crashed mid-flight → retry videoAssembly
-  [VideoStatus.UPLOAD_PENDING]:   7, // upload crashed mid-flight → retry youtubeUpload
+  [VideoStatus.ASSEMBLY_PENDING]: 7, // assembly crashed mid-flight → retry videoAssembly (was 6)
+  [VideoStatus.UPLOAD_PENDING]:   8, // upload crashed mid-flight → retry youtubeUpload (was 7)
   // Deliberately NOT included: VOICEOVER_PENDING / SCRIPT_PENDING / SEO_PENDING.
   // Auto-resuming those would re-spend ElevenLabs / Anthropic credits — operator must decide.
 };
