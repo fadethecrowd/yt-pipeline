@@ -66,22 +66,103 @@ function extractHook(title: string): string {
   return words.slice(0, 4).join(" ");
 }
 
+// ── Punch-word detection ────────────────────────────────────────────────
+
+const PUNCH_PRIORITY = [
+  "HACKS", "KILLS", "BREAKS", "WATCHES", "REMEMBERS",
+  "EXPLOITS", "EXPOSED", "UNSAFE",
+];
+
+const PUNCH_COLOR = "#00ffff"; // CYAN — distinct from ACCENT (matrix green)
+
+/**
+ * Pick one focal word from the headline. Priority list first; fallback to
+ * longest ALL-CAPS word; final fallback to longest word overall.
+ * Returns the text flanking the punch word so it can be rendered on
+ * separate visual lines (punch 2.5× bigger than the flanking lines).
+ */
+function detectPunchWord(
+  headline: string,
+): { before: string; punch: string; after: string } {
+  const words = headline.trim().split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) return { before: "", punch: "", after: "" };
+
+  // Priority-list match first (case-insensitive on the word)
+  let idx = words.findIndex((w) => PUNCH_PRIORITY.includes(w.toUpperCase()));
+
+  // Fallback: longest ALL-CAPS word (len tiebreak → first occurrence)
+  if (idx === -1) {
+    let bestIdx = -1;
+    let bestLen = 0;
+    for (let i = 0; i < words.length; i++) {
+      if (/^[A-Z]+$/.test(words[i]) && words[i].length > bestLen) {
+        bestIdx = i;
+        bestLen = words[i].length;
+      }
+    }
+    idx = bestIdx;
+  }
+
+  // Final fallback: longest word overall
+  if (idx === -1) {
+    let bestIdx = 0;
+    for (let i = 1; i < words.length; i++) {
+      if (words[i].length > words[bestIdx].length) bestIdx = i;
+    }
+    idx = bestIdx;
+  }
+
+  return {
+    before: words.slice(0, idx).join(" "),
+    punch: words[idx],
+    after: words.slice(idx + 1).join(" "),
+  };
+}
+
 // ── SVG text overlay generators ─────────────────────────────────────────
 
 function svgVariantA(headline: string, subtitle: string): Buffer {
-  const headlineLines = wrapText(headline, 28);
-  const headlineY = HEIGHT / 2 - (headlineLines.length - 1) * 42;
+  const { before, punch, after } = detectPunchWord(headline);
 
-  const headlineSvg = headlineLines
-    .map((line, i) => `<text x="640" y="${headlineY + i * 84}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="72" fill="white">${escapeXml(line)}</text>`)
-    .join("\n");
+  const BASE_SIZE = 72;
+  const PUNCH_SIZE = Math.round(BASE_SIZE * 2.5); // 180
+
+  // Vertical layout: three text elements stacked. Baselines chosen so the
+  // 180pt punch word lands near vertical center; flanking lines hug it.
+  // Y positions here are SVG text baselines.
+  const beforeY = 230;
+  const punchY = 440;
+  const afterY = 610;
+
+  const parts: string[] = [];
+  if (before) {
+    parts.push(
+      `<text x="640" y="${beforeY}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="${BASE_SIZE}" fill="white">${escapeXml(before)}</text>`,
+    );
+  }
+  if (punch) {
+    parts.push(
+      `<text x="640" y="${punchY}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="${PUNCH_SIZE}" fill="${PUNCH_COLOR}">${escapeXml(punch)}</text>`,
+    );
+  }
+  if (after) {
+    parts.push(
+      `<text x="640" y="${afterY}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="${BASE_SIZE}" fill="white">${escapeXml(after)}</text>`,
+    );
+  }
+  const headlineSvg = parts.join("\n");
+
+  // Subtitle sits below the stack. If only punch rendered, this is below
+  // the punch; otherwise below the `after` line. Keep a constant position
+  // for simplicity.
+  const subtitleY = 680;
 
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
     <rect width="${WIDTH}" height="${HEIGHT}" fill="#0a0a0a"/>
     <rect width="${WIDTH}" height="4" fill="${ACCENT}"/>
     <text x="1200" y="80" text-anchor="middle" font-size="80" fill="white" opacity="0.3">&#9760;</text>
     ${headlineSvg}
-    <text x="640" y="${headlineY + headlineLines.length * 84 + 20}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="28" fill="${ACCENT}">${escapeXml(subtitle)}</text>
+    <text x="640" y="${subtitleY}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="28" fill="${ACCENT}">${escapeXml(subtitle)}</text>
     <text x="30" y="${HEIGHT - 20}" font-family="'Bebas Neue', sans-serif" font-size="18" fill="#555555">AI DOOM SCROLL</text>
   </svg>`;
 
