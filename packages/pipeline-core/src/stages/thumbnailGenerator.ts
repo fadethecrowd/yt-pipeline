@@ -210,8 +210,15 @@ export async function thumbnailGenerator(
     return { success: false, error: "No videoPath available", durationMs: Date.now() - start };
   }
 
-  const headline = video?.seoTitle ?? ctx.seo?.title ?? ctx.topic.title;
-  const subtitle = ctx.topic.summary ?? ctx.topic.title;
+  // Headline preference order: thumbnail-specific → seoTitle → ctx.seo.title → topic.title.
+  // thumbnailHeadlineGenerator stage runs immediately before this stage in
+  // the AI Doom pipeline and persists `thumbnailHeadline`/`thumbnailSubtext`
+  // to the Video row. WC pipeline doesn't run that stage so these are null
+  // and the existing fallback applies.
+  const headline =
+    video?.thumbnailHeadline ?? video?.seoTitle ?? ctx.seo?.title ?? ctx.topic.title;
+  const subtitle =
+    video?.thumbnailSubtext ?? ctx.topic.summary ?? ctx.topic.title;
 
   // Create output directory
   const outDir = join(process.cwd(), "tmp", ctx.video.id);

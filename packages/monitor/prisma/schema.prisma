@@ -68,6 +68,8 @@ model Video {
   videoPath      String?
   videoUrl       String?
 
+  thumbnailHeadline String?
+  thumbnailSubtext  String?
   thumbnailA     String?
   thumbnailB     String?
   thumbnailC     String?

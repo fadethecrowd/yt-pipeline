@@ -20,6 +20,7 @@ import { scriptGenerator } from "./stages/scriptGenerator";
 import { qualityGate } from "./stages/qualityGate";
 import { seoGenerator } from "./stages/seoGenerator";
 import { shortsGenerator } from "./stages/shortsGenerator";
+import { thumbnailHeadlineGenerator } from "./stages/thumbnailHeadlineGenerator";
 
 // ── Stage definitions (sequential) ────────────────────────────────────────
 
@@ -29,6 +30,7 @@ const STAGES: StageDefinition[] = [
   { name: "qualityGate", execute: qualityGate, retries: 0 },
   { name: "voiceover", execute: voiceover, retries: 3 },
   { name: "videoAssembly", execute: videoAssembly, retries: 3 },
+  { name: "thumbnailHeadlineGenerator", execute: thumbnailHeadlineGenerator, retries: 2 },
   { name: "thumbnailGenerator", execute: thumbnailGenerator, retries: 2 },
   { name: "seoGenerator", execute: seoGenerator, retries: 2 },
   { name: "youtubeUpload", execute: youtubeUpload, retries: 3 },
@@ -36,11 +38,13 @@ const STAGES: StageDefinition[] = [
   { name: "notify", execute: notify, retries: 2 },
 ];
 
-// Map video status → index into STAGES where we should resume
+// Map video status → index into STAGES where we should resume.
+// Indices shifted +1 for everything after videoAssembly because
+// thumbnailHeadlineGenerator was inserted at index 5.
 const RESUME_FROM: Partial<Record<VideoStatus, number>> = {
   [VideoStatus.VOICEOVER_DONE]: 4, // resume at videoAssembly
-  [VideoStatus.ASSEMBLY_DONE]: 5,  // resume at thumbnailGenerator
-  [VideoStatus.SEO_DONE]: 7,       // resume at youtubeUpload
+  [VideoStatus.ASSEMBLY_DONE]: 5,  // resume at thumbnailHeadlineGenerator → thumbnailGenerator
+  [VideoStatus.SEO_DONE]: 8,       // resume at youtubeUpload (was 7 before insert)
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
