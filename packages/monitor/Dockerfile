@@ -1,6 +1,16 @@
 # Build context: repository root (NOT packages/monitor).
 # railway.toml sets dockerfilePath = "packages/monitor/Dockerfile" to pick this up.
 FROM node:22-slim
+
+# Install fontconfig + Bebas Neue display font for thumbnail SVG rendering
+# (monitor's regenerateThumbnail action also produces thumbnails).
+RUN apt-get update \
+ && apt-get install -y fontconfig \
+ && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /usr/share/fonts/truetype/custom
+COPY assets/fonts/BebasNeue-Regular.ttf /usr/share/fonts/truetype/custom/
+RUN fc-cache -f -v
+
 WORKDIR /app
 
 # ── Install workspace deps ───────────────────────────────────────────────

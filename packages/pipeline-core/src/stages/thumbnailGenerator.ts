@@ -73,7 +73,7 @@ function svgVariantA(headline: string, subtitle: string): Buffer {
   const headlineY = HEIGHT / 2 - (headlineLines.length - 1) * 42;
 
   const headlineSvg = headlineLines
-    .map((line, i) => `<text x="640" y="${headlineY + i * 84}" text-anchor="middle" font-family="monospace, 'Courier New'" font-size="72" font-weight="bold" fill="white">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="640" y="${headlineY + i * 84}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="72" font-weight="bold" fill="white">${escapeXml(line)}</text>`)
     .join("\n");
 
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -81,8 +81,8 @@ function svgVariantA(headline: string, subtitle: string): Buffer {
     <rect width="${WIDTH}" height="4" fill="${ACCENT}"/>
     <text x="1200" y="80" text-anchor="middle" font-size="80" fill="white" opacity="0.3">&#9760;</text>
     ${headlineSvg}
-    <text x="640" y="${headlineY + headlineLines.length * 84 + 20}" text-anchor="middle" font-family="monospace, 'Courier New'" font-size="28" fill="${ACCENT}">${escapeXml(subtitle)}</text>
-    <text x="30" y="${HEIGHT - 20}" font-family="monospace, 'Courier New'" font-size="18" fill="#555555">AI DOOM SCROLL</text>
+    <text x="640" y="${headlineY + headlineLines.length * 84 + 20}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="28" fill="${ACCENT}">${escapeXml(subtitle)}</text>
+    <text x="30" y="${HEIGHT - 20}" font-family="'Bebas Neue', sans-serif" font-size="18" fill="#555555">AI DOOM SCROLL</text>
   </svg>`;
 
   return Buffer.from(svg);
@@ -95,7 +95,7 @@ function svgVariantBOverlay(headline: string): Buffer {
 
   const headlineSvg = headlineLines
     .slice(0, 2)
-    .map((line, i) => `<text x="40" y="${textStartY + i * 72}" font-family="Arial, Helvetica, sans-serif" font-size="64" font-weight="bold" fill="white">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="40" y="${textStartY + i * 72}" font-family="'Bebas Neue', sans-serif" font-size="64" font-weight="bold" fill="white">${escapeXml(line)}</text>`)
     .join("\n");
 
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -103,7 +103,7 @@ function svgVariantBOverlay(headline: string): Buffer {
     <rect y="${stripTop - 3}" width="${WIDTH}" height="3" fill="${ACCENT}"/>
     <rect y="${stripTop}" width="${WIDTH}" height="220" fill="rgba(0,0,0,0.85)"/>
     ${headlineSvg}
-    <text x="30" y="30" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="white" opacity="0.7">AI DOOM SCROLL</text>
+    <text x="30" y="30" font-family="'Bebas Neue', sans-serif" font-size="18" fill="white" opacity="0.7">AI DOOM SCROLL</text>
   </svg>`;
 
   return Buffer.from(svg);
@@ -114,7 +114,7 @@ function svgVariantCOverlay(headline: string, hook: string): Buffer {
   const hookY = HEIGHT / 2 - (hookLines.length - 1) * 60;
 
   const hookSvg = hookLines
-    .map((line, i) => `<text x="640" y="${hookY + i * 120}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="110" font-weight="900" fill="white">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="640" y="${hookY + i * 120}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="110" font-weight="900" fill="white">${escapeXml(line)}</text>`)
     .join("\n");
 
   const fullTitleY = hookY + hookLines.length * 120 + 30;
@@ -123,7 +123,7 @@ function svgVariantCOverlay(headline: string, hook: string): Buffer {
     <rect width="${WIDTH}" height="${HEIGHT}" fill="rgba(0,0,0,0.65)"/>
     <rect width="${WIDTH}" height="4" fill="${ACCENT}"/>
     ${hookSvg}
-    <text x="640" y="${fullTitleY}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="32" fill="white" opacity="0.6">${escapeXml(headline)}</text>
+    <text x="640" y="${fullTitleY}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="32" fill="white" opacity="0.6">${escapeXml(headline)}</text>
   </svg>`;
 
   return Buffer.from(svg);

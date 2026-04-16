@@ -82,7 +82,7 @@ function logoSvg(
 
 /** "WET CIRCUIT" wordmark — "WET" in accent color, "CIRCUIT" in white */
 function wordmarkSvg(x: number, y: number, accentColor: string): string {
-  return `<text x="${x}" y="${y}" font-family="'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="3">
+  return `<text x="${x}" y="${y}" font-family="'Bebas Neue', sans-serif" font-size="16" font-weight="700" letter-spacing="3">
     <tspan fill="${accentColor}">WET</tspan><tspan fill="${WHITE}" dx="6">CIRCUIT</tspan>
   </text>`;
 }
@@ -100,7 +100,7 @@ function pillBadgeSvg(
   const pillH = 32;
   const r = pillH / 2;
   return `<rect x="${x}" y="${y}" width="${pillW}" height="${pillH}" rx="${r}" ry="${r}" fill="${bgColor}"/>
-    <text x="${x + pillW / 2}" y="${y + 22}" text-anchor="middle" font-family="'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="1.5" fill="${textColor}">${escapeXml(label)}</text>`;
+    <text x="${x + pillW / 2}" y="${y + 22}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="14" font-weight="700" letter-spacing="1.5" fill="${textColor}">${escapeXml(label)}</text>`;
 }
 
 // ── Variant SVG generators ──────────────────────────────────────────────────
@@ -121,13 +121,13 @@ function svgVariantA(
   const lineHeight = 56;
 
   const headlineSvg = headlineLines.slice(0, 3).map((line, i) =>
-    `<text x="48" y="${headlineY + i * lineHeight}" font-family="'Helvetica Neue', Arial, sans-serif" font-size="48" font-weight="800" fill="${WHITE}" letter-spacing="1">${escapeXml(line)}</text>`,
+    `<text x="48" y="${headlineY + i * lineHeight}" font-family="'Bebas Neue', sans-serif" font-size="48" font-weight="800" fill="${WHITE}" letter-spacing="1">${escapeXml(line)}</text>`,
   ).join("\n");
 
   const subtextY = headlineY + headlineLines.slice(0, 3).length * lineHeight + 16;
   const subtextLines = wrapText(subtext, 40);
   const subtextSvg = subtextLines.slice(0, 2).map((line, i) =>
-    `<text x="48" y="${subtextY + i * 28}" font-family="'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="500" fill="${CYAN}">${escapeXml(line)}</text>`,
+    `<text x="48" y="${subtextY + i * 28}" font-family="'Bebas Neue', sans-serif" font-size="22" font-weight="500" fill="${CYAN}">${escapeXml(line)}</text>`,
   ).join("\n");
 
   const optBadgeSvg = optionalBadge
@@ -167,13 +167,13 @@ function svgVariantB(
   const lineHeight = 56;
 
   const headlineSvg = headlineLines.slice(0, 3).map((line, i) =>
-    `<text x="48" y="${headlineY + i * lineHeight}" font-family="'Helvetica Neue', Arial, sans-serif" font-size="48" font-weight="800" fill="${WHITE}" letter-spacing="1">${escapeXml(line)}</text>`,
+    `<text x="48" y="${headlineY + i * lineHeight}" font-family="'Bebas Neue', sans-serif" font-size="48" font-weight="800" fill="${WHITE}" letter-spacing="1">${escapeXml(line)}</text>`,
   ).join("\n");
 
   const subtextY = headlineY + headlineLines.slice(0, 3).length * lineHeight + 16;
   const subtextLines = wrapText(subtext, 40);
   const subtextSvg = subtextLines.slice(0, 2).map((line, i) =>
-    `<text x="48" y="${subtextY + i * 28}" font-family="'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="500" fill="${ORANGE}">${escapeXml(line)}</text>`,
+    `<text x="48" y="${subtextY + i * 28}" font-family="'Bebas Neue', sans-serif" font-size="22" font-weight="500" fill="${ORANGE}">${escapeXml(line)}</text>`,
   ).join("\n");
 
   const optBadgeSvg = optionalBadge
@@ -213,16 +213,16 @@ function svgVariantC(
   const lineHeight = 68;
 
   const headlineSvg = headlineLines.slice(0, 3).map((line, i) =>
-    `<text x="${WIDTH / 2}" y="${headlineY + i * lineHeight}" text-anchor="middle" font-family="'Helvetica Neue', Arial, sans-serif" font-size="60" font-weight="900" fill="${WHITE}" letter-spacing="2">${escapeXml(line)}</text>`,
+    `<text x="${WIDTH / 2}" y="${headlineY + i * lineHeight}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="60" font-weight="900" fill="${WHITE}" letter-spacing="2">${escapeXml(line)}</text>`,
   ).join("\n");
 
   const subtextY = headlineY + headlineLines.slice(0, 3).length * lineHeight + 20;
-  const subtextSvg = `<text x="${WIDTH / 2}" y="${subtextY}" text-anchor="middle" font-family="'Helvetica Neue', Arial, sans-serif" font-size="26" font-weight="500" fill="${CYAN}">${escapeXml(subtext)}</text>`;
+  const subtextSvg = `<text x="${WIDTH / 2}" y="${subtextY}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="26" font-weight="500" fill="${CYAN}">${escapeXml(subtext)}</text>`;
 
   const badgeX = (WIDTH - (badge.length * 10 + 24)) / 2;
 
   const optBadgeSvg = optionalBadge
-    ? `<text x="${WIDTH / 2}" y="${HEIGHT - 48}" text-anchor="middle" font-family="'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="600" letter-spacing="2" fill="${SECONDARY}">${escapeXml(optionalBadge)}</text>`
+    ? `<text x="${WIDTH / 2}" y="${HEIGHT - 48}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="16" font-weight="600" letter-spacing="2" fill="${SECONDARY}">${escapeXml(optionalBadge)}</text>`
     : "";
 
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
