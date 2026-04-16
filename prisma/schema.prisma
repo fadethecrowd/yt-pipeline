@@ -143,6 +143,8 @@ model WcVideo {
   videoUrl       String?
 
   // Thumbnail stage
+  thumbnailHeadline String?  // mirrors Video — kept parallel for shared PipelineContext typing
+  thumbnailSubtext  String?
   thumbnailA     String?
   thumbnailB     String?
   thumbnailC     String?

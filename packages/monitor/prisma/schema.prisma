@@ -119,6 +119,9 @@ model WcTopic {
   @@index([createdAt])
 }
 
+// WcVideo mirrors Video field-for-field so the shared PipelineContext.video
+// type accepts both. thumbnailHeadline/Subtext are AI-Doom-only at runtime
+// (wc-pipeline never sets them) but must exist on WcVideo for type parity.
 model WcVideo {
   id             String      @id @default(cuid())
   topicId        String
@@ -131,6 +134,8 @@ model WcVideo {
   voiceoverPath  String?
   videoPath      String?
   videoUrl       String?
+  thumbnailHeadline String?
+  thumbnailSubtext  String?
   thumbnailA     String?
   thumbnailB     String?
   thumbnailC     String?
