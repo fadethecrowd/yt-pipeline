@@ -8,9 +8,7 @@ import type { FeedItem, PipelineContext, StageResult } from "@yt-pipeline/pipeli
 
 const RSS_FEEDS: Record<string, string> = {
   garmin: "https://www.garmin.com/en-US/newsroom/feed/",
-  humminbird: "https://www.humminbird.com/blogs/news.atom",
-  lowrance: "https://www.lowrance.com/en-us/news/feed/",
-  simrad: "https://www.simrad-yachting.com/en-us/news/feed/",
+  humminbird: "https://www.humminbird.com/rss.xml",
   panbo: "https://panbo.com/feed/",
   passagemaker: "https://www.passagemaker.com/feed",
   sportfishing: "https://www.sportfishingmag.com/feed/",
@@ -70,8 +68,6 @@ const SOURCE_WEIGHTS: Record<string, number> = {
   panbo: 1.5,
   garmin: 1.3,
   humminbird: 1.3,
-  lowrance: 1.3,
-  simrad: 1.3,
   "reddit:r/livescope": 1.3,
   // Neutral
   "reddit:r/boating": 1.0,
