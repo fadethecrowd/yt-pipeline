@@ -12,10 +12,13 @@ const RSS_FEEDS: Record<string, string> = {
   humminbird: "https://www.humminbird.com/rss.xml",
   victron: "https://www.victronenergy.com/blog/feed/",
   minnkota: "https://www.minnkotamotors.com/rss.xml",
-  // Independent publications / how-to
+  lithionics: "https://lithionicsbattery.com/blog/feed/",
+  // Independent publications / how-to / standards
   panbo: "https://panbo.com/feed/",
   marinehowto: "https://marinehowto.com/feed/",
   practical_sailor: "https://www.practical-sailor.com/feed/",
+  abyc: "https://abycinc.org/feed/",
+  boattest: "https://www.boattest.com/rss.xml",
   passagemaker: "https://www.passagemaker.com/feed",
   sportfishing: "https://www.sportfishingmag.com/feed/",
   wired2fish: "https://wired2fish.com/feed/",
@@ -73,10 +76,13 @@ const SOURCE_WEIGHTS: Record<string, number> = {
   // High-value marine tech sources
   panbo: 1.5,
   marinehowto: 1.4,
+  abyc: 1.4,
   garmin: 1.3,
   humminbird: 1.3,
   victron: 1.3,
   "reddit:r/livescope": 1.3,
+  boattest: 1.2,
+  lithionics: 1.1,
   // Neutral
   minnkota: 1.0,
   "reddit:r/boating": 1.0,
