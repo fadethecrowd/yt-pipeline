@@ -35,14 +35,22 @@ const RELEVANCE_GATE_KEYWORDS = [
 
 /** Weighted scoring keywords — signals purchase intent and content value. */
 const SCORING_KEYWORDS: Record<string, number> = {
-  // Strong purchase-intent signals (3 pts each)
-  best: 3, review: 3, vs: 3, versus: 3, comparison: 3,
-  upgrade: 3, "top 5": 3, "top 10": 3, roundup: 3,
-  // Product / price signals (2 pts each)
-  price: 2, install: 2, setup: 2, unbox: 2, "hands on": 2,
+  // Strong technical comparison signals (3-4 pts)
+  vs: 3, versus: 3, comparison: 3, "head to head": 4,
+  "real-world": 4, "field test": 4, "long-term": 4,
+  // Technical depth — reliability / signal / power / install realities (2-3 pts)
+  reliability: 3, tradeoff: 3, tradeoffs: 3,
+  interference: 3, "signal quality": 3, "noise floor": 3,
+  wiring: 3, nmea: 3, "nmea 2000": 3, ethernet: 2,
+  "power draw": 3, "voltage drop": 3, "ground loop": 3,
+  failure: 2, troubleshoot: 2, benchmark: 3,
+  // Practical install / setup signals (2 pts)
+  upgrade: 3, price: 2, install: 2, setup: 2, "hands on": 2,
   tutorial: 2, "how to": 2, settings: 2, mount: 2,
   // New product signals (2 pts each)
   new: 2, launch: 2, release: 2, announce: 2, "just dropped": 2,
+  // Demoted consumer-fluff signals (1 pt — kept for relevance, not boosted)
+  best: 1, review: 1, "top 5": 1, "top 10": 1, roundup: 1,
   // General marine relevance (1 pt each)
   fishfinder: 1, chartplotter: 1, sonar: 1, livescope: 1,
   garmin: 1, humminbird: 1, lowrance: 1, simrad: 1,
@@ -50,6 +58,60 @@ const SCORING_KEYWORDS: Record<string, number> = {
 };
 
 const MAX_SCORING_POINTS = Object.values(SCORING_KEYWORDS).reduce((a, b) => a + b, 0);
+
+/**
+ * Per-source multiplier applied to the final composite score.
+ * Lookup uses the same `source` string set when items are ingested
+ * (RSS keys for RSS items, "reddit:r/{sub}" for Reddit items).
+ * Unmapped sources default to 1.0.
+ */
+const SOURCE_WEIGHTS: Record<string, number> = {
+  // High-value marine tech sources
+  panbo: 1.5,
+  garmin: 1.3,
+  humminbird: 1.3,
+  lowrance: 1.3,
+  simrad: 1.3,
+  "reddit:r/livescope": 1.3,
+  // Neutral
+  "reddit:r/boating": 1.0,
+  // Demote — broad publications
+  sportfishing: 0.8,
+  passagemaker: 0.8,
+  // Demote — broad fishing community
+  "reddit:r/Fishing": 0.6,
+  // Heavy demote — kayak/freshwater-fishing focus
+  "reddit:r/kayakfishing": 0.5,
+  wired2fish: 0.5,
+  // Near-zero — boat photography (rarely tech)
+  "reddit:r/boatporn": 0.3,
+};
+
+/**
+ * Negative scoring weights — penalties subtracted from intent points
+ * before computing intentScore. Targets kayak-rigging, beginner framing,
+ * and consumer-list content that doesn't fit the marine-tech mandate.
+ */
+const NEGATIVE_KEYWORDS: Record<string, number> = {
+  "kayak fishing": 5,
+  "fishing kayak": 5,
+  "first kayak": 5,
+  "beginner kayak": 5,
+  "rigging your kayak": 5,
+  "kayak rigging": 5,
+  "lifetime tamarack": 5,
+  "gift guide": 5,
+  "for beginners": 4,
+  "first fish finder": 4,
+  "fly fishing": 4,
+  scupper: 3,
+  pelican: 3,
+  "bass fishing": 3,
+  beginner: 3,
+  tackle: 2,
+  lure: 2,
+  "what to buy": 2,
+};
 
 // ── Pillar types ────────────────────────────────────────────────────────────
 
@@ -272,7 +334,14 @@ function scoreItem(item: FeedItem & { _engagement?: number }): number {
   for (const [kw, weight] of Object.entries(SCORING_KEYWORDS)) {
     if (text.includes(kw)) keywordPoints += weight;
   }
-  const intentScore = Math.min(40, (keywordPoints / MAX_SCORING_POINTS) * 100);
+  // Subtract penalty for kayak-fluff / beginner-framing / consumer-list signals.
+  // Floor at 0 so a single irrelevant phrase can't drive intentScore negative.
+  let negativePoints = 0;
+  for (const [kw, penalty] of Object.entries(NEGATIVE_KEYWORDS)) {
+    if (text.includes(kw)) negativePoints += penalty;
+  }
+  const adjustedKeywordPoints = Math.max(0, keywordPoints - negativePoints);
+  const intentScore = Math.min(40, (adjustedKeywordPoints / MAX_SCORING_POINTS) * 100);
 
   // Recency score (0-25): exponential decay, 24h half-life
   let recencyScore = 25;
@@ -297,7 +366,9 @@ function scoreItem(item: FeedItem & { _engagement?: number }): number {
   }
   const relevanceScore = Math.min(15, (relevanceHits / 5) * 15);
 
-  const total = intentScore + recencyScore + engagementScore + relevanceScore;
+  // Apply per-source weight as final multiplier. Editorial mix shaping.
+  const sourceWeight = SOURCE_WEIGHTS[item.source] ?? 1.0;
+  const total = (intentScore + recencyScore + engagementScore + relevanceScore) * sourceWeight;
   return Math.round(Math.min(100, total) * 10) / 10;
 }
 
