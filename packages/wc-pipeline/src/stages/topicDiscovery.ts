@@ -92,6 +92,35 @@ const SOURCE_WEIGHTS: Record<string, number> = {
  * before computing intentScore. Targets kayak-rigging, beginner framing,
  * and consumer-list content that doesn't fit the marine-tech mandate.
  */
+/**
+ * Core technical-electronics signal. If a topic mentions NONE of these,
+ * its final score is multiplied by 0.75 — a mild ranking-probability
+ * reduction. Topics are NOT rejected or filtered, only deprioritised.
+ */
+const TECHNICAL_CORE_KEYWORDS = [
+  "fishfinder",
+  "chartplotter",
+  "sonar",
+  "livescope",
+  "transducer",
+  "nmea",
+  "nmea 2000",
+  "ethernet",
+  "network",
+  "radar",
+  "vhf",
+  "ais",
+  "autopilot",
+  "battery",
+  "power draw",
+  "voltage drop",
+  "ground loop",
+  "interference",
+  "signal",
+  "wiring",
+  "marine electronics",
+];
+
 const NEGATIVE_KEYWORDS: Record<string, number> = {
   "kayak fishing": 5,
   "fishing kayak": 5,
@@ -368,7 +397,17 @@ function scoreItem(item: FeedItem & { _engagement?: number }): number {
 
   // Apply per-source weight as final multiplier. Editorial mix shaping.
   const sourceWeight = SOURCE_WEIGHTS[item.source] ?? 1.0;
-  const total = (intentScore + recencyScore + engagementScore + relevanceScore) * sourceWeight;
+  let total = (intentScore + recencyScore + engagementScore + relevanceScore) * sourceWeight;
+
+  // Mild electronics-relevance bias — topics with no technical-core signal
+  // are deprioritised but NOT rejected. Lets a help-thread with broad
+  // marine-tech edges still surface, while letting deeply technical content
+  // outrank it on equal recency/engagement.
+  const hasTechnicalSignal = TECHNICAL_CORE_KEYWORDS.some((kw) => text.includes(kw));
+  if (!hasTechnicalSignal) {
+    total *= 0.75;
+  }
+
   return Math.round(Math.min(100, total) * 10) / 10;
 }
 
