@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 import { prisma } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
@@ -281,6 +281,26 @@ export async function wcThumbnailGenerator(
   ctx: PipelineContext,
 ): Promise<StageResult> {
   const start = Date.now();
+
+  if (process.env.DISABLE_ELEVEN === "true") {
+    console.log("[wc:guard] DISABLE_ELEVEN active — skipping thumbnail generation");
+    const thumbDir = join(process.cwd(), "thumbnail", ctx.video.id);
+    await mkdir(thumbDir, { recursive: true });
+    const placeholderPath = join(thumbDir, "placeholder.jpg");
+    await writeFile(placeholderPath, Buffer.from([]));
+    await prisma.wcVideo.update({
+      where: { id: ctx.video.id },
+      data: {
+        thumbnailA: placeholderPath,
+        thumbnailB: placeholderPath,
+        thumbnailC: placeholderPath,
+      },
+    });
+    ctx.thumbnailA = placeholderPath;
+    ctx.thumbnailB = placeholderPath;
+    ctx.thumbnailC = placeholderPath;
+    return { success: true, durationMs: Date.now() - start };
+  }
 
   const video = await prisma.wcVideo.findUnique({ where: { id: ctx.video.id } });
   const summary = ctx.topic.summary ?? "";
