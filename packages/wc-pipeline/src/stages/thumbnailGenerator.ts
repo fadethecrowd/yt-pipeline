@@ -15,10 +15,9 @@ const SECONDARY  = "#8A9BB5";
 const WIDTH  = 1280;
 const HEIGHT = 720;
 
-// Left text area = 55% width, right product area = 45%
-const TEXT_W    = Math.round(WIDTH * 0.55);  // 704
-const PRODUCT_X = TEXT_W;
-const PRODUCT_W = WIDTH - TEXT_W;            // 576
+// All variants now use full-width layout. The prior 55/45 text/product
+// split rendered a literal "PRODUCT IMAGE" placeholder into shipped
+// thumbnails — removed.
 
 // ── Pillar → badge label mapping ────────────────────────────────────────────
 
@@ -116,7 +115,8 @@ function svgVariantA(
   badge: string,
   optionalBadge?: string,
 ): Buffer {
-  const headlineLines = wrapText(headline.toUpperCase(), 18);
+  // Full-width wrap (was 18 chars when constrained to left half)
+  const headlineLines = wrapText(headline.toUpperCase(), 26);
   const headlineY = 260;
   const lineHeight = 56;
 
@@ -125,7 +125,7 @@ function svgVariantA(
   ).join("\n");
 
   const subtextY = headlineY + headlineLines.slice(0, 3).length * lineHeight + 16;
-  const subtextLines = wrapText(subtext, 28);
+  const subtextLines = wrapText(subtext, 40);
   const subtextSvg = subtextLines.slice(0, 2).map((line, i) =>
     `<text x="48" y="${subtextY + i * 28}" font-family="'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="500" fill="${CYAN}">${escapeXml(line)}</text>`,
   ).join("\n");
@@ -135,10 +135,8 @@ function svgVariantA(
     : "";
 
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-    <!-- Background -->
     <rect width="${WIDTH}" height="${HEIGHT}" fill="${NAVY}"/>
 
-    <!-- Left text area -->
     ${logoSvg(40, 36, 48, 32, CYAN)}
     ${wordmarkSvg(96, 60, CYAN)}
     ${pillBadgeSvg(48, 100, badge, CYAN, NAVY)}
@@ -147,14 +145,6 @@ function svgVariantA(
     ${subtextSvg}
     ${optBadgeSvg}
 
-    <!-- Right product area -->
-    <line x1="${PRODUCT_X}" y1="24" x2="${PRODUCT_X}" y2="${HEIGHT - 24}" stroke="${CYAN}" stroke-width="2" opacity="0.6"/>
-    <rect x="${PRODUCT_X + 24}" y="24" width="${PRODUCT_W - 48}" height="${HEIGHT - 48}" rx="8" ry="8"
-          fill="rgba(0,196,212,0.04)" stroke="${CYAN}" stroke-width="1" opacity="0.3"/>
-    <text x="${PRODUCT_X + PRODUCT_W / 2}" y="${HEIGHT / 2}" text-anchor="middle"
-          font-family="'Helvetica Neue', Arial, sans-serif" font-size="16" fill="${SECONDARY}" opacity="0.5">PRODUCT IMAGE</text>
-
-    <!-- Bottom accent bar -->
     <rect y="${HEIGHT - 3}" width="${WIDTH}" height="3" fill="${CYAN}"/>
   </svg>`;
 
@@ -171,7 +161,8 @@ function svgVariantB(
   badge: string,
   optionalBadge?: string,
 ): Buffer {
-  const headlineLines = wrapText(headline.toUpperCase(), 18);
+  // Full-width wrap (was 18 chars when constrained to left half)
+  const headlineLines = wrapText(headline.toUpperCase(), 26);
   const headlineY = 260;
   const lineHeight = 56;
 
@@ -180,7 +171,7 @@ function svgVariantB(
   ).join("\n");
 
   const subtextY = headlineY + headlineLines.slice(0, 3).length * lineHeight + 16;
-  const subtextLines = wrapText(subtext, 28);
+  const subtextLines = wrapText(subtext, 40);
   const subtextSvg = subtextLines.slice(0, 2).map((line, i) =>
     `<text x="48" y="${subtextY + i * 28}" font-family="'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="500" fill="${ORANGE}">${escapeXml(line)}</text>`,
   ).join("\n");
@@ -199,12 +190,6 @@ function svgVariantB(
     ${headlineSvg}
     ${subtextSvg}
     ${optBadgeSvg}
-
-    <line x1="${PRODUCT_X}" y1="24" x2="${PRODUCT_X}" y2="${HEIGHT - 24}" stroke="${ORANGE}" stroke-width="2" opacity="0.6"/>
-    <rect x="${PRODUCT_X + 24}" y="24" width="${PRODUCT_W - 48}" height="${HEIGHT - 48}" rx="8" ry="8"
-          fill="rgba(232,93,43,0.04)" stroke="${ORANGE}" stroke-width="1" opacity="0.3"/>
-    <text x="${PRODUCT_X + PRODUCT_W / 2}" y="${HEIGHT / 2}" text-anchor="middle"
-          font-family="'Helvetica Neue', Arial, sans-serif" font-size="16" fill="${SECONDARY}" opacity="0.5">PRODUCT IMAGE</text>
 
     <rect y="${HEIGHT - 3}" width="${WIDTH}" height="3" fill="${ORANGE}"/>
   </svg>`;
