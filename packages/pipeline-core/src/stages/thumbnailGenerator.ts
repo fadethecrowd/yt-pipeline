@@ -159,9 +159,13 @@ function svgVariantA(headline: string, subtitle: string): Buffer {
   }
   const headlineSvg = parts.join("\n");
 
-  // Subtitle sits below the stack. Tightened from 680 → 585 (gap from
-  // `after` line: 70 → 60, −14%).
-  const subtitleY = 585;
+  // Subtitle sits just above the footer watermark (y=700) to anchor the
+  // bottom of the composition and eliminate the visible void that
+  // appeared when the subtitle tracked the tightened internal gaps
+  // (previously 585). Gap from `after` line is deliberately looser
+  // (~135 vs 60 earlier) — fixed font sizes mean something has to give;
+  // keeping the subtitle near the footer is the better visual trade.
+  const subtitleY = 660;
 
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
     <rect width="${WIDTH}" height="${HEIGHT}" fill="#0a0a0a"/>
