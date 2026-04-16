@@ -11,18 +11,66 @@ const FEEDS: Record<string, string> = {
   venturebeat: "https://venturebeat.com/category/ai/feed/",
 };
 
-// Keywords to score relevance against
+// Keywords to score relevance against. Editorial direction: AI Doom Scroll —
+// favor capability shifts, system failures, infrastructure changes, agent
+// reliability, security, policy/workforce moves over generic "startup uses AI"
+// press fluff.
 const KEYWORDS = [
-  "ai",
-  "llm",
-  "model",
-  "automation",
-  "tool",
+  // Existing core (weak generic terms removed: ai, tool, startup)
+  "llm", "model", "automation", "agent", "openai", "anthropic", "google",
+  // Doom-aligned signals
+  "outage", "failure", "vulnerability", "jailbreak", "regression",
+  "exploit", "breach", "shutdown", "rollback",
+  "alignment", "capability", "benchmark", "scaling",
+  "safety", "policy", "ban", "lawsuit", "regulation", "layoff",
+];
+
+// Per-source multiplier applied to the final composite score. RSS source
+// keys match those defined in FEEDS. Unmapped sources default to 1.0.
+const SOURCE_WEIGHTS: Record<string, number> = {
+  hackernews: 1.3,
+  techcrunch: 0.7,
+  ars_technica: 0.7,
+  venturebeat: 0.6,
+};
+
+// Negative keyword penalties — subtracted from raw keyword hit count
+// (floored at 0) before computing keywordScore. Targets funding-round
+// PR, vertical-SaaS launches, and generic "AI-powered X" marketing fluff.
+const NEGATIVE_KEYWORDS: Record<string, number> = {
+  "raised": 5,
+  "funding": 5,
+  "series a": 5,
+  "series b": 5,
+  "series c": 5,
+  "valuation": 4,
+  "now available": 4,
+  "ai-powered": 4,
+  "for marketing": 4,
+  "for hr": 4,
+  "for sales": 4,
+  "launches tool": 4,
+  "new ai tool": 4,
+};
+
+// Mild technical/doom-depth bias. If a topic mentions NONE of these, its
+// final score is multiplied by 0.75. Topics are NOT rejected, only
+// deprioritised in favor of items with substantive technical content.
+const TECHNICAL_CORE_KEYWORDS = [
+  "benchmark",
+  "alignment",
+  "capability",
+  "training",
+  "scaling",
+  "inference",
   "agent",
-  "openai",
-  "anthropic",
-  "google",
-  "startup",
+  "autonomous",
+  "model evaluation",
+  "safety",
+  "hallucination",
+  "regression",
+  "exploit",
+  "jailbreak",
 ];
 
 const parser = new Parser();
@@ -130,15 +178,25 @@ async function fetchFeeds(): Promise<FeedItem[]> {
 
 /**
  * Score a topic 0–1 based on:
- *   - Keyword relevance (0–0.6): how many AI/tech keywords appear in title + summary
- *   - Recency (0–0.4): exponential decay, half-life of 24 hours
+ *   - Keyword relevance (0–0.6): doom-aligned keyword density,
+ *     net of NEGATIVE_KEYWORDS penalties (floored at 0).
+ *   - Recency (0–0.4): exponential decay, half-life of 24 hours.
+ *   - Source weight: per-source multiplier (final step).
+ *   - Technical-depth bias: ×0.75 if no TECHNICAL_CORE_KEYWORDS present.
  */
 function scoreTopic(item: FeedItem): number {
   const text = `${item.title} ${item.summary ?? ""}`.toLowerCase();
 
-  // Keyword score: fraction of keywords found, weighted to 0.6
+  // Raw keyword hits (each KEYWORD = 1 point)
   const hits = KEYWORDS.filter((kw) => text.includes(kw)).length;
-  const keywordScore = (hits / KEYWORDS.length) * 0.6;
+
+  // Negative-keyword penalty subtracted from hit count, floored at 0.
+  let negativePoints = 0;
+  for (const [kw, penalty] of Object.entries(NEGATIVE_KEYWORDS)) {
+    if (text.includes(kw)) negativePoints += penalty;
+  }
+  const adjustedHits = Math.max(0, hits - negativePoints);
+  const keywordScore = (adjustedHits / KEYWORDS.length) * 0.6;
 
   // Recency score: exponential decay with 24h half-life, weighted to 0.4
   let recencyScore = 0.4; // default to full if no date
@@ -148,5 +206,15 @@ function scoreTopic(item: FeedItem): number {
     recencyScore = Math.pow(0.5, ageHours / halfLife) * 0.4;
   }
 
-  return Math.round((keywordScore + recencyScore) * 1000) / 1000;
+  // Per-source weight as final multiplier. Editorial mix shaping.
+  const sourceWeight = SOURCE_WEIGHTS[item.source] ?? 1.0;
+  let total = (keywordScore + recencyScore) * sourceWeight;
+
+  // Mild technical-depth bias — deprioritise items with no doom/tech signal.
+  const hasTechnicalSignal = TECHNICAL_CORE_KEYWORDS.some((kw) => text.includes(kw));
+  if (!hasTechnicalSignal) {
+    total *= 0.75;
+  }
+
+  return Math.round(total * 1000) / 1000;
 }
