@@ -35,7 +35,13 @@ const KEYWORDS = [
 // Per-source multiplier applied to the final composite score. RSS source
 // keys match those defined in FEEDS. Unmapped sources default to 1.0.
 const SOURCE_WEIGHTS: Record<string, number> = {
+  // First-party AI lab blogs — highest signal
+  openai_blog: 1.5,
+  deepmind_blog: 1.4,
+  huggingface_blog: 1.3,
+  // Community-validated aggregator
   hackernews: 1.3,
+  // Demoted — broad/PR-heavy publications
   techcrunch: 0.7,
   ars_technica: 0.7,
   venturebeat: 0.6,
