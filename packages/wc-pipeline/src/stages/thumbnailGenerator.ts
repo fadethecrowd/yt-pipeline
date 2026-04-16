@@ -267,7 +267,15 @@ export async function wcThumbnailGenerator(
 ): Promise<StageResult> {
   const start = Date.now();
 
-  if (process.env.DISABLE_ELEVEN === "true") {
+  // DISABLE_ELEVEN gate — skips rendering and writes 0-byte placeholders.
+  // FORCE_THUMBNAIL_RENDER=true is an escape hatch that lets thumbnail
+  // rendering execute even under DISABLE_ELEVEN, so we can validate
+  // Bebas Neue + layout end-to-end in production without triggering
+  // ElevenLabs spend on voiceover/assembly. Unlike the AI Doom stage,
+  // WC thumbnails are 100% SVG (no video-frame extraction) so ALL three
+  // variants render under forceRender — no graceful skip needed.
+  const forceRender = process.env.FORCE_THUMBNAIL_RENDER === "true";
+  if (process.env.DISABLE_ELEVEN === "true" && !forceRender) {
     console.log("[wc:guard] DISABLE_ELEVEN active — skipping thumbnail generation");
     const thumbDir = join(process.cwd(), "thumbnail", ctx.video.id);
     await mkdir(thumbDir, { recursive: true });
@@ -285,6 +293,9 @@ export async function wcThumbnailGenerator(
     ctx.thumbnailB = placeholderPath;
     ctx.thumbnailC = placeholderPath;
     return { success: true, durationMs: Date.now() - start };
+  }
+  if (forceRender) {
+    console.log("[wc:guard] FORCE_THUMBNAIL_RENDER active — rendering thumbnails despite DISABLE_ELEVEN");
   }
 
   const video = await prisma.wcVideo.findUnique({ where: { id: ctx.video.id } });
