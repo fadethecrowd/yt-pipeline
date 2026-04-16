@@ -69,8 +69,14 @@ function extractHook(title: string): string {
 // ── Punch-word detection ────────────────────────────────────────────────
 
 const PUNCH_PRIORITY = [
+  // Original doom-aligned verbs
   "HACKS", "KILLS", "BREAKS", "WATCHES", "REMEMBERS",
   "EXPLOITS", "EXPOSED", "UNSAFE",
+  // Curiosity/surprise verbs (sync'd with thumbnailHeadlineGenerator prompt):
+  // "AI PICKS YOUR GIFTS" etc. — the verb is the focal action word.
+  "PICKS", "CHOOSES", "RUNS", "BUYS", "CONTROLS", "DECIDES",
+  // Additional strong verbs the prompt allows
+  "STOLE", "REPLACES", "FIRES", "LEAKS", "WRITES",
 ];
 
 const PUNCH_COLOR = "#00ffff"; // CYAN — distinct from ACCENT (matrix green)
