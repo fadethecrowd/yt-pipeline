@@ -39,7 +39,7 @@ function svgVariantA(headline: string, subtitle: string): Buffer {
   const headlineY = HEIGHT / 2 - (headlineLines.length - 1) * 42;
 
   const headlineSvg = headlineLines
-    .map((line, i) => `<text x="640" y="${headlineY + i * 84}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="72" font-weight="bold" fill="white">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="640" y="${headlineY + i * 84}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="72" fill="white">${escapeXml(line)}</text>`)
     .join("\n");
 
   return Buffer.from(`<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -59,7 +59,7 @@ function svgVariantBOverlay(headline: string): Buffer {
 
   const headlineSvg = headlineLines
     .slice(0, 2)
-    .map((line, i) => `<text x="40" y="${textStartY + i * 72}" font-family="'Bebas Neue', sans-serif" font-size="64" font-weight="bold" fill="white">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="40" y="${textStartY + i * 72}" font-family="'Bebas Neue', sans-serif" font-size="64" fill="white">${escapeXml(line)}</text>`)
     .join("\n");
 
   return Buffer.from(`<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -77,7 +77,7 @@ function svgVariantCOverlay(headline: string): Buffer {
   const hookY = HEIGHT / 2 - (hookLines.length - 1) * 60;
 
   const hookSvg = hookLines
-    .map((line, i) => `<text x="640" y="${hookY + i * 120}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="110" font-weight="900" fill="white">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="640" y="${hookY + i * 120}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="110" fill="white">${escapeXml(line)}</text>`)
     .join("\n");
 
   const fullTitleY = hookY + hookLines.length * 120 + 30;
