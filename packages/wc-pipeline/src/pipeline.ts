@@ -165,13 +165,15 @@ export async function runPipeline(): Promise<void> {
 
     // ── Halt-on-failure guard ────────────────────────────────────────
     // Refuse to start any new work (resume OR topicDiscovery) while there
-    // are unacknowledged recent FAILED videos. Prevents a failed resume
-    // from cascading into expensive new-topic generation on the next run.
-    // To clear: prefix the row's failReason with "[ack]" (or wait out the
-    // 24h window, or change status away from FAILED).
+    // are unacknowledged recent LIVE FAILED videos. DRY_RUN failures are
+    // stored and visible but do NOT block — they're expected during
+    // validation and shouldn't require manual acknowledgement.
+    // To clear a LIVE failure: prefix failReason with "[ack]" (or wait
+    // out the 24h window, or change status away from FAILED).
     const unackFailures = await prisma.wcVideo.findMany({
       where: {
         status: VideoStatus.FAILED,
+        runMode: "LIVE",
         updatedAt: { gte: new Date(Date.now() - FAILURE_HALT_WINDOW_MS) },
         NOT: { failReason: { startsWith: "[ack]" } },
       },
@@ -182,7 +184,7 @@ export async function runPipeline(): Promise<void> {
 
     if (unackFailures.length > 0) {
       console.warn(
-        `${LOG} HALT: ${unackFailures.length} unacknowledged WC failure(s) within ${FAILURE_HALT_WINDOW_MS / 3600000}h:`,
+        `${LOG} HALT: ${unackFailures.length} unacknowledged LIVE WC failure(s) within ${FAILURE_HALT_WINDOW_MS / 3600000}h:`,
       );
       for (const f of unackFailures) {
         console.warn(
@@ -280,9 +282,11 @@ export async function runPipeline(): Promise<void> {
 
     const topic = discoveryResult.data as PipelineContext["topic"];
 
-    // Create a video record to track through the pipeline
+    // Create a video record to track through the pipeline.
+    // runMode tags the row so DRY_RUN failures don't trigger the halt guard.
+    const runMode = process.env.DISABLE_ELEVEN === "true" ? "DRY_RUN" : "LIVE";
     const video = await prisma.wcVideo.create({
-      data: { topicId: topic.id, status: VideoStatus.SCRIPT_PENDING },
+      data: { topicId: topic.id, status: VideoStatus.SCRIPT_PENDING, runMode },
     });
 
     const ctx: PipelineContext = { topic, video };
