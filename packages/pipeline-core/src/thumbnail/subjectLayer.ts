@@ -15,6 +15,7 @@ export interface SubjectLayerResult {
 // scans the topic text for category keywords, falls back to "default".
 
 const WC_QUERIES: Record<string, string[]> = {
+  transducer_install: ["fishfinder transducer mount closeup kayak hull"],
   battery:  ["corroded marine battery closeup", "damaged boat battery corrosion"],
   wiring:   ["marine electrical wiring damage", "boat electrical fire sparks"],
   sinking:  ["small boat sinking water dramatic", "overloaded boat low waterline"],
@@ -26,11 +27,14 @@ const WC_QUERIES: Record<string, string[]> = {
 };
 
 const WC_KEYWORD_MAP: Array<[string[], string]> = [
+  // transducer_install MUST be first — catches install/mount topics before
+  // the broader "sonar" category claims them via "transducer"/"fishfinder".
+  [["transducer", "mount", "mounting", "hull", "scupper", "fishfinder install", "garmin striker", "lowrance", "hobie outback"], "transducer_install"],
   [["battery", "lithium", "agm", "charge", "voltage", "amp"], "battery"],
   [["wire", "wiring", "fuse", "circuit", "ground", "short"], "wiring"],
   [["sink", "overload", "capsize", "swamp", "flood"], "sinking"],
   [["bilge", "pump", "water ingress", "leak"], "bilge"],
-  [["sonar", "fishfinder", "livescope", "transducer", "chartplotter", "screen"], "sonar"],
+  [["sonar", "livescope", "chartplotter", "screen"], "sonar"],
   [["motor", "trolling", "outboard", "minn kota", "prop"], "motor"],
   [["corrode", "corrosion", "rust", "electrolysis", "galvanic"], "corrosion"],
 ];
