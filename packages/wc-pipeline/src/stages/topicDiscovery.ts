@@ -153,6 +153,10 @@ const NEGATIVE_KEYWORDS: Record<string, number> = {
   tackle: 2,
   lure: 2,
   "what to buy": 2,
+  kayak: 4,
+  paddle: 3,
+  canoe: 3,
+  camping: 3,
 };
 
 // ── Pillar types ────────────────────────────────────────────────────────────
