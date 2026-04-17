@@ -3,6 +3,17 @@ import { existsSync } from "node:fs";
 import { prisma, env } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
 
+function formatScheduleEST(date: Date | null | undefined): string {
+  if (!date) return "Not scheduled";
+  return date.toLocaleString("en-US", {
+    weekday: "long",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "America/New_York",
+  }) + " EST";
+}
+
 /**
  * Send a plain text message via Telegram.
  */
@@ -113,10 +124,14 @@ export async function wcNotify(
         ctx.thumbnailC ?? video?.thumbnailC,
       ].filter((p): p is string => !!p && existsSync(p));
 
+      const runMode = video?.runMode ?? (process.env.DISABLE_ELEVEN === "true" ? "DRY_RUN" : "LIVE");
       const caption = [
         `[Wet Circuit] Video uploaded — "${title}"`,
         "",
         `Variant A applied to YouTube`,
+        `Scheduled: ${formatScheduleEST(video?.scheduledAt)}`,
+        `Run Mode: ${runMode}`,
+        `Quality: ${video?.qualityScore ?? "n/a"} / 100`,
         ...(youtubeUrl ? ["", youtubeUrl] : []),
         ...(shortsUrl ? [`Short: ${shortsUrl}`] : []),
       ].join("\n");

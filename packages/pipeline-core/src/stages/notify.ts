@@ -1,7 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { prisma } from "../lib/db";
 import { env } from "../config";
 import type { PipelineContext, StageResult } from "../types";
+
+function formatScheduleEST(date: Date | null | undefined): string {
+  if (!date) return "Not scheduled";
+  return date.toLocaleString("en-US", {
+    weekday: "long",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "America/New_York",
+  }) + " EST";
+}
 
 /**
  * Send a plain text message via Telegram.
@@ -36,12 +48,18 @@ async function sendAppliedThumbnail(ctx: PipelineContext): Promise<void> {
     return;
   }
 
+  // Re-read from DB for scheduledAt + qualityScore (set by later stages, not on ctx)
+  const video = await prisma.video.findUnique({ where: { id: ctx.video.id } });
   const title = ctx.seo?.title ?? ctx.topic.title;
   const youtubeUrl = ctx.youtubeId ? `https://youtu.be/${ctx.youtubeId}` : "";
+  const runMode = process.env.DISABLE_ELEVEN === "true" ? "DRY_RUN" : "LIVE";
   const caption = [
     `Thumbnail applied — "${title}"`,
     "",
     `Variant A (auto-selected)`,
+    `Scheduled: ${formatScheduleEST(video?.scheduledAt)}`,
+    `Run Mode: ${runMode}`,
+    `Quality: ${video?.qualityScore ?? "n/a"} / 100`,
     ...(youtubeUrl ? ["", youtubeUrl] : []),
   ].join("\n");
 
@@ -108,12 +126,17 @@ export async function notify(
       } catch (err) {
         console.error("[notify] Thumbnail notification failed, sending text fallback:", err instanceof Error ? err.message : err);
 
-        const title = ctx.seo?.title ?? ctx.topic.title;
-        const youtubeUrl = ctx.youtubeId ? `https://youtu.be/${ctx.youtubeId}` : "n/a";
+        const fbTitle = ctx.seo?.title ?? ctx.topic.title;
+        const fbYoutubeUrl = ctx.youtubeId ? `https://youtu.be/${ctx.youtubeId}` : "n/a";
+        const fbVideo = await prisma.video.findUnique({ where: { id: ctx.video.id } });
+        const fbRunMode = process.env.DISABLE_ELEVEN === "true" ? "DRY_RUN" : "LIVE";
         const text = [
-          `Video uploaded: "${title}"`,
-          `YouTube: ${youtubeUrl}`,
+          `Video uploaded: "${fbTitle}"`,
+          `YouTube: ${fbYoutubeUrl}`,
           `Thumbnail: Variant A (applied to YouTube)`,
+          `Scheduled: ${formatScheduleEST(fbVideo?.scheduledAt)}`,
+          `Run Mode: ${fbRunMode}`,
+          `Quality: ${fbVideo?.qualityScore ?? "n/a"} / 100`,
         ].join("\n");
 
         try {
