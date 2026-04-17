@@ -13,13 +13,32 @@ const responseSchema = z.object({
 // ── Sanitizers (identical shape to AI Doom — both channels enforce the
 //    same output-format rules) ────────────────────────────────────────────
 
+// Awkward verb phrases that read poorly on thumbnails → simpler replacements.
+// Applied after uppercasing, before word-count cap.
+const HEADLINE_REWRITES: Array<[RegExp, string]> = [
+  [/\bSHIPS STANDARD\b/, "STANDARD"],
+  [/\bSHIPS INCLUDED\b/, "INCLUDED"],
+  [/\bCOMES STANDARD\b/, "STANDARD"],
+  [/\bCOMES INCLUDED\b/, "INCLUDED"],
+  [/\bNOW SHIPS WITH\b/, "INCLUDES"],
+  [/\bSHIPS WITH\b/, "INCLUDES"],
+  [/\bCOMES WITH\b/, "INCLUDES"],
+];
+
 function sanitizeHeadline(raw: string): string | null {
-  const cleaned = raw
+  let cleaned = raw
     .replace(/["'""]/g, "")
     .replace(/[,—–\-:;.!?]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
+
+  // Rewrite awkward phrasing before word-count cap
+  for (const [pattern, replacement] of HEADLINE_REWRITES) {
+    cleaned = cleaned.replace(pattern, replacement);
+  }
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+
   const words = cleaned.split(" ").filter((w) => w.length > 0);
   if (words.length < 2) return null;
   return words.slice(0, 5).join(" ");
