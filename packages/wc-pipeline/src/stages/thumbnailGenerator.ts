@@ -1,8 +1,9 @@
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import sharp from "sharp";
-import { prisma } from "@yt-pipeline/pipeline-core";
+import { prisma, createSubjectLayer } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
+import type { SubjectLayerResult } from "@yt-pipeline/pipeline-core/dist/thumbnail/subjectLayer";
 
 // ── Brand palette ───────────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ function svgVariantA(
   subtext: string,
   badge: string,
   optionalBadge?: string,
+  withSubject = false,
 ): Buffer {
   // Full-width wrap (was 18 chars when constrained to left half)
   const headlineLines = wrapText(headline.toUpperCase(), 26);
@@ -134,17 +136,15 @@ function svgVariantA(
     ? pillBadgeSvg(48, HEIGHT - 72, optionalBadge, "rgba(0,196,212,0.15)", CYAN)
     : "";
 
+  const bgRect = withSubject ? "" : `<rect width="${WIDTH}" height="${HEIGHT}" fill="${NAVY}"/>`;
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${WIDTH}" height="${HEIGHT}" fill="${NAVY}"/>
-
+    ${bgRect}
     ${logoSvg(40, 36, 48, 32, CYAN)}
     ${wordmarkSvg(96, 60, CYAN)}
     ${pillBadgeSvg(48, 100, badge, CYAN, NAVY)}
-
     ${headlineSvg}
     ${subtextSvg}
     ${optBadgeSvg}
-
     <rect y="${HEIGHT - 3}" width="${WIDTH}" height="3" fill="${CYAN}"/>
   </svg>`;
 
@@ -160,6 +160,7 @@ function svgVariantB(
   subtext: string,
   badge: string,
   optionalBadge?: string,
+  withSubject = false,
 ): Buffer {
   // Full-width wrap (was 18 chars when constrained to left half)
   const headlineLines = wrapText(headline.toUpperCase(), 26);
@@ -180,17 +181,15 @@ function svgVariantB(
     ? pillBadgeSvg(48, HEIGHT - 72, optionalBadge, "rgba(232,93,43,0.15)", ORANGE)
     : "";
 
+  const bgRect = withSubject ? "" : `<rect width="${WIDTH}" height="${HEIGHT}" fill="${NAVY}"/>`;
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${WIDTH}" height="${HEIGHT}" fill="${NAVY}"/>
-
+    ${bgRect}
     ${logoSvg(40, 36, 48, 32, ORANGE)}
     ${wordmarkSvg(96, 60, ORANGE)}
     ${pillBadgeSvg(48, 100, badge, ORANGE, WHITE)}
-
     ${headlineSvg}
     ${subtextSvg}
     ${optBadgeSvg}
-
     <rect y="${HEIGHT - 3}" width="${WIDTH}" height="3" fill="${ORANGE}"/>
   </svg>`;
 
@@ -206,6 +205,7 @@ function svgVariantC(
   subtext: string,
   badge: string,
   optionalBadge?: string,
+  withSubject = false,
 ): Buffer {
   const headlineLines = wrapText(headline.toUpperCase(), 22);
   const totalTextH = headlineLines.slice(0, 3).length * 68;
@@ -225,15 +225,17 @@ function svgVariantC(
     ? `<text x="${WIDTH / 2}" y="${HEIGHT - 48}" text-anchor="middle" font-family="'Bebas Neue', sans-serif" font-size="16" letter-spacing="2" fill="${SECONDARY}">${escapeXml(optionalBadge)}</text>`
     : "";
 
-  const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  const bgBlock = withSubject ? "" : `
     <defs>
       <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" stop-color="${NAVY}"/>
         <stop offset="100%" stop-color="#0E1F38"/>
       </linearGradient>
     </defs>
+    <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bgGrad)"/>`;
 
-    <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bgGrad)"/>
+  const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+    ${bgBlock}
 
     <!-- Centered logo + wordmark -->
     ${logoSvg((WIDTH - 48) / 2 - 40, 32, 48, 32, CYAN)}
@@ -331,24 +333,40 @@ export async function wcThumbnailGenerator(
   const pathB = join(outDir, "thumbnail_b.jpg");
   const pathC = join(outDir, "thumbnail_c.jpg");
 
+  // Fetch subject layer once for all 3 variants (Pexels stock photo, darkened + tinted).
+  // Gracefully returns null on failure — variants fall back to plain background.
+  let subject: SubjectLayerResult | null = null;
+  try {
+    subject = await createSubjectLayer(ctx.topic, "wet-circuit", WIDTH, HEIGHT);
+  } catch (err) {
+    console.warn(`[wc:thumbnailGenerator] Subject layer failed (non-fatal): ${err instanceof Error ? err.message : err}`);
+  }
+  const hasSubject = subject !== null;
+
+  // Helper: composite subject (if available) + text SVG overlay → JPEG
+  async function renderVariant(textSvg: Buffer, outputPath: string): Promise<void> {
+    if (subject) {
+      await sharp(subject.buffer)
+        .composite([{ input: textSvg }])
+        .jpeg({ quality: 90 })
+        .toFile(outputPath);
+    } else {
+      await sharp(textSvg)
+        .resize(WIDTH, HEIGHT)
+        .jpeg({ quality: 90 })
+        .toFile(outputPath);
+    }
+  }
+
   // Generate 3 variants
   console.log("[wc:thumbnailGenerator] Generating variant A (cyan standard)...");
-  await sharp(svgVariantA(headline, subtext, badge, optionalBadge))
-    .resize(WIDTH, HEIGHT)
-    .jpeg({ quality: 90 })
-    .toFile(pathA);
+  await renderVariant(svgVariantA(headline, subtext, badge, optionalBadge, hasSubject), pathA);
 
   console.log("[wc:thumbnailGenerator] Generating variant B (orange accent)...");
-  await sharp(svgVariantB(headline, subtext, badge, optionalBadge))
-    .resize(WIDTH, HEIGHT)
-    .jpeg({ quality: 90 })
-    .toFile(pathB);
+  await renderVariant(svgVariantB(headline, subtext, badge, optionalBadge, hasSubject), pathB);
 
   console.log("[wc:thumbnailGenerator] Generating variant C (centered bold)...");
-  await sharp(svgVariantC(headline, subtext, badge, optionalBadge))
-    .resize(WIDTH, HEIGHT)
-    .jpeg({ quality: 90 })
-    .toFile(pathC);
+  await renderVariant(svgVariantC(headline, subtext, badge, optionalBadge, hasSubject), pathC);
 
   // Save paths to DB
   await prisma.wcVideo.update({

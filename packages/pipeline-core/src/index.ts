@@ -32,6 +32,10 @@ export { withAdvisoryLock } from "./lib/lock";
 export { withRetry } from "./lib/retry";
 export { createMessage } from "./lib/anthropic";
 
+// ── Thumbnail ─────────────────────────────────────────────────────────────
+export { createSubjectLayer } from "./thumbnail/subjectLayer";
+export type { SubjectLayerResult } from "./thumbnail/subjectLayer";
+
 // ── Shared Stages ──────────────────────────────────────────────────────────
 export { voiceover } from "./stages/voiceover";
 export { videoAssembly } from "./stages/videoAssembly";

@@ -4,6 +4,8 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import sharp from "sharp";
 import { prisma } from "../lib/db";
+import { createSubjectLayer } from "../thumbnail/subjectLayer";
+import type { SubjectLayerResult } from "../thumbnail/subjectLayer";
 import type { PipelineContext, StageResult } from "../types";
 
 const execFile = promisify(execFileCb);
@@ -127,7 +129,7 @@ function detectPunchWord(
 
 // ── SVG text overlay generators ─────────────────────────────────────────
 
-function svgVariantA(headline: string, subtitle: string): Buffer {
+function svgVariantA(headline: string, subtitle: string, withSubject = false): Buffer {
   const { before, punch, after } = detectPunchWord(headline);
 
   const BASE_SIZE = 72;
@@ -173,8 +175,14 @@ function svgVariantA(headline: string, subtitle: string): Buffer {
   // keeping the subtitle near the footer is the better visual trade.
   const subtitleY = 660;
 
+  // When compositing over a subject layer, skip the opaque background rect
+  // so the subject shows through. Text and decorations remain.
+  const bgRect = withSubject
+    ? ""
+    : `<rect width="${WIDTH}" height="${HEIGHT}" fill="#0a0a0a"/>`;
+
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${WIDTH}" height="${HEIGHT}" fill="#0a0a0a"/>
+    ${bgRect}
     <rect width="${WIDTH}" height="4" fill="${ACCENT}"/>
     <text x="1200" y="80" text-anchor="middle" font-size="80" fill="white" opacity="0.3">&#9760;</text>
     ${headlineSvg}
@@ -232,12 +240,23 @@ async function generateVariantA(
   headline: string,
   subtitle: string,
   outputPath: string,
+  subject: SubjectLayerResult | null,
 ): Promise<void> {
-  const svg = svgVariantA(headline, subtitle);
-  await sharp(svg)
-    .resize(WIDTH, HEIGHT)
-    .jpeg({ quality: 90 })
-    .toFile(outputPath);
+  if (subject) {
+    // Composite: subject (already 1280x720, treated) + text overlay (transparent SVG)
+    const textSvg = svgVariantA(headline, subtitle, true);
+    await sharp(subject.buffer)
+      .composite([{ input: textSvg }])
+      .jpeg({ quality: 90 })
+      .toFile(outputPath);
+  } else {
+    // Fallback: original rendering (opaque background in SVG)
+    const svg = svgVariantA(headline, subtitle, false);
+    await sharp(svg)
+      .resize(WIDTH, HEIGHT)
+      .jpeg({ quality: 90 })
+      .toFile(outputPath);
+  }
 }
 
 async function generateVariantB(
@@ -362,9 +381,19 @@ export async function thumbnailGenerator(
     }
   }
 
-  // Variant A is pure SVG — always rendered.
+  // Fetch subject layer for Variant A (Pexels stock photo, darkened + tinted).
+  // Variants B/C already use the video frame as their visual layer.
+  // Gracefully returns null on any failure — Variant A falls back to plain bg.
+  let subject: SubjectLayerResult | null = null;
+  try {
+    subject = await createSubjectLayer(ctx.topic, "ai-doom-scroll", WIDTH, HEIGHT);
+  } catch (err) {
+    console.warn(`[thumbnailGenerator] Subject layer failed (non-fatal): ${err instanceof Error ? err.message : err}`);
+  }
+
+  // Variant A — composites subject layer when available.
   console.log("[thumbnailGenerator] Generating variant A (Terminal)...");
-  await generateVariantA(headline, subtitle, pathA);
+  await generateVariantA(headline, subtitle, pathA, subject);
 
   // Variants B and C require a real video frame.
   let variantBPath: string | null = null;
