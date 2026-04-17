@@ -91,10 +91,29 @@ function sanitizeTags(tags: string[]): string[] {
 
 function parseJSON(text: string): unknown {
   let raw = text.trim();
+
+  // Strip markdown code fences if present
   if (raw.startsWith("```")) {
     raw = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
   }
-  return JSON.parse(raw);
+
+  // Fast path: response is already clean JSON
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Recovery: extract the first { … } substring and retry.
+    // Handles cases where Claude prepends commentary like "The script…"
+    const first = raw.indexOf("{");
+    const last = raw.lastIndexOf("}");
+    if (first !== -1 && last > first) {
+      const extracted = raw.slice(first, last + 1);
+      console.warn(
+        `[seoGenerator] JSON recovery: stripped ${first} leading + ${raw.length - last - 1} trailing chars`,
+      );
+      return JSON.parse(extracted); // throws if still invalid
+    }
+    throw new Error(`No JSON object found in response (length ${raw.length})`);
+  }
 }
 
 async function callClaude(
@@ -102,12 +121,14 @@ async function callClaude(
   system: string,
   userPrompt: string,
   maxTokens = 2048,
+  temperature?: number,
 ): Promise<string> {
   const message = await createMessage(anthropic, {
     model: "claude-sonnet-4-6",
     max_tokens: maxTokens,
     system,
     messages: [{ role: "user", content: userPrompt }],
+    ...(temperature !== undefined ? { temperature } : {}),
   });
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {
@@ -229,7 +250,11 @@ Requirements:
 - tags: 15-20 highly relevant tags. Mix broad terms (AI, technology) with specific ones (the topic).
 - chapters: Use the exact timestamps provided. First chapter MUST start at 0:00.
 
-Respond ONLY with valid JSON matching this structure:
+Return ONLY valid JSON. No explanations. No text outside JSON.
+Do not include markdown fences. Do not preface with any commentary.
+The response must start with { and end with }.
+
+JSON structure:
 {
   "title": "The pre-selected title (copy it exactly)",
   "description": "Full description with timestamps...",
@@ -301,17 +326,32 @@ ${JSON.stringify(ctx.script, null, 2)}`;
 
   console.log(`[seoGenerator] Generating description, tags, chapters...`);
 
-  const seoRaw = await callClaude(anthropic, SEO_SYSTEM_PROMPT, userPrompt);
-
   let parsed: unknown;
+  const seoRaw = await callClaude(anthropic, SEO_SYSTEM_PROMPT, userPrompt);
   try {
     parsed = parseJSON(seoRaw);
-  } catch {
-    return {
-      success: false,
-      error: `Invalid JSON from Claude: ${seoRaw.slice(0, 200)}`,
-      durationMs: Date.now() - start,
-    };
+  } catch (firstErr) {
+    // Retry once with temperature=0 for deterministic JSON output.
+    console.warn(
+      `[seoGenerator] JSON parse failed, retrying at temperature=0: ${firstErr instanceof Error ? firstErr.message : firstErr}`,
+    );
+    try {
+      const retryRaw = await callClaude(
+        anthropic,
+        SEO_SYSTEM_PROMPT + "\n\nCRITICAL: Your previous response was not valid JSON. Return ONLY the JSON object, nothing else.",
+        userPrompt,
+        2048,
+        0,  // temperature
+      );
+      parsed = parseJSON(retryRaw);
+      console.log("[seoGenerator] JSON recovery succeeded on retry");
+    } catch (retryErr) {
+      return {
+        success: false,
+        error: `Invalid JSON from Claude (after retry): ${seoRaw.slice(0, 200)}`,
+        durationMs: Date.now() - start,
+      };
+    }
   }
 
   const validation = seoSchema.safeParse(parsed);
