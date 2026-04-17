@@ -42,6 +42,8 @@ const AIDOOM_QUERIES: Record<string, string[]> = {
   terminal:    ["computer terminal code dark screen", "hacker screen green code"],
   network:     ["data center server racks dark", "network cables server room"],
   phone:       ["smartphone notification screen dark", "phone algorithm feed dark"],
+  document:    ["document scanning OCR screen", "text recognition multilingual display"],
+  benchmark:   ["data chart analysis screen dark", "performance benchmark graph display"],
   default:     ["artificial intelligence futuristic dark", "robot technology dramatic"],
 };
 
@@ -52,6 +54,8 @@ const AIDOOM_KEYWORD_MAP: Array<[string[], string]> = [
   [["terminal", "code", "coding", "codex", "sdk", "developer"], "terminal"],
   [["network", "infrastructure", "server", "data center", "cloud"], "network"],
   [["phone", "app", "feed", "recommendation", "notification"], "phone"],
+  [["ocr", "document", "text recognition", "language", "translation", "multilingual", "synthetic data"], "document"],
+  [["benchmark", "evaluation", "dataset", "leaderboard", "score", "eval"], "benchmark"],
 ];
 
 // ── Query selection ─────────────────────────────────────────────────────
@@ -116,6 +120,29 @@ async function fetchFromPexels(
 
 // ── Image treatment ─────────────────────────────────────────────────────
 
+/**
+ * Subtle rim-light glow for AI Doom subjects only.
+ * Renders a thin cyan-green border stroke, blurs it, and composites
+ * with "screen" blend so it brightens the edges without affecting the
+ * interior or text readability. WC subjects do NOT get this.
+ */
+async function addRimLight(
+  buffer: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const rimSvg = Buffer.from(
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+      `<rect x="3" y="3" width="${width - 6}" height="${height - 6}" ` +
+      `fill="none" stroke="rgba(0,255,200,0.15)" stroke-width="6"/>` +
+      `</svg>`,
+  );
+  const glow = await sharp(rimSvg).blur(6).ensureAlpha().png().toBuffer();
+  return sharp(buffer)
+    .composite([{ input: glow, blend: "screen" as const }])
+    .toBuffer();
+}
+
 async function treatImage(
   buffer: Buffer,
   channel: ChannelKey,
@@ -125,8 +152,11 @@ async function treatImage(
   // Resize to fill frame, crop center
   let img = sharp(buffer).resize(width, height, { fit: "cover", position: "centre" });
 
-  // Darken substantially so text remains readable
-  img = img.modulate({ brightness: 0.35 });
+  // Darken so text remains readable. 0.47 ≈ 45-50% perceived brightness —
+  // bright enough to preserve hardware detail (WC) and face structure
+  // (AI Doom), dark enough for white/cyan text to remain legible.
+  // Previous value: 0.35 (too muddy on WC marine-hardware subjects).
+  img = img.modulate({ brightness: 0.47 });
 
   // Channel-specific color tint via an overlay
   const tintColor =
@@ -140,9 +170,16 @@ async function treatImage(
     .png()
     .toBuffer();
 
-  return sharp(await img.toBuffer())
+  let treated = await sharp(await img.toBuffer())
     .composite([{ input: tintOverlay, blend: "over" }])
     .toBuffer();
+
+  // AI Doom only: subtle cyan-green rim-light for edge separation.
+  if (channel === "ai-doom-scroll") {
+    treated = await addRimLight(treated, width, height);
+  }
+
+  return treated;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
