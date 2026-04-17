@@ -1,6 +1,6 @@
 import Parser from "rss-parser";
 import { TopicStatus } from "@prisma/client";
-import { prisma } from "@yt-pipeline/pipeline-core";
+import { prisma, fetchLibraryTopic } from "@yt-pipeline/pipeline-core";
 import type { FeedItem, PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
 
 // RSS feed sources for AI/tech news
@@ -120,6 +120,28 @@ export async function topicDiscovery(
   _ctx: PipelineContext
 ): Promise<StageResult> {
   const start = Date.now();
+
+  // 0. Check Topic Library first — curated topics take priority over discovery.
+  //    In DRY_RUN mode (DISABLE_ELEVEN=true), reserve the topic so it can be reused.
+  const isDryRun = process.env.DISABLE_ELEVEN === "true";
+  const libraryTopic = await fetchLibraryTopic("ai-doom", isDryRun);
+  if (libraryTopic) {
+    // Insert into the Topic table so the rest of the pipeline can reference it.
+    const topic = await prisma.topic.upsert({
+      where: { url: libraryTopic.url },
+      create: {
+        title: libraryTopic.title,
+        url: libraryTopic.url,
+        source: libraryTopic.source,
+        summary: libraryTopic.summary,
+        score: 100,
+        status: TopicStatus.APPROVED,
+      },
+      update: { status: TopicStatus.APPROVED },
+    });
+    console.log(`[topicDiscovery] Using library topic: "${topic.title}"`);
+    return { success: true, data: topic, durationMs: Date.now() - start };
+  }
 
   // 1. Fetch all RSS feeds
   const items = await fetchFeeds();

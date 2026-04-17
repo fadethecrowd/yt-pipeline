@@ -1,7 +1,7 @@
 import Parser from "rss-parser";
 import Anthropic from "@anthropic-ai/sdk";
 import { TopicStatus } from "@prisma/client";
-import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
+import { prisma, env, createMessage, fetchLibraryTopic } from "@yt-pipeline/pipeline-core";
 import type { FeedItem, PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
 
 // ── Configuration ───────────────────────────────────────────────────────────
@@ -199,6 +199,27 @@ export async function topicDiscovery(
   _ctx: PipelineContext,
 ): Promise<StageResult> {
   const start = Date.now();
+
+  // 0. Check Topic Library first — curated topics take priority over discovery.
+  //    In DRY_RUN mode (DISABLE_ELEVEN=true), reserve the topic so it can be reused.
+  const isDryRun = process.env.DISABLE_ELEVEN === "true";
+  const libraryTopic = await fetchLibraryTopic("wet-circuit", isDryRun);
+  if (libraryTopic) {
+    const topic = await prisma.wcTopic.upsert({
+      where: { url: libraryTopic.url },
+      create: {
+        title: libraryTopic.title,
+        url: libraryTopic.url,
+        source: libraryTopic.source,
+        summary: libraryTopic.summary,
+        score: 100,
+        status: "APPROVED" as const,
+      },
+      update: { status: "APPROVED" as const },
+    });
+    console.log(`[wc:topicDiscovery] Using library topic: "${topic.title}"`);
+    return { success: true, data: topic, durationMs: Date.now() - start };
+  }
 
   // 1. Gather items from RSS + Reddit in parallel
   const [rssItems, redditItems] = await Promise.all([

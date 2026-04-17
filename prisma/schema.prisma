@@ -103,6 +103,30 @@ model Video {
   @@index([createdAt])
 }
 
+// ── Topic Library (shared across channels) ────────────────────────────────
+
+enum TopicLibraryStatus {
+  PENDING
+  USED
+  ARCHIVED
+}
+
+model TopicLibrary {
+  id        String             @id @default(cuid())
+  channel   String             // "ai-doom" | "wet-circuit"
+  title     String
+  source    String?            // "reddit" | "rss" | "manual" | etc.
+  url       String?
+  summary   String?
+  priority  Int                @default(0)
+  status    TopicLibraryStatus @default(PENDING)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@map("topic_library")
+  @@index([channel, status, priority])
+}
+
 // ── Wet Circuit (wc_) Models ──────────────────────────────────────────────
 
 model WcTopic {

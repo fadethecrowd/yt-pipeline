@@ -31,6 +31,8 @@ export { prisma, disconnect } from "./lib/db";
 export { withAdvisoryLock } from "./lib/lock";
 export { withRetry } from "./lib/retry";
 export { createMessage } from "./lib/anthropic";
+export { fetchLibraryTopic } from "./lib/topicLibrary";
+export type { LibraryTopic } from "./lib/topicLibrary";
 
 // ── Thumbnail ─────────────────────────────────────────────────────────────
 export { createSubjectLayer } from "./thumbnail/subjectLayer";
