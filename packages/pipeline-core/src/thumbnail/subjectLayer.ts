@@ -16,6 +16,13 @@ export interface SubjectLayerResult {
 
 const WC_QUERIES: Record<string, string[]> = {
   transducer_install: ["fishfinder transducer mount closeup kayak hull"],
+  capacity: [
+    "overloaded small boat sitting low in water",
+    "jon boat overloaded capacity",
+    "small fishing boat near capacity waterline",
+    "pond prowler overloaded",
+    "boat capacity plate",
+  ],
   battery:  ["corroded marine battery closeup", "damaged boat battery corrosion"],
   wiring:   ["marine electrical wiring damage", "boat electrical fire sparks"],
   sinking:  ["small boat sinking water dramatic", "overloaded boat low waterline"],
@@ -30,9 +37,16 @@ const WC_KEYWORD_MAP: Array<[string[], string]> = [
   // transducer_install MUST be first — catches install/mount topics before
   // the broader "sonar" category claims them via "transducer"/"fishfinder".
   [["transducer", "mount", "mounting", "hull", "scupper", "fishfinder install", "garmin striker", "lowrance", "hobie outback"], "transducer_install"],
-  [["battery", "lithium", "agm", "charge", "voltage", "amp"], "battery"],
+  // capacity/overload MUST come before battery. Small-boat weight topics
+  // (e.g. "10 ft pond prowler max weight") were previously matching broad
+  // battery keywords like "amp"/"charge" and shipping battery imagery.
+  [["pond prowler", "max weight", "weight capacity", "weight limit", "capacity", "overload", "overloaded", "10 foot boat", "10 ft boat", "tiny boat", "small boat", "weight"], "capacity"],
+  // Battery keywords are intentionally narrow — only battery-explicit terms.
+  // Dropped "amp" (matches "camp", "example"), "charge" (matches "in charge")
+  // to prevent general boat topics falling into battery visuals.
+  [["battery", "lithium", "agm", "lead acid", "voltage"], "battery"],
   [["wire", "wiring", "fuse", "circuit", "ground", "short"], "wiring"],
-  [["sink", "overload", "capsize", "swamp", "flood"], "sinking"],
+  [["sink", "capsize", "swamp", "flood"], "sinking"],
   [["bilge", "pump", "water ingress", "leak"], "bilge"],
   [["sonar", "livescope", "chartplotter", "screen"], "sonar"],
   [["motor", "trolling", "outboard", "minn kota", "prop"], "motor"],
@@ -82,7 +96,15 @@ function pickQuery(
   const text = `${topic.title} ${topic.summary ?? ""}`;
   const map = channel === "wet-circuit" ? WC_KEYWORD_MAP : AIDOOM_KEYWORD_MAP;
   const queries = channel === "wet-circuit" ? WC_QUERIES : AIDOOM_QUERIES;
-  const category = pickCategory(text, map);
+
+  // WC deterministic override: Pond Prowler is a specific small-hull line
+  // and always refers to capacity/overload topics — never batteries. Pin
+  // it here so ordering changes in WC_KEYWORD_MAP can't regress this case.
+  const category =
+    channel === "wet-circuit" && text.toLowerCase().includes("pond prowler")
+      ? "capacity"
+      : pickCategory(text, map);
+
   const candidates = queries[category] ?? queries.default;
   return candidates[0];
 }
