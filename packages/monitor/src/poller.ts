@@ -137,7 +137,7 @@ async function fetchAnalytics(
 ): Promise<AnalyticsData> {
   const [rowsA, rowsB] = await Promise.all([
     runAnalyticsQuery(youtubeId, METRICS_USER_ACTIVITY, "user-activity", counters),
-    runAnalyticsQuery(youtubeId, METRICS_REACH, "reach", counters, "day"),
+    runAnalyticsQuery(youtubeId, METRICS_REACH, "reach", counters, "video"),
   ]);
 
   const merged: AnalyticsData = {};
@@ -156,22 +156,18 @@ async function fetchAnalytics(
     if (rowA[3] != null) merged.estimatedMinutesWatched = Number(rowA[3]);
   }
 
-  // Query B — dimensions=day, N rows (one per day in window).
-  // Per-row column order:
-  //   row[0] day (YYYY-MM-DD string, dimension column)
-  //   row[1] videoThumbnailImpressions
-  //   row[2] videoThumbnailImpressionsClickRate (ratio 0..1)
-  if (rowsB && rowsB.length > 0) {
-    let totalImpr = 0;
-    let totalClicks = 0; // = Σ (impressions × clickRate) across days
-    for (const row of rowsB) {
-      const impr = row[1] != null ? Number(row[1]) : 0;
-      const rate = row[2] != null ? Number(row[2]) : 0;
-      totalImpr += impr;
-      totalClicks += impr * rate;
-    }
-    merged.impressions = totalImpr;
-    if (totalImpr > 0) merged.ctr = totalClicks / totalImpr;
+  // Query B — dimensions=video, filter narrows to one row per call.
+  // This matches the channel "Top videos" report shape; the per-day shape
+  // returned "The query is not supported".
+  //
+  // Per-row column order (METRICS_REACH order, prefixed by dimension):
+  //   row[0] video (YouTube ID, dimension column — ignored)
+  //   row[1] videoThumbnailImpressions            → impressions
+  //   row[2] videoThumbnailImpressionsClickRate   → ctr (ratio 0..1)
+  const rowB = rowsB?.[0];
+  if (rowB) {
+    if (rowB[1] != null) merged.impressions = Number(rowB[1]);
+    if (rowB[2] != null) merged.ctr         = Number(rowB[2]);
   }
 
   return merged;
