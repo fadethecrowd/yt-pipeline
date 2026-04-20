@@ -3,20 +3,33 @@ import { youtube, youtubeAnalytics } from "./lib/youtube";
 import type { VideoMetrics } from "./lib/types";
 
 interface AnalyticsData {
-  ctr?: number;
+  analyticsViews?: number;        // Analytics 28d views (separate from Data API all-time)
+  impressions?: number;
+  ctr?: number;                   // impressionClickThroughRate (ratio 0..1 per YouTube Analytics docs)
+  avgViewDuration?: number;
   avgViewPercentage?: number;
   estimatedMinutesWatched?: number;
-  avgViewDuration?: number;
 }
 
+// Analytics metrics requested, in the order the API returns them.
+// Order is load-bearing: row indices below match this list.
+//
+// Previously requested "annotationClickThroughRate" — annotations were
+// deprecated by YouTube in 2019 and that metric returns ~0 for every modern
+// video, which is why every stored ctr in production was 0. The correct
+// Studio-equivalent thumbnail CTR is impressionClickThroughRate, and the
+// `impressions` denominator was never requested before (hence NULL on every
+// snapshot row).
+const ANALYTICS_METRICS =
+  "views,impressions,impressionClickThroughRate,averageViewDuration,averageViewPercentage,estimatedMinutesWatched";
+
 /**
- * Query YouTube Analytics for a single video's CTR, impressions,
- * averageViewPercentage, and estimatedMinutesWatched.
+ * Query YouTube Analytics v2 for a single video's views, impressions,
+ * impressionClickThroughRate, and watch-time metrics over the last 28 days.
  */
 async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
   const yta = youtubeAnalytics();
 
-  // Query last 28 days of data
   const endDate = new Date().toISOString().slice(0, 10);
   const startDate = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -25,18 +38,27 @@ async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
       ids: "channel==MINE",
       startDate,
       endDate,
-      metrics: "annotationClickThroughRate,averageViewPercentage,estimatedMinutesWatched,averageViewDuration",
+      metrics: ANALYTICS_METRICS,
       filters: `video==${youtubeId}`,
     });
 
     const row = res.data.rows?.[0];
     if (!row) return {};
 
+    // Row mapping — mirrors ANALYTICS_METRICS order:
+    //   row[0] views
+    //   row[1] impressions
+    //   row[2] impressionClickThroughRate (ratio 0..1)
+    //   row[3] averageViewDuration (seconds, integer)
+    //   row[4] averageViewPercentage (0..100)
+    //   row[5] estimatedMinutesWatched (integer)
     return {
-      ctr: row[0] != null ? Number(row[0]) : undefined,
-      avgViewPercentage: row[1] != null ? Number(row[1]) : undefined,
-      estimatedMinutesWatched: row[2] != null ? Number(row[2]) : undefined,
-      avgViewDuration: row[3] != null ? Number(row[3]) : undefined,
+      analyticsViews:          row[0] != null ? Number(row[0]) : undefined,
+      impressions:             row[1] != null ? Number(row[1]) : undefined,
+      ctr:                     row[2] != null ? Number(row[2]) : undefined,
+      avgViewDuration:         row[3] != null ? Number(row[3]) : undefined,
+      avgViewPercentage:       row[4] != null ? Number(row[4]) : undefined,
+      estimatedMinutesWatched: row[5] != null ? Number(row[5]) : undefined,
     };
   } catch (err) {
     console.warn(`[poller] Analytics fetch failed for ${youtubeId}: ${err instanceof Error ? err.message : err}`);
@@ -102,7 +124,9 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     if (analytics.avgViewDuration !== undefined) m.avgViewDuration = analytics.avgViewDuration;
   }
 
-  // Store snapshots with analytics data
+  // Store snapshots with analytics data. `impressions` is now included
+  // (previously omitted, which is why VideoSnapshot.impressions was NULL
+  // on every historical row).
   await snapshots.createMany({
     data: metrics.map((m) => {
       const a = analyticsMap.get(m.videoId) ?? {};
@@ -112,12 +136,28 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
         likes: m.likes,
         comments: m.comments,
         ctr: a.ctr ?? null,
+        impressions: a.impressions ?? null,
         avgViewDuration: a.avgViewDuration ?? null,
         avgViewPercentage: a.avgViewPercentage ?? null,
         estimatedMinutesWatched: a.estimatedMinutesWatched ?? null,
       };
     }),
   });
+
+  // Debug log for the first 10 snapshots of this tick so ingestion can be
+  // verified end-to-end without querying the DB. Capped at 10 to avoid
+  // flooding logs on channels with many published videos.
+  const DEBUG_CAP = 10;
+  for (let i = 0; i < Math.min(DEBUG_CAP, metrics.length); i++) {
+    const m = metrics[i];
+    const a = analyticsMap.get(m.videoId) ?? {};
+    const ctrPct = a.ctr !== undefined ? `${(a.ctr * 100).toFixed(3)}%` : "n/a";
+    console.log(
+      `[poller/debug] #${i + 1}/${metrics.length} vid=${m.videoId} yt=${m.youtubeId} ` +
+        `views=${m.views} analytics.views=${a.analyticsViews ?? "n/a"} ` +
+        `impressions=${a.impressions ?? "n/a"} ctr=${ctrPct}`,
+    );
+  }
 
   console.log(`[poller] Stored ${metrics.length} snapshots (with analytics)`);
   return metrics;
