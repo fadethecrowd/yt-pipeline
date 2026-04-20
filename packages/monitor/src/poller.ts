@@ -34,30 +34,76 @@ function dateWindow(): { startDate: string; endDate: string } {
   return { startDate, endDate };
 }
 
+type AnalyticsScope = "user-activity" | "reach";
+
+interface AnalyticsCounters {
+  userActivityOk: number;
+  userActivityFail: number;
+  reachOk: number;
+  reachFail: number;
+}
+
+function scopeToLabel(scope: AnalyticsScope): "QUERY_A" | "QUERY_B" {
+  return scope === "user-activity" ? "QUERY_A" : "QUERY_B";
+}
+
 /**
  * Run one Analytics query and return the first data row (or null on
- * empty/failure). Failures log a scoped warning and resolve to null
- * rather than throwing, so the caller can merge whatever DID succeed.
+ * empty/failure). Emits a pre-request [analytics/debug] log block showing
+ * the exact request shape, and a structured [poller/error] block on
+ * failure. Failures resolve to null rather than throwing so the caller
+ * can merge whatever DID succeed.
  */
 async function runAnalyticsQuery(
   youtubeId: string,
   metrics: string,
-  scopeLabel: "user-activity" | "reach",
+  scope: AnalyticsScope,
+  counters: AnalyticsCounters,
 ): Promise<Array<number | string> | null> {
   const yta = youtubeAnalytics();
   const { startDate, endDate } = dateWindow();
+  const ids = "channel==MINE";
+  const filters = `video==${youtubeId}`;
+  const dimensions: string | undefined = undefined; // not currently requested
+  const label = scopeToLabel(scope);
+
+  console.log(
+    `[analytics/debug] ${label}\n` +
+      `ids=${ids}\n` +
+      `metrics=${metrics}\n` +
+      `dimensions=${dimensions ?? "none"}\n` +
+      `filters=${filters}\n` +
+      `startDate=${startDate}\n` +
+      `endDate=${endDate}`,
+  );
+
   try {
     const res = await yta.reports.query({
-      ids: "channel==MINE",
+      ids,
       startDate,
       endDate,
       metrics,
-      filters: `video==${youtubeId}`,
+      filters,
     });
+    if (scope === "user-activity") counters.userActivityOk++;
+    else counters.reachOk++;
     return (res.data.rows?.[0] as Array<number | string> | undefined) ?? null;
-  } catch (err) {
+  } catch (err: any) {
+    if (scope === "user-activity") counters.userActivityFail++;
+    else counters.reachFail++;
+    // Prefer the structured Google API error message (e.g. "The query is
+    // not supported") over the generic transport-level wrapper.
+    const apiError =
+      err?.response?.data?.error?.message ??
+      (err instanceof Error ? err.message : String(err));
     console.warn(
-      `[poller] Analytics ${scopeLabel} fetch failed for ${youtubeId}: ${err instanceof Error ? err.message : err}`,
+      `[poller/error] ANALYTICS_QUERY_FAILED\n` +
+        `type=${scope}\n` +
+        `yt=${youtubeId}\n` +
+        `metrics=${metrics}\n` +
+        `dimensions=${dimensions ?? "none"}\n` +
+        `filters=${filters}\n` +
+        `error=${apiError}`,
     );
     return null;
   }
@@ -69,10 +115,13 @@ async function runAnalyticsQuery(
  * impressions + click-through rate). Either query can fail independently;
  * fields from the other query are preserved.
  */
-async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
+async function fetchAnalytics(
+  youtubeId: string,
+  counters: AnalyticsCounters,
+): Promise<AnalyticsData> {
   const [rowA, rowB] = await Promise.all([
-    runAnalyticsQuery(youtubeId, METRICS_USER_ACTIVITY, "user-activity"),
-    runAnalyticsQuery(youtubeId, METRICS_REACH, "reach"),
+    runAnalyticsQuery(youtubeId, METRICS_USER_ACTIVITY, "user-activity", counters),
+    runAnalyticsQuery(youtubeId, METRICS_REACH, "reach", counters),
   ]);
 
   const merged: AnalyticsData = {};
@@ -149,10 +198,18 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     }
   }
 
-  // Fetch analytics for each video and enrich metrics
+  // Fetch analytics for each video and enrich metrics. Counters are scoped
+  // to this tick so the end-of-cycle [poller/summary] reflects only this
+  // run — not accumulated state across ticks.
   const analyticsMap = new Map<string, AnalyticsData>();
+  const counters: AnalyticsCounters = {
+    userActivityOk: 0,
+    userActivityFail: 0,
+    reachOk: 0,
+    reachFail: 0,
+  };
   for (const m of metrics) {
-    const analytics = await fetchAnalytics(m.youtubeId);
+    const analytics = await fetchAnalytics(m.youtubeId, counters);
     analyticsMap.set(m.videoId, analytics);
     if (analytics.ctr !== undefined) m.ctr = analytics.ctr;
     if (analytics.avgViewDuration !== undefined) m.avgViewDuration = analytics.avgViewDuration;
@@ -194,5 +251,15 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
   }
 
   console.log(`[poller] Stored ${metrics.length} snapshots (with analytics)`);
+
+  // End-of-cycle summary — counts of successful vs. failed Analytics
+  // queries across this tick, per metric family. Emitted last so it is
+  // easy to locate at the tail of each tick's log block.
+  console.log(
+    `[poller/summary]\n` +
+      `userActivity ok=${counters.userActivityOk} fail=${counters.userActivityFail}\n` +
+      `reach ok=${counters.reachOk} fail=${counters.reachFail}`,
+  );
+
   return metrics;
 }
