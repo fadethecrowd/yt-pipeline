@@ -15,28 +15,36 @@ interface AnalyticsData {
 //
 //   Query A — user-activity, per pipeline video.
 //     ids=channel==MINE, filters=video==<ytId>, no dimensions.
+//     Always on.
 //
 //   Query B — reach, channel-wide ONCE per tick.
 //     ids=channel==MINE, dimensions=video, sort=-videoThumbnailImpressions,
 //     maxResults=200, NO video filter. This is the "Top videos" report
-//     shape — the only supported way to request videoThumbnailImpressions
-//     and videoThumbnailImpressionsClickRate. Per-tick results are looked
-//     up by youtubeId to merge into the corresponding per-video row.
+//     shape — the documented way to request videoThumbnailImpressions and
+//     videoThumbnailImpressionsClickRate. Per-tick results are looked up
+//     by youtubeId to merge into each per-video row.
 //
-// History:
-//   1. annotationClickThroughRate (deprecated 2019 — always 0)
-//   2. impressions + impressionClickThroughRate (unknown identifier)
-//   3. videoThumbnailImpressions[ClickRate] in a combined query
-//      ("The query is not supported")
-//   4. same metrics, dimensions=day + filters=video==X ("not supported")
-//   5. same metrics, dimensions=video + filters=video==X ("not supported")
-//   6. current: channel-wide with sort+maxResults, lookup by ytId
+//     Gated behind ENABLE_REACH_METRICS=true (default OFF). As of this
+//     commit the thumbnail-reach metric family appears unavailable for
+//     the channels this service operates on — every documented shape
+//     returns "The query is not supported" against a token that carries
+//     yt-analytics.readonly and whose identical shape succeeds for other
+//     metrics (e.g. `views`). We tried per-video filters, channel-wide
+//     with sort+maxResults, single-metric and paired, with day / video /
+//     creatorContentType dimensions — all rejected. The same request
+//     shape may start returning data once a channel's eligibility
+//     changes; keeping the code path intact so re-enabling is a single
+//     env-var flip, no code change.
 const METRICS_USER_ACTIVITY =
   "views,averageViewDuration,averageViewPercentage,estimatedMinutesWatched";
 const METRICS_REACH =
   "videoThumbnailImpressions,videoThumbnailImpressionsClickRate";
 const REACH_SORT = "-videoThumbnailImpressions";
 const REACH_MAX_RESULTS = 200;
+
+function reachEnabled(): boolean {
+  return process.env.ENABLE_REACH_METRICS === "true";
+}
 
 function dateWindow(): { startDate: string; endDate: string } {
   const endDate = new Date().toISOString().slice(0, 10);
@@ -51,6 +59,7 @@ interface AnalyticsCounters {
   userActivityFail: number;
   reachOk: number;
   reachFail: number;
+  reachSkipped: boolean;
 }
 
 function scopeToLabel(scope: AnalyticsScope): "QUERY_A" | "QUERY_B" {
@@ -297,9 +306,16 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     userActivityFail: 0,
     reachOk: 0,
     reachFail: 0,
+    reachSkipped: false,
   };
 
-  const reachMap = await fetchChannelReach(counters);
+  // Reach query is opt-in. When disabled we skip silently — no API call,
+  // no QUERY_B log block, no reach failure noise. Per-video impressions/ctr
+  // stay undefined and persist as null in VideoSnapshot (unchanged behavior
+  // from before the reach code existed).
+  const reachMap = reachEnabled()
+    ? await fetchChannelReach(counters)
+    : (counters.reachSkipped = true, new Map<string, { impressions: number; ctr: number }>());
 
   for (const m of metrics) {
     const userActivity = await fetchUserActivity(m.youtubeId, counters);
@@ -353,10 +369,13 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
   // End-of-cycle summary — counts of successful vs. failed Analytics
   // queries across this tick, per metric family. Emitted last so it is
   // easy to locate at the tail of each tick's log block.
+  const reachLine = counters.reachSkipped
+    ? "reach skipped (ENABLE_REACH_METRICS=false)"
+    : `reach ok=${counters.reachOk} fail=${counters.reachFail}`;
   console.log(
     `[poller/summary]\n` +
       `userActivity ok=${counters.userActivityOk} fail=${counters.userActivityFail}\n` +
-      `reach ok=${counters.reachOk} fail=${counters.reachFail}`,
+      reachLine,
   );
 
   return metrics;
