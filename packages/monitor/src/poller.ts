@@ -4,8 +4,8 @@ import type { VideoMetrics } from "./lib/types";
 
 interface AnalyticsData {
   analyticsViews?: number;        // Analytics 28d views (separate from Data API all-time)
-  impressions?: number;
-  ctr?: number;                   // impressionClickThroughRate (ratio 0..1 per YouTube Analytics docs)
+  impressions?: number;           // from videoThumbnailImpressions
+  ctr?: number;                   // from videoThumbnailImpressionsClickRate (ratio 0..1)
   avgViewDuration?: number;
   avgViewPercentage?: number;
   estimatedMinutesWatched?: number;
@@ -16,12 +16,14 @@ interface AnalyticsData {
 //
 // Previously requested "annotationClickThroughRate" — annotations were
 // deprecated by YouTube in 2019 and that metric returns ~0 for every modern
-// video, which is why every stored ctr in production was 0. The correct
-// Studio-equivalent thumbnail CTR is impressionClickThroughRate, and the
-// `impressions` denominator was never requested before (hence NULL on every
-// snapshot row).
+// video, which is why every stored ctr in production was 0.
+// An interim attempt with "impressions,impressionClickThroughRate" was
+// rejected by the API ("Unknown identifier (impressions) given in field
+// parameters.metrics."). The correct identifiers for Studio-equivalent
+// thumbnail reach are videoThumbnailImpressions and
+// videoThumbnailImpressionsClickRate.
 const ANALYTICS_METRICS =
-  "views,impressions,impressionClickThroughRate,averageViewDuration,averageViewPercentage,estimatedMinutesWatched";
+  "views,videoThumbnailImpressions,videoThumbnailImpressionsClickRate,averageViewDuration,averageViewPercentage,estimatedMinutesWatched";
 
 /**
  * Query YouTube Analytics v2 for a single video's views, impressions,
@@ -46,9 +48,9 @@ async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
     if (!row) return {};
 
     // Row mapping — mirrors ANALYTICS_METRICS order:
-    //   row[0] views
-    //   row[1] impressions
-    //   row[2] impressionClickThroughRate (ratio 0..1)
+    //   row[0] views                                → analyticsViews
+    //   row[1] videoThumbnailImpressions            → impressions
+    //   row[2] videoThumbnailImpressionsClickRate   → ctr (ratio 0..1)
     //   row[3] averageViewDuration (seconds, integer)
     //   row[4] averageViewPercentage (0..100)
     //   row[5] estimatedMinutesWatched (integer)
