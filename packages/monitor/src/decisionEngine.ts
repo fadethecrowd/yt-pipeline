@@ -7,6 +7,18 @@ import type { BootstrapBenchmarks, Decision, VideoMetrics } from "./lib/types";
 const COLD_START_THRESHOLD = 15; // videos needed before using real averages
 const HIGH_LIKE_COMMENT = 3; // heart comments with 3+ likes
 
+// Minimum CTR threshold floor. Guards against a degenerate "every video
+// passes" state when YouTube Analytics has not yet returned real CTR data
+// — i.e. AVG(snapshots.ctr) collapses to 0 for a freshly-warm channel,
+// which would otherwise make every non-null CTR "above threshold" and
+// suppress all rewrite suggestions.
+const MIN_CTR_THRESHOLD = 0.03; // 3%
+
+// Warm-channel minimum view count before a rewrite can be considered.
+// Lowered from 100 → 50 so a 70-view dud can still trigger a title
+// rewrite rather than sitting in SKIPPED_BASELINE forever.
+const WARM_VIEWS_THRESHOLD = 50;
+
 interface Baseline {
   ctrThreshold: number;
   viewsThreshold: number;
@@ -66,15 +78,36 @@ async function getBaseline(): Promise<Baseline> {
     where: { ctr: { not: null } },
   });
 
-  const computedCtr = avgCtr._avg?.ctr ?? 3;
+  const computedCtr = avgCtr._avg?.ctr ?? 3;      // percent (e.g. 4.2 = 4.2%)
+  const computedCtrRatio = computedCtr / 100;     // ratio (e.g. 0.042)
+
+  // Baseline collapse guard:
+  //   (1) if warm avg CTR is zero (Analytics has not yet emitted real CTR
+  //       rows for this channel), fall back to the bootstrap avg from
+  //       ChannelGoal so we don't permanently neutralize the detector.
+  //   (2) apply a MIN_CTR_THRESHOLD floor regardless, so the "below
+  //       threshold" gate remains meaningful even as real averages drift.
+  let ctrThreshold: number;
+  let ctrSource: string;
+  if (computedCtrRatio === 0 && bm) {
+    ctrThreshold = Math.max(bm.avgCtr / 100, MIN_CTR_THRESHOLD);
+    ctrSource = `warm avg=0, fell back to bootstrap avgCtr=${bm.avgCtr}% (floored at ${MIN_CTR_THRESHOLD * 100}%)`;
+  } else {
+    ctrThreshold = Math.max(computedCtrRatio, MIN_CTR_THRESHOLD);
+    ctrSource =
+      computedCtrRatio < MIN_CTR_THRESHOLD
+        ? `warm avg ${computedCtr.toFixed(2)}% below floor, using ${MIN_CTR_THRESHOLD * 100}%`
+        : `warm avg ${computedCtr.toFixed(2)}%`;
+  }
+
   const result: Baseline = {
-    ctrThreshold: computedCtr / 100,
-    viewsThreshold: 100,
+    ctrThreshold,
+    viewsThreshold: WARM_VIEWS_THRESHOLD,
     goalText: goal?.goal ?? null,
     bootstrapBenchmarks: bm,
   };
   console.log(
-    `[decisionEngine] Warm channel (${snapshotVideoCount.length} videos) — computed avgCtr: ${computedCtr.toFixed(2)}%`,
+    `[decisionEngine] Warm channel (${snapshotVideoCount.length} videos) — computed avgCtr: ${computedCtr.toFixed(2)}% (${ctrSource})`,
   );
   console.log(
     `[decisionEngine] Channel averages → ctrThreshold: ${(result.ctrThreshold * 100).toFixed(2)}%, viewsThreshold: ${result.viewsThreshold}`,
