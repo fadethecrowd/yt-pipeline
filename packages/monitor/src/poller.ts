@@ -48,23 +48,28 @@ function scopeToLabel(scope: AnalyticsScope): "QUERY_A" | "QUERY_B" {
 }
 
 /**
- * Run one Analytics query and return the first data row (or null on
+ * Run one Analytics query and return the data rows array (or null on
  * empty/failure). Emits a pre-request [analytics/debug] log block showing
  * the exact request shape, and a structured [poller/error] block on
  * failure. Failures resolve to null rather than throwing so the caller
  * can merge whatever DID succeed.
+ *
+ * When `dimensions` is set, the API returns one row per dimension value
+ * (e.g. per day) with the dimension columns FIRST, followed by metric
+ * columns in the order of the `metrics` string. Callers that pass a
+ * dimension must account for the leading dimension column(s).
  */
 async function runAnalyticsQuery(
   youtubeId: string,
   metrics: string,
   scope: AnalyticsScope,
   counters: AnalyticsCounters,
-): Promise<Array<number | string> | null> {
+  dimensions?: string,
+): Promise<Array<Array<number | string>> | null> {
   const yta = youtubeAnalytics();
   const { startDate, endDate } = dateWindow();
   const ids = "channel==MINE";
   const filters = `video==${youtubeId}`;
-  const dimensions: string | undefined = undefined; // not currently requested
   const label = scopeToLabel(scope);
 
   console.log(
@@ -84,10 +89,11 @@ async function runAnalyticsQuery(
       endDate,
       metrics,
       filters,
+      ...(dimensions ? { dimensions } : {}),
     });
     if (scope === "user-activity") counters.userActivityOk++;
     else counters.reachOk++;
-    return (res.data.rows?.[0] as Array<number | string> | undefined) ?? null;
+    return (res.data.rows as Array<Array<number | string>> | undefined) ?? null;
   } catch (err: any) {
     if (scope === "user-activity") counters.userActivityFail++;
     else counters.reachFail++;
@@ -114,23 +120,35 @@ async function runAnalyticsQuery(
  * user-activity query (views, watch time) and a reach query (thumbnail
  * impressions + click-through rate). Either query can fail independently;
  * fields from the other query are preserved.
+ *
+ * The reach family requires `dimensions=day` — without it the API returns
+ * "The query is not supported". Per-day rows are aggregated in code:
+ *
+ *   totalImpressions = Σ day.videoThumbnailImpressions
+ *   totalClicks      = Σ (day.impressions × day.clickRate)
+ *   aggregateCtr     = totalClicks / totalImpressions
+ *
+ * This is mathematically equivalent to impressions-weighted average CTR,
+ * and matches what YouTube Studio shows for the same 28-day window.
  */
 async function fetchAnalytics(
   youtubeId: string,
   counters: AnalyticsCounters,
 ): Promise<AnalyticsData> {
-  const [rowA, rowB] = await Promise.all([
+  const [rowsA, rowsB] = await Promise.all([
     runAnalyticsQuery(youtubeId, METRICS_USER_ACTIVITY, "user-activity", counters),
-    runAnalyticsQuery(youtubeId, METRICS_REACH, "reach", counters),
+    runAnalyticsQuery(youtubeId, METRICS_REACH, "reach", counters, "day"),
   ]);
 
   const merged: AnalyticsData = {};
 
-  // Query A — user-activity row mapping (METRICS_USER_ACTIVITY order):
+  // Query A — no dimensions, single aggregated row.
+  // Row mapping (METRICS_USER_ACTIVITY order):
   //   row[0] views                        → analyticsViews
   //   row[1] averageViewDuration          (seconds, integer)
   //   row[2] averageViewPercentage        (0..100)
   //   row[3] estimatedMinutesWatched      (integer)
+  const rowA = rowsA?.[0];
   if (rowA) {
     if (rowA[0] != null) merged.analyticsViews          = Number(rowA[0]);
     if (rowA[1] != null) merged.avgViewDuration         = Number(rowA[1]);
@@ -138,12 +156,22 @@ async function fetchAnalytics(
     if (rowA[3] != null) merged.estimatedMinutesWatched = Number(rowA[3]);
   }
 
-  // Query B — reach row mapping (METRICS_REACH order):
-  //   row[0] videoThumbnailImpressions             → impressions
-  //   row[1] videoThumbnailImpressionsClickRate    → ctr (ratio 0..1)
-  if (rowB) {
-    if (rowB[0] != null) merged.impressions = Number(rowB[0]);
-    if (rowB[1] != null) merged.ctr         = Number(rowB[1]);
+  // Query B — dimensions=day, N rows (one per day in window).
+  // Per-row column order:
+  //   row[0] day (YYYY-MM-DD string, dimension column)
+  //   row[1] videoThumbnailImpressions
+  //   row[2] videoThumbnailImpressionsClickRate (ratio 0..1)
+  if (rowsB && rowsB.length > 0) {
+    let totalImpr = 0;
+    let totalClicks = 0; // = Σ (impressions × clickRate) across days
+    for (const row of rowsB) {
+      const impr = row[1] != null ? Number(row[1]) : 0;
+      const rate = row[2] != null ? Number(row[2]) : 0;
+      totalImpr += impr;
+      totalClicks += impr * rate;
+    }
+    merged.impressions = totalImpr;
+    if (totalImpr > 0) merged.ctr = totalClicks / totalImpr;
   }
 
   return merged;
