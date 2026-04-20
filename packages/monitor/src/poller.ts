@@ -11,22 +11,32 @@ interface AnalyticsData {
   estimatedMinutesWatched?: number;
 }
 
-// Analytics is split into two targeted queries per video because YouTube
-// Analytics rejects a combined user-activity + reach metrics list with
-// "The query is not supported." Each dimension set has its own supported
-// metric family; merging results in code instead lets us keep partial
-// data when only one family is available for a given video/token.
+// Analytics runs as two DIFFERENT-SHAPED reports per tick:
+//
+//   Query A — user-activity, per pipeline video.
+//     ids=channel==MINE, filters=video==<ytId>, no dimensions.
+//
+//   Query B — reach, channel-wide ONCE per tick.
+//     ids=channel==MINE, dimensions=video, sort=-videoThumbnailImpressions,
+//     maxResults=200, NO video filter. This is the "Top videos" report
+//     shape — the only supported way to request videoThumbnailImpressions
+//     and videoThumbnailImpressionsClickRate. Per-tick results are looked
+//     up by youtubeId to merge into the corresponding per-video row.
 //
 // History:
 //   1. annotationClickThroughRate (deprecated 2019 — always 0)
 //   2. impressions + impressionClickThroughRate (unknown identifier)
 //   3. videoThumbnailImpressions[ClickRate] in a combined query
 //      ("The query is not supported")
-//   4. current: two queries, merged
+//   4. same metrics, dimensions=day + filters=video==X ("not supported")
+//   5. same metrics, dimensions=video + filters=video==X ("not supported")
+//   6. current: channel-wide with sort+maxResults, lookup by ytId
 const METRICS_USER_ACTIVITY =
   "views,averageViewDuration,averageViewPercentage,estimatedMinutesWatched";
 const METRICS_REACH =
   "videoThumbnailImpressions,videoThumbnailImpressionsClickRate";
+const REACH_SORT = "-videoThumbnailImpressions";
+const REACH_MAX_RESULTS = 200;
 
 function dateWindow(): { startDate: string; endDate: string } {
   const endDate = new Date().toISOString().slice(0, 10);
@@ -116,61 +126,112 @@ async function runAnalyticsQuery(
 }
 
 /**
- * Query YouTube Analytics v2 for a single video, combining results from a
- * user-activity query (views, watch time) and a reach query (thumbnail
- * impressions + click-through rate). Either query can fail independently;
- * fields from the other query are preserved.
- *
- * The reach family requires `dimensions=day` — without it the API returns
- * "The query is not supported". Per-day rows are aggregated in code:
- *
- *   totalImpressions = Σ day.videoThumbnailImpressions
- *   totalClicks      = Σ (day.impressions × day.clickRate)
- *   aggregateCtr     = totalClicks / totalImpressions
- *
- * This is mathematically equivalent to impressions-weighted average CTR,
- * and matches what YouTube Studio shows for the same 28-day window.
+ * Query YouTube Analytics v2 for a single video's user-activity metrics
+ * (views, watch time). Reach metrics (impressions + CTR) are fetched
+ * separately by fetchChannelReach() — the reach report does not support
+ * a per-video filter shape.
  */
-async function fetchAnalytics(
+async function fetchUserActivity(
   youtubeId: string,
   counters: AnalyticsCounters,
 ): Promise<AnalyticsData> {
-  const [rowsA, rowsB] = await Promise.all([
-    runAnalyticsQuery(youtubeId, METRICS_USER_ACTIVITY, "user-activity", counters),
-    runAnalyticsQuery(youtubeId, METRICS_REACH, "reach", counters, "video"),
-  ]);
+  const rows = await runAnalyticsQuery(
+    youtubeId,
+    METRICS_USER_ACTIVITY,
+    "user-activity",
+    counters,
+  );
 
-  const merged: AnalyticsData = {};
-
-  // Query A — no dimensions, single aggregated row.
-  // Row mapping (METRICS_USER_ACTIVITY order):
+  const out: AnalyticsData = {};
+  // Row mapping (METRICS_USER_ACTIVITY order, no dimensions):
   //   row[0] views                        → analyticsViews
   //   row[1] averageViewDuration          (seconds, integer)
   //   row[2] averageViewPercentage        (0..100)
   //   row[3] estimatedMinutesWatched      (integer)
-  const rowA = rowsA?.[0];
-  if (rowA) {
-    if (rowA[0] != null) merged.analyticsViews          = Number(rowA[0]);
-    if (rowA[1] != null) merged.avgViewDuration         = Number(rowA[1]);
-    if (rowA[2] != null) merged.avgViewPercentage       = Number(rowA[2]);
-    if (rowA[3] != null) merged.estimatedMinutesWatched = Number(rowA[3]);
+  const row = rows?.[0];
+  if (row) {
+    if (row[0] != null) out.analyticsViews          = Number(row[0]);
+    if (row[1] != null) out.avgViewDuration         = Number(row[1]);
+    if (row[2] != null) out.avgViewPercentage       = Number(row[2]);
+    if (row[3] != null) out.estimatedMinutesWatched = Number(row[3]);
   }
+  return out;
+}
 
-  // Query B — dimensions=video, filter narrows to one row per call.
-  // This matches the channel "Top videos" report shape; the per-day shape
-  // returned "The query is not supported".
-  //
-  // Per-row column order (METRICS_REACH order, prefixed by dimension):
-  //   row[0] video (YouTube ID, dimension column — ignored)
-  //   row[1] videoThumbnailImpressions            → impressions
-  //   row[2] videoThumbnailImpressionsClickRate   → ctr (ratio 0..1)
-  const rowB = rowsB?.[0];
-  if (rowB) {
-    if (rowB[1] != null) merged.impressions = Number(rowB[1]);
-    if (rowB[2] != null) merged.ctr         = Number(rowB[2]);
+/**
+ * Channel-wide reach retrieval — ONE API call per tick, not per video.
+ *
+ * Emits its own [analytics/debug] QUERY_B block and increments the reach
+ * counter (ok or fail). On failure, emits a structured [poller/error]
+ * ANALYTICS_QUERY_FAILED block and returns an empty map; callers treat
+ * missing entries as "no reach data for this video".
+ *
+ * Returns Map<youtubeId, {impressions, ctr}> keyed by YouTube video ID.
+ * A pipeline video absent from the map (new upload, ranked below
+ * maxResults, or zero channel-side impressions in the 28d window) is
+ * correctly treated as impressions=null, ctr=null downstream.
+ */
+async function fetchChannelReach(
+  counters: AnalyticsCounters,
+): Promise<Map<string, { impressions: number; ctr: number }>> {
+  const yta = youtubeAnalytics();
+  const { startDate, endDate } = dateWindow();
+  const ids = "channel==MINE";
+  const dimensions = "video";
+  const metrics = METRICS_REACH;
+
+  console.log(
+    `[analytics/debug] QUERY_B\n` +
+      `ids=${ids}\n` +
+      `metrics=${metrics}\n` +
+      `dimensions=${dimensions}\n` +
+      `filters=none\n` +
+      `sort=${REACH_SORT}\n` +
+      `maxResults=${REACH_MAX_RESULTS}\n` +
+      `startDate=${startDate}\n` +
+      `endDate=${endDate}`,
+  );
+
+  const result = new Map<string, { impressions: number; ctr: number }>();
+
+  try {
+    const res = await yta.reports.query({
+      ids,
+      startDate,
+      endDate,
+      metrics,
+      dimensions,
+      sort: REACH_SORT,
+      maxResults: REACH_MAX_RESULTS,
+    });
+    counters.reachOk++;
+    const rows = (res.data.rows ?? []) as Array<Array<number | string>>;
+    // Row column order: [video_id, videoThumbnailImpressions, videoThumbnailImpressionsClickRate]
+    for (const row of rows) {
+      const videoId = String(row[0]);
+      const impressions = row[1] != null ? Number(row[1]) : 0;
+      const ctr = row[2] != null ? Number(row[2]) : 0;
+      result.set(videoId, { impressions, ctr });
+    }
+    return result;
+  } catch (err: any) {
+    counters.reachFail++;
+    const apiError =
+      err?.response?.data?.error?.message ??
+      (err instanceof Error ? err.message : String(err));
+    console.warn(
+      `[poller/error] ANALYTICS_QUERY_FAILED\n` +
+        `type=reach\n` +
+        `yt=<channel-wide>\n` +
+        `metrics=${metrics}\n` +
+        `dimensions=${dimensions}\n` +
+        `filters=none\n` +
+        `sort=${REACH_SORT}\n` +
+        `maxResults=${REACH_MAX_RESULTS}\n` +
+        `error=${apiError}`,
+    );
+    return result;
   }
-
-  return merged;
 }
 
 /**
@@ -222,9 +283,14 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     }
   }
 
-  // Fetch analytics for each video and enrich metrics. Counters are scoped
-  // to this tick so the end-of-cycle [poller/summary] reflects only this
-  // run — not accumulated state across ticks.
+  // Fetch analytics. Counters are scoped to this tick so the end-of-cycle
+  // [poller/summary] reflects only this run.
+  //
+  // Reach is ONE channel-wide call; user-activity is per video. Reach
+  // results are looked up by youtubeId and merged into each per-video
+  // AnalyticsData entry — videos absent from the reach rows get
+  // impressions/ctr as undefined (→ null in DB), which is correct for
+  // new uploads or videos below the maxResults cutoff.
   const analyticsMap = new Map<string, AnalyticsData>();
   const counters: AnalyticsCounters = {
     userActivityOk: 0,
@@ -232,11 +298,19 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     reachOk: 0,
     reachFail: 0,
   };
+
+  const reachMap = await fetchChannelReach(counters);
+
   for (const m of metrics) {
-    const analytics = await fetchAnalytics(m.youtubeId, counters);
-    analyticsMap.set(m.videoId, analytics);
-    if (analytics.ctr !== undefined) m.ctr = analytics.ctr;
-    if (analytics.avgViewDuration !== undefined) m.avgViewDuration = analytics.avgViewDuration;
+    const userActivity = await fetchUserActivity(m.youtubeId, counters);
+    const reach = reachMap.get(m.youtubeId);
+    const merged: AnalyticsData = {
+      ...userActivity,
+      ...(reach ? { impressions: reach.impressions, ctr: reach.ctr } : {}),
+    };
+    analyticsMap.set(m.videoId, merged);
+    if (merged.ctr !== undefined) m.ctr = merged.ctr;
+    if (merged.avgViewDuration !== undefined) m.avgViewDuration = merged.avgViewDuration;
   }
 
   // Store snapshots with analytics data. `impressions` is now included
