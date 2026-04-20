@@ -11,61 +11,93 @@ interface AnalyticsData {
   estimatedMinutesWatched?: number;
 }
 
-// Analytics metrics requested, in the order the API returns them.
-// Order is load-bearing: row indices below match this list.
+// Analytics is split into two targeted queries per video because YouTube
+// Analytics rejects a combined user-activity + reach metrics list with
+// "The query is not supported." Each dimension set has its own supported
+// metric family; merging results in code instead lets us keep partial
+// data when only one family is available for a given video/token.
 //
-// Previously requested "annotationClickThroughRate" — annotations were
-// deprecated by YouTube in 2019 and that metric returns ~0 for every modern
-// video, which is why every stored ctr in production was 0.
-// An interim attempt with "impressions,impressionClickThroughRate" was
-// rejected by the API ("Unknown identifier (impressions) given in field
-// parameters.metrics."). The correct identifiers for Studio-equivalent
-// thumbnail reach are videoThumbnailImpressions and
-// videoThumbnailImpressionsClickRate.
-const ANALYTICS_METRICS =
-  "views,videoThumbnailImpressions,videoThumbnailImpressionsClickRate,averageViewDuration,averageViewPercentage,estimatedMinutesWatched";
+// History:
+//   1. annotationClickThroughRate (deprecated 2019 — always 0)
+//   2. impressions + impressionClickThroughRate (unknown identifier)
+//   3. videoThumbnailImpressions[ClickRate] in a combined query
+//      ("The query is not supported")
+//   4. current: two queries, merged
+const METRICS_USER_ACTIVITY =
+  "views,averageViewDuration,averageViewPercentage,estimatedMinutesWatched";
+const METRICS_REACH =
+  "videoThumbnailImpressions,videoThumbnailImpressionsClickRate";
 
-/**
- * Query YouTube Analytics v2 for a single video's views, impressions,
- * impressionClickThroughRate, and watch-time metrics over the last 28 days.
- */
-async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
-  const yta = youtubeAnalytics();
-
+function dateWindow(): { startDate: string; endDate: string } {
   const endDate = new Date().toISOString().slice(0, 10);
   const startDate = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return { startDate, endDate };
+}
 
+/**
+ * Run one Analytics query and return the first data row (or null on
+ * empty/failure). Failures log a scoped warning and resolve to null
+ * rather than throwing, so the caller can merge whatever DID succeed.
+ */
+async function runAnalyticsQuery(
+  youtubeId: string,
+  metrics: string,
+  scopeLabel: "user-activity" | "reach",
+): Promise<Array<number | string> | null> {
+  const yta = youtubeAnalytics();
+  const { startDate, endDate } = dateWindow();
   try {
     const res = await yta.reports.query({
       ids: "channel==MINE",
       startDate,
       endDate,
-      metrics: ANALYTICS_METRICS,
+      metrics,
       filters: `video==${youtubeId}`,
     });
-
-    const row = res.data.rows?.[0];
-    if (!row) return {};
-
-    // Row mapping — mirrors ANALYTICS_METRICS order:
-    //   row[0] views                                → analyticsViews
-    //   row[1] videoThumbnailImpressions            → impressions
-    //   row[2] videoThumbnailImpressionsClickRate   → ctr (ratio 0..1)
-    //   row[3] averageViewDuration (seconds, integer)
-    //   row[4] averageViewPercentage (0..100)
-    //   row[5] estimatedMinutesWatched (integer)
-    return {
-      analyticsViews:          row[0] != null ? Number(row[0]) : undefined,
-      impressions:             row[1] != null ? Number(row[1]) : undefined,
-      ctr:                     row[2] != null ? Number(row[2]) : undefined,
-      avgViewDuration:         row[3] != null ? Number(row[3]) : undefined,
-      avgViewPercentage:       row[4] != null ? Number(row[4]) : undefined,
-      estimatedMinutesWatched: row[5] != null ? Number(row[5]) : undefined,
-    };
+    return (res.data.rows?.[0] as Array<number | string> | undefined) ?? null;
   } catch (err) {
-    console.warn(`[poller] Analytics fetch failed for ${youtubeId}: ${err instanceof Error ? err.message : err}`);
-    return {};
+    console.warn(
+      `[poller] Analytics ${scopeLabel} fetch failed for ${youtubeId}: ${err instanceof Error ? err.message : err}`,
+    );
+    return null;
   }
+}
+
+/**
+ * Query YouTube Analytics v2 for a single video, combining results from a
+ * user-activity query (views, watch time) and a reach query (thumbnail
+ * impressions + click-through rate). Either query can fail independently;
+ * fields from the other query are preserved.
+ */
+async function fetchAnalytics(youtubeId: string): Promise<AnalyticsData> {
+  const [rowA, rowB] = await Promise.all([
+    runAnalyticsQuery(youtubeId, METRICS_USER_ACTIVITY, "user-activity"),
+    runAnalyticsQuery(youtubeId, METRICS_REACH, "reach"),
+  ]);
+
+  const merged: AnalyticsData = {};
+
+  // Query A — user-activity row mapping (METRICS_USER_ACTIVITY order):
+  //   row[0] views                        → analyticsViews
+  //   row[1] averageViewDuration          (seconds, integer)
+  //   row[2] averageViewPercentage        (0..100)
+  //   row[3] estimatedMinutesWatched      (integer)
+  if (rowA) {
+    if (rowA[0] != null) merged.analyticsViews          = Number(rowA[0]);
+    if (rowA[1] != null) merged.avgViewDuration         = Number(rowA[1]);
+    if (rowA[2] != null) merged.avgViewPercentage       = Number(rowA[2]);
+    if (rowA[3] != null) merged.estimatedMinutesWatched = Number(rowA[3]);
+  }
+
+  // Query B — reach row mapping (METRICS_REACH order):
+  //   row[0] videoThumbnailImpressions             → impressions
+  //   row[1] videoThumbnailImpressionsClickRate    → ctr (ratio 0..1)
+  if (rowB) {
+    if (rowB[0] != null) merged.impressions = Number(rowB[0]);
+    if (rowB[1] != null) merged.ctr         = Number(rowB[1]);
+  }
+
+  return merged;
 }
 
 /**
