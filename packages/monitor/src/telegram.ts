@@ -8,6 +8,7 @@ import {
 } from "./lib/channelDb";
 import { ActionStatus } from "./lib/types";
 import { liveVideoWhere } from "./lib/queries";
+import { youtube } from "./lib/youtube";
 import type { Decision } from "./lib/types";
 
 let bot: TelegramBot | null = null;
@@ -240,9 +241,46 @@ async function handleStart(msg: TelegramBot.Message): Promise<void> {
 async function handleStatus(msg: TelegramBot.Message): Promise<void> {
   try {
     const config = env();
-    const videoCount = await videos.count({
+
+    // DB-side count of real (non-dryrun) uploaded videos.
+    const dbRows = await videos.findMany({
       where: { ...liveVideoWhere },
+      select: { youtubeId: true },
     });
+    const uploadedInDb = dbRows.length;
+
+    // Live-visibility classification: ask YouTube for privacyStatus on
+    // each row's youtubeId. A video returned with privacyStatus="public"
+    // is live; a video returned private/unlisted is in the DB but not
+    // publicly visible; a youtubeId missing from the response is
+    // "stale/unfindable" — most often deleted from YouTube after upload.
+    let livePublic = 0;
+    let stale = 0;
+    let liveProbeError: string | null = null;
+
+    const ytIds = dbRows.map((r) => r.youtubeId!).filter(Boolean);
+    if (ytIds.length > 0) {
+      try {
+        const yt = youtube();
+        const returned = new Set<string>();
+        const publicIds = new Set<string>();
+        // Batch in groups of 50 (Data API limit per call).
+        for (let i = 0; i < ytIds.length; i += 50) {
+          const batch = ytIds.slice(i, i + 50);
+          const res = await yt.videos.list({ part: ["status"], id: batch });
+          for (const item of res.data.items ?? []) {
+            if (!item.id) continue;
+            returned.add(item.id);
+            if (item.status?.privacyStatus === "public") publicIds.add(item.id);
+          }
+        }
+        livePublic = publicIds.size;
+        stale = ytIds.length - returned.size;
+      } catch (err) {
+        liveProbeError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
     const recentDecisions = await actions.count({
       where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     });
@@ -251,13 +289,24 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
       select: { createdAt: true },
     });
 
+    const videoLines = liveProbeError
+      ? [
+          `Videos (uploaded in DB): ${uploadedInDb}`,
+          `Videos (live on YouTube): probe failed — ${liveProbeError.slice(0, 80)}`,
+        ]
+      : [
+          `Videos (live on YouTube): ${livePublic}`,
+          `Videos (uploaded in DB): ${uploadedInDb}`,
+          `Videos (stale/unfindable): ${stale}`,
+        ];
+
     const lines = [
       "📊 *Monitor Status*",
       "",
       `Channel: ${config.CHANNEL}`,
       `Last tick: ${lastTickTime ? lastTickTime.toISOString() : "not yet"}`,
       `Last snapshot: ${lastSnapshot ? lastSnapshot.createdAt.toISOString() : "none"}`,
-      `Videos tracked: ${videoCount}`,
+      ...videoLines,
       `Decisions (24h): ${recentDecisions}`,
     ];
 
