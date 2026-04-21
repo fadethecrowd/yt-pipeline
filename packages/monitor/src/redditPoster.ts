@@ -37,11 +37,16 @@ export async function generateRedditPosts(): Promise<Decision[]> {
 
   const decisions: Decision[] = [];
 
-  // Find published videos that don't have a RedditPost yet (current channel only)
+  // Find published videos that don't have a RedditPost yet (current channel
+  // only). Accept scheduledAt=null for pre-launch WC uploads that were
+  // manually published on Studio — the DB never got a scheduledAt for them.
   const publishedVideos = await videos.findMany({
     where: {
       ...liveVideoWhere,
-      scheduledAt: { lte: new Date() },
+      OR: [
+        { scheduledAt: { lte: new Date() } },
+        { scheduledAt: null },
+      ],
     },
     include: { topic: true },
   });

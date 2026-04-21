@@ -38,11 +38,19 @@ export async function detectLifecycleEvents(): Promise<Decision[]> {
   const decisions: Decision[] = [];
   const now = new Date();
 
-  // Find published videos (scheduledAt in the past, has youtubeId)
+  // Find published videos. `scheduledAt <= now` catches post-launch uploads
+  // that were given a publish slot; `scheduledAt = null` catches pre-launch
+  // WC uploads that went to YouTube as PRIVATE with no schedule and were
+  // later flipped to public on Studio — the DB has no record of that
+  // transition, so null here means "published without a schedule in our
+  // DB", not "not yet scheduled". Both cases are accessible on YouTube.
   const publishedVideos = await videos.findMany({
     where: {
       ...liveVideoWhere,
-      scheduledAt: { lte: now },
+      OR: [
+        { scheduledAt: { lte: now } },
+        { scheduledAt: null },
+      ],
     },
     include: { topic: true },
   });
@@ -126,10 +134,14 @@ Respond with ONLY a JSON object: {"youtubeId": "...", "title": "...", "reasoning
   }
 
   // ── Re-promotion: published > 48hrs, views below channel average ────
+  // For pre-launch WC videos with scheduledAt=null, fall back to createdAt
+  // as the publish reference — they were uploaded before a schedule ever
+  // existed and are definitely older than 48h by now.
   const cutoff = new Date(Date.now() - REPROMO_WINDOW_MS);
-  const matureVideos = publishedVideos.filter(
-    (v: any) => v.scheduledAt && v.scheduledAt <= cutoff,
-  );
+  const matureVideos = publishedVideos.filter((v: any) => {
+    const publishTime: Date | null = v.scheduledAt ?? v.createdAt ?? null;
+    return publishTime !== null && publishTime <= cutoff;
+  });
 
   if (matureVideos.length > 1) {
     // Get latest snapshot for each
