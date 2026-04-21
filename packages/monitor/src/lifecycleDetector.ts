@@ -44,23 +44,28 @@ export async function detectLifecycleEvents(): Promise<Decision[]> {
   // later flipped to public on Studio — the DB has no record of that
   // transition, so null here means "published without a schedule in our
   // DB", not "not yet scheduled". Both cases are accessible on YouTube.
-  //
-  // Extra defensive filter: skip rows explicitly marked as orphaned (i.e.
-  // youtubeId was cleared or the video is known-deleted). liveVideoWhere
-  // already excludes null youtubeIds, but `[orphan]` may also tag rows
-  // that still carry a non-null (replacement or stale) ID we shouldn't
-  // draft lifecycle actions for.
-  const publishedVideos = await videos.findMany({
+  const rawPublished = await videos.findMany({
     where: {
       ...liveVideoWhere,
       OR: [
         { scheduledAt: { lte: now } },
         { scheduledAt: null },
       ],
-      NOT: { failReason: { startsWith: "[orphan]" } },
     },
     include: { topic: true },
   });
+
+  // Defensive filter: skip rows explicitly marked as orphaned (i.e. the
+  // youtubeId was cleared OR the video is known-deleted). liveVideoWhere
+  // already excludes null youtubeIds, but the `[orphan]` tag can also
+  // appear on rows that retain a non-null stale ID we shouldn't draft
+  // lifecycle actions for. Filter in JS rather than Prisma because
+  // `NOT: { failReason: { startsWith: ... } }` excludes rows with NULL
+  // failReason (SQL three-valued logic on NOT LIKE null) — we want those
+  // rows INCLUDED.
+  const publishedVideos = rawPublished.filter(
+    (v: any) => !(v.failReason ?? "").startsWith("[orphan]"),
+  );
 
   if (publishedVideos.length === 0) return decisions;
 
