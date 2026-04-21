@@ -1,1 +1,2 @@
 watch-path test
+canary 2: config applied
