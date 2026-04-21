@@ -1,5 +1,6 @@
 import { videos, comments } from "./lib/channelDb";
 import { youtube } from "./lib/youtube";
+import { liveVideoWhere } from "./lib/queries";
 import type { YouTubeComment } from "./lib/types";
 
 /**
@@ -8,7 +9,7 @@ import type { YouTubeComment } from "./lib/types";
  */
 export async function scrapeComments(): Promise<YouTubeComment[]> {
   const videoRows = await videos.findMany({
-    where: { youtubeId: { not: null } },
+    where: { ...liveVideoWhere },
     select: { id: true, youtubeId: true },
   });
 

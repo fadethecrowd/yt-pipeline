@@ -1,5 +1,6 @@
 import { videos, snapshots, redditPosts, digestLogs } from "./lib/channelDb";
 import { sendTelegram } from "./telegram";
+import { liveVideoWhere } from "./lib/queries";
 import type { DigestEntry } from "./lib/types";
 
 /**
@@ -7,7 +8,7 @@ import type { DigestEntry } from "./lib/types";
  */
 export async function sendDailyDigest(): Promise<void> {
   const videoRows = await videos.findMany({
-    where: { youtubeId: { not: null } },
+    where: { ...liveVideoWhere },
     include: {
       topic: { select: { title: true } },
     },

@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { videos, snapshots, actions } from "./lib/channelDb";
 import { env } from "./config";
 import { ActionType } from "./lib/types";
+import { liveVideoWhere } from "./lib/queries";
 import type { Decision } from "./lib/types";
 
 const REPROMO_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -40,7 +41,7 @@ export async function detectLifecycleEvents(): Promise<Decision[]> {
   // Find published videos (scheduledAt in the past, has youtubeId)
   const publishedVideos = await videos.findMany({
     where: {
-      youtubeId: { not: null },
+      ...liveVideoWhere,
       scheduledAt: { lte: now },
     },
     include: { topic: true },

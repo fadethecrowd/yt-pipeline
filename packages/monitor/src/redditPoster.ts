@@ -3,6 +3,7 @@ import { videos, actions, redditPosts } from "./lib/channelDb";
 import { getChannelConfig } from "./lib/channelConfig";
 import { env } from "./config";
 import { ActionType } from "./lib/types";
+import { liveVideoWhere } from "./lib/queries";
 import type { Decision } from "./lib/types";
 import { sendTelegram } from "./telegram";
 
@@ -39,7 +40,7 @@ export async function generateRedditPosts(): Promise<Decision[]> {
   // Find published videos that don't have a RedditPost yet (current channel only)
   const publishedVideos = await videos.findMany({
     where: {
-      youtubeId: { not: null },
+      ...liveVideoWhere,
       scheduledAt: { lte: new Date() },
     },
     include: { topic: true },
