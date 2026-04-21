@@ -115,6 +115,59 @@ async function getBaseline(): Promise<Baseline> {
   return result;
 }
 
+interface ViewsDeltas {
+  viewsDelta24h: number | null;
+  viewsDelta48h: number | null;
+  viewsDelta7d: number | null;
+}
+
+/**
+ * Compute view-growth deltas by looking up the latest snapshot at-or-before
+ * each target offset (24h / 48h / 7d ago) and subtracting from current views.
+ *
+ * Returns null per-window when no snapshot exists prior to that offset
+ * (e.g. for a video less than 24h old). "At-or-before" semantics ensure
+ * the delta reflects actual growth since that past point, not growth
+ * extrapolated from a snapshot newer than the window.
+ */
+async function computeViewsDeltas(
+  videoId: string,
+  currentViews: number,
+): Promise<ViewsDeltas> {
+  const now = Date.now();
+  const T_24H = now - 24 * 60 * 60 * 1000;
+  const T_48H = now - 48 * 60 * 60 * 1000;
+  const T_7D  = now - 7 * 24 * 60 * 60 * 1000;
+
+  // Pull last 8 days of snapshots in one query to bracket the 7d window.
+  const earliest = new Date(T_7D - 24 * 60 * 60 * 1000);
+  const snaps = await snapshots.findMany({
+    where: { videoId, createdAt: { gte: earliest } },
+    orderBy: { createdAt: "asc" },
+    select: { createdAt: true, views: true },
+  });
+
+  if (snaps.length === 0) {
+    return { viewsDelta24h: null, viewsDelta48h: null, viewsDelta7d: null };
+  }
+
+  const atOrBefore = (targetMs: number): number | null => {
+    let best: { ts: number; views: number } | null = null;
+    for (const s of snaps) {
+      const ts = s.createdAt.getTime();
+      if (ts > targetMs) continue;
+      if (!best || ts > best.ts) best = { ts, views: s.views };
+    }
+    return best ? currentViews - best.views : null;
+  };
+
+  return {
+    viewsDelta24h: atOrBefore(T_24H),
+    viewsDelta48h: atOrBefore(T_48H),
+    viewsDelta7d:  atOrBefore(T_7D),
+  };
+}
+
 /**
  * Call Claude to evaluate video metrics and suggest actions.
  */
@@ -125,17 +178,34 @@ async function claudeEvaluate(
   const config = env();
   const decisions: Decision[] = [];
 
-  const metricsContext = metrics.map((m) => ({
-    videoId: m.videoId,
-    youtubeId: m.youtubeId,
-    views: m.views,
-    likes: m.likes,
-    comments: m.comments,
-    ctr: m.ctr !== undefined ? `${(m.ctr * 100).toFixed(2)}%` : "unknown",
-    avgViewDuration: m.avgViewDuration ?? "unknown",
-    avgViewPercentage: m.avgViewPercentage ?? null,
-    estimatedMinutesWatched: m.estimatedMinutesWatched ?? null,
-  }));
+  // Fetch view-deltas in parallel for all videos (one DB query each;
+  // bounded by tick cadence, same order-of-magnitude as Analytics calls).
+  const deltasByVideo = new Map<string, ViewsDeltas>();
+  await Promise.all(
+    metrics.map(async (m) => {
+      deltasByVideo.set(m.videoId, await computeViewsDeltas(m.videoId, m.views));
+    }),
+  );
+
+  const metricsContext = metrics.map((m) => {
+    const d = deltasByVideo.get(m.videoId) ?? {
+      viewsDelta24h: null, viewsDelta48h: null, viewsDelta7d: null,
+    };
+    return {
+      videoId: m.videoId,
+      youtubeId: m.youtubeId,
+      views: m.views,
+      likes: m.likes,
+      comments: m.comments,
+      ctr: m.ctr !== undefined ? `${(m.ctr * 100).toFixed(2)}%` : "unknown",
+      avgViewDuration: m.avgViewDuration ?? "unknown",
+      avgViewPercentage: m.avgViewPercentage ?? null,
+      estimatedMinutesWatched: m.estimatedMinutesWatched ?? null,
+      viewsDelta24h: d.viewsDelta24h,
+      viewsDelta48h: d.viewsDelta48h,
+      viewsDelta7d:  d.viewsDelta7d,
+    };
+  });
 
   // Fetch recent comments for comment-based actions (current channel only)
   const recentComments = await comments.findMany({
