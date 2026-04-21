@@ -327,6 +327,8 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     analyticsMap.set(m.videoId, merged);
     if (merged.ctr !== undefined) m.ctr = merged.ctr;
     if (merged.avgViewDuration !== undefined) m.avgViewDuration = merged.avgViewDuration;
+    if (merged.avgViewPercentage !== undefined) m.avgViewPercentage = merged.avgViewPercentage;
+    if (merged.estimatedMinutesWatched !== undefined) m.estimatedMinutesWatched = merged.estimatedMinutesWatched;
   }
 
   // Store snapshots with analytics data. `impressions` is now included

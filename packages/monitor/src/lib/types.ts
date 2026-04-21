@@ -48,6 +48,8 @@ export interface VideoMetrics {
   comments: number;
   ctr?: number;
   avgViewDuration?: number;
+  avgViewPercentage?: number;      // 0..100 — % of video length the avg viewer watches
+  estimatedMinutesWatched?: number; // integer — total watch minutes in window
 }
 
 export interface YouTubeComment {

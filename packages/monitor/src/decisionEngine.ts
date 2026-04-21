@@ -133,6 +133,8 @@ async function claudeEvaluate(
     comments: m.comments,
     ctr: m.ctr !== undefined ? `${(m.ctr * 100).toFixed(2)}%` : "unknown",
     avgViewDuration: m.avgViewDuration ?? "unknown",
+    avgViewPercentage: m.avgViewPercentage ?? null,
+    estimatedMinutesWatched: m.estimatedMinutesWatched ?? null,
   }));
 
   // Fetch recent comments for comment-based actions (current channel only)
