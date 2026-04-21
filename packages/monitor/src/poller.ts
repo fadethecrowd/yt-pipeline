@@ -279,7 +279,9 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
       id: batch,
     });
 
+    const returnedIds = new Set<string>();
     for (const item of res.data.items ?? []) {
+      if (item.id) returnedIds.add(item.id);
       const video = videoRows.find((v: { id: string; youtubeId: string | null }) => v.youtubeId === item.id);
       if (!video || !item.statistics) continue;
 
@@ -290,6 +292,23 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
         likes: Number(item.statistics.likeCount ?? 0),
         comments: Number(item.statistics.commentCount ?? 0),
       });
+    }
+
+    // Ghost-ID detection: any requested ytId the API did NOT return is
+    // most likely deleted from YouTube (owner-authenticated private
+    // videos DO come back in this response, so absence = deletion). Log
+    // a distinctive warning so ghosts surface in production logs
+    // immediately rather than drifting silently. No DB mutation here —
+    // operator decides whether to run a cleanup like the one in
+    // scripts/ghost-repair history.
+    for (const requested of batch) {
+      if (!returnedIds.has(requested)) {
+        const videoRow = videoRows.find((v: { id: string; youtubeId: string | null }) => v.youtubeId === requested);
+        console.warn(
+          `[poller/ghost] youtubeId=${requested} requested but not returned by YouTube — ` +
+            `video likely deleted. DB row: ${videoRow?.id ?? "(not found)"}`,
+        );
+      }
     }
   }
 
