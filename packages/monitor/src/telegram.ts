@@ -7,6 +7,7 @@ import {
   goal as goalDb,
 } from "./lib/channelDb";
 import { ActionStatus } from "./lib/types";
+import { liveVideoWhere } from "./lib/queries";
 import type { Decision } from "./lib/types";
 
 let bot: TelegramBot | null = null;
@@ -240,7 +241,7 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
   try {
     const config = env();
     const videoCount = await videos.count({
-      where: { youtubeId: { not: null } },
+      where: { ...liveVideoWhere },
     });
     const recentDecisions = await actions.count({
       where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
