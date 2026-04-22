@@ -109,6 +109,49 @@ function formatSRTTime(totalSeconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
 }
 
+// Max chars per rendered subtitle line. Sized so a line stays inside the
+// center 9:16 crop (608 / 1920 ≈ 32% of source width) that shortsGenerator
+// takes out of the burned long-form video — without a cap, lines overflow
+// and get clipped on both sides in Shorts. Also keeps mobile long-form
+// readable within a ~10% side margin.
+const SUBTITLE_MAX_CHARS_PER_LINE = 40;
+
+/**
+ * Wrap a subtitle cue into at most 2 balanced lines.
+ *
+ * If the whole cue fits on one line (≤ maxChars), returned unchanged.
+ * Otherwise splits at the word boundary closest to the midpoint so
+ * both lines are near-equal length. Always emits ≤ 2 lines — the caller
+ * controls cue size via WORDS_PER_CHUNK, so inputs are short enough that
+ * two balanced lines stay within maxChars on normal content.
+ */
+function wrapSubtitleText(
+  text: string,
+  maxChars = SUBTITLE_MAX_CHARS_PER_LINE,
+): string {
+  const clean = text.trim().replace(/\s+/g, " ");
+  if (clean.length <= maxChars) return clean;
+
+  const words = clean.split(" ");
+  if (words.length < 2) return clean;
+
+  const mid = clean.length / 2;
+  let bestSplit = 1;
+  let bestDelta = Infinity;
+  let running = 0;
+  for (let i = 0; i < words.length - 1; i++) {
+    running += words[i].length + (i > 0 ? 1 : 0);
+    const delta = Math.abs(running - mid);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      bestSplit = i + 1;
+    }
+  }
+  const line1 = words.slice(0, bestSplit).join(" ");
+  const line2 = words.slice(bestSplit).join(" ");
+  return `${line1}\n${line2}`;
+}
+
 function generateSRT(
   segments: ScriptSegment[],
   actualDurations: number[],
@@ -133,7 +176,7 @@ function generateSRT(
       const start = offset + i * chunkDur;
       const end = offset + (i + 1) * chunkDur;
       entries.push(
-        `${idx}\n${formatSRTTime(start)} --> ${formatSRTTime(end)}\n${chunks[i]}`,
+        `${idx}\n${formatSRTTime(start)} --> ${formatSRTTime(end)}\n${wrapSubtitleText(chunks[i])}`,
       );
       idx++;
     }
