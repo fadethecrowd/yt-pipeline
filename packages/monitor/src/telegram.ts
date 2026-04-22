@@ -22,15 +22,23 @@ export function setLastTickTime(time: Date): void {
 
 /**
  * Send a plain-text message via the Telegram Bot API.
+ *
+ * Plain text only — no Markdown / MarkdownV2 / HTML parse mode. Legacy
+ * Markdown was silently dropping draft messages whose payload contained
+ * unbalanced underscores (common in YouTube video IDs like "H_zamD9ofzc").
+ * Failures propagate to the caller — silent-swallow was the amplifying
+ * defect that caused COMMUNITY_POST actions to land as EXECUTED while
+ * the underlying draft send had already been rejected by Telegram.
  */
 export async function sendTelegram(text: string): Promise<void> {
   const config = env();
 
   if (bot) {
     try {
-      await bot.sendMessage(config.TELEGRAM_CHAT_ID, text, { parse_mode: "Markdown" });
+      await bot.sendMessage(config.TELEGRAM_CHAT_ID, text);
     } catch (err) {
       console.error("[telegram] Send failed:", err instanceof Error ? err.message : err);
+      throw err;
     }
     return;
   }
@@ -43,26 +51,25 @@ export async function sendTelegram(text: string): Promise<void> {
     body: JSON.stringify({
       chat_id: config.TELEGRAM_CHAT_ID,
       text,
-      parse_mode: "Markdown",
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
     console.error(`[telegram] API error ${res.status}: ${body}`);
+    throw new Error(`Telegram API ${res.status}: ${body}`);
   }
 }
 
 /**
- * Send an alert message.
+ * Send an alert message. Errors propagate to the caller — previously
+ * silently caught, which allowed failed action-router handlers to
+ * return success and mark MonitorActions as EXECUTED even when the
+ * user-facing draft message had never been delivered.
  */
 export async function sendAlert(message: string): Promise<void> {
-  try {
-    await sendTelegram(`⚠️ *Alert*\n${message}`);
-    console.log(`[telegram] Alert sent: ${message}`);
-  } catch (err) {
-    console.error("[telegram] Alert send failed (non-fatal):", err instanceof Error ? err.message : err);
-  }
+  await sendTelegram(`⚠️ Alert\n${message}`);
+  console.log(`[telegram] Alert sent: ${message}`);
 }
 
 // Track pending title selections: messageId -> { actionId, videoId, titles }
