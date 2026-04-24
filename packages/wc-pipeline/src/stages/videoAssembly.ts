@@ -102,21 +102,26 @@ function formatSRTTime(totalSeconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
 }
 
-// Max chars per rendered subtitle line. Sized so a line stays inside the
-// center 9:16 crop (608 / 1920 ≈ 32% of source width) that shortsGenerator
-// takes out of the burned long-form video — without a cap, lines overflow
-// and get clipped on both sides in Shorts. Also keeps mobile long-form
-// readable within a ~10% side margin.
-const SUBTITLE_MAX_CHARS_PER_LINE = 40;
+// Max chars per rendered subtitle line. Sized so a line stays well inside
+// the center 9:16 crop (608 / 1920 ≈ 32% of source width) that shortsGenerator
+// takes out of the burned long-form video. Tightened from 40 → 32 after
+// real WC scripts produced 40+ char lines even under the balanced-split
+// wrap (long compound words like "corrosion-resistant components" push
+// both halves past a 40-char midpoint when the whole chunk is 70+ chars).
+const SUBTITLE_MAX_CHARS_PER_LINE = 32;
 
 /**
- * Wrap a subtitle cue into at most 2 balanced lines.
+ * Wrap a subtitle cue into multiple lines so NO line exceeds `maxChars`.
  *
- * If the whole cue fits on one line (≤ maxChars), returned unchanged.
- * Otherwise splits at the word boundary closest to the midpoint so
- * both lines are near-equal length. Always emits ≤ 2 lines — the caller
- * controls cue size via WORDS_PER_CHUNK, so inputs are short enough that
- * two balanced lines stay within maxChars on normal content.
+ * First pass: balanced midpoint split at the word boundary closest to
+ * the character midpoint. If both halves still exceed `maxChars` (long
+ * compound input) the function recurses on each half. Output therefore
+ * grows to 3+ lines only for pathological inputs — every line is
+ * guaranteed ≤ `maxChars` when any word boundary exists to split on.
+ *
+ * If the input is a single word longer than `maxChars` (impossible to
+ * split on word boundaries), it's returned unchanged and flagged by
+ * the caller's post-wrap assertion.
  */
 function wrapSubtitleText(
   text: string,
@@ -126,7 +131,7 @@ function wrapSubtitleText(
   if (clean.length <= maxChars) return clean;
 
   const words = clean.split(" ");
-  if (words.length < 2) return clean;
+  if (words.length < 2) return clean; // single overlong word — unsplittable
 
   const mid = clean.length / 2;
   let bestSplit = 1;
@@ -142,7 +147,15 @@ function wrapSubtitleText(
   }
   const line1 = words.slice(0, bestSplit).join(" ");
   const line2 = words.slice(bestSplit).join(" ");
-  return `${line1}\n${line2}`;
+
+  // Recurse if either half still overflows — guarantees ≤ maxChars per
+  // line when word boundaries allow. Produces 3+ lines on pathologically
+  // long chunks, which is acceptable vs. off-screen clipping.
+  const needsRecurseA = line1.length > maxChars;
+  const needsRecurseB = line2.length > maxChars;
+  const wrappedA = needsRecurseA ? wrapSubtitleText(line1, maxChars) : line1;
+  const wrappedB = needsRecurseB ? wrapSubtitleText(line2, maxChars) : line2;
+  return `${wrappedA}\n${wrappedB}`;
 }
 
 function generateSRT(
@@ -168,8 +181,20 @@ function generateSRT(
     for (let i = 0; i < chunks.length; i++) {
       const start = offset + i * chunkDur;
       const end = offset + (i + 1) * chunkDur;
+      const wrapped = wrapSubtitleText(chunks[i]);
+      // Post-wrap safety assertion: log any line that still exceeds the
+      // cap (expected 0 after recursive wrap; only fires on a single
+      // overlong word with no split boundary). Upstream operator gets
+      // visibility when content pathologies slip through.
+      for (const line of wrapped.split("\n")) {
+        if (line.length > SUBTITLE_MAX_CHARS_PER_LINE) {
+          console.warn(
+            `[wc:assembly/subtitle] Line exceeds ${SUBTITLE_MAX_CHARS_PER_LINE}-char cap after wrap: "${line}" (${line.length} ch) — cue ${idx}`,
+          );
+        }
+      }
       entries.push(
-        `${idx}\n${formatSRTTime(start)} --> ${formatSRTTime(end)}\n${wrapSubtitleText(chunks[i])}`,
+        `${idx}\n${formatSRTTime(start)} --> ${formatSRTTime(end)}\n${wrapped}`,
       );
       idx++;
     }

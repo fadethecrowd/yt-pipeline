@@ -134,6 +134,32 @@ const TECHNICAL_CORE_KEYWORDS = [
   "marine electronics",
 ];
 
+// Hard-disallow patterns for the Topic Library path. RSS/Reddit goes
+// through scoreItem()'s NEGATIVE_KEYWORDS (penalty-based); the library
+// path skipped scoring entirely, so disallowed topics (kayak / canoe /
+// paddleboard / PWC / jet ski / personal watercraft) reached production
+// with only a Minn-Kota-style positive signal. Rejecting them outright
+// here closes that bypass.
+const WC_LIBRARY_DISALLOWED: RegExp[] = [
+  /\bkayak/i,
+  /\bcanoe/i,
+  /\bpaddle\s*board/i,
+  /\bpaddleboard/i,
+  /\bSUP\b/,
+  /\bPWC\b/,
+  /\bjet\s*ski/i,
+  /\bjetski/i,
+  /\bpersonal\s+watercraft/i,
+  /\bwaverunner/i,
+  /\bseadoo/i,
+  /\bsea[- ]?doo/i,
+];
+
+function isWcLibraryDisallowed(t: { title: string; summary: string | null }): boolean {
+  const text = `${t.title} ${t.summary ?? ""}`;
+  return WC_LIBRARY_DISALLOWED.some((re) => re.test(text));
+}
+
 const NEGATIVE_KEYWORDS: Record<string, number> = {
   "kayak fishing": 5,
   "fishing kayak": 5,
@@ -202,8 +228,15 @@ export async function topicDiscovery(
 
   // 0. Check Topic Library first — curated topics take priority over discovery.
   //    In DRY_RUN mode (DISABLE_ELEVEN=true), reserve the topic so it can be reused.
+  //    Disallowed topics (kayak / canoe / paddleboard / PWC / jet ski / etc) are
+  //    archived inside fetchLibraryTopic and skipped over — mirrors the same policy
+  //    NEGATIVE_KEYWORDS enforces on the RSS/Reddit discovery path.
   const isDryRun = process.env.DISABLE_ELEVEN === "true";
-  const libraryTopic = await fetchLibraryTopic("wet-circuit", isDryRun);
+  const libraryTopic = await fetchLibraryTopic(
+    "wet-circuit",
+    isDryRun,
+    isWcLibraryDisallowed,
+  );
   if (libraryTopic) {
     const topic = await prisma.wcTopic.upsert({
       where: { url: libraryTopic.url },
