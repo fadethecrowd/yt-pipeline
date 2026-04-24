@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { ActionType } from "./lib/types";
 import { videos, snapshots, comments, actions, goal as goalDb } from "./lib/channelDb";
 import { env } from "./config";
+import { MODEL_REASONING } from "./lib/models";
 import type { BootstrapBenchmarks, Decision, VideoMetrics } from "./lib/types";
 
 const COLD_START_THRESHOLD = 15; // videos needed before using real averages
@@ -268,10 +269,11 @@ Payload requirements by action type:
 Be specific in your reasoning — reference the actual numbers. Only suggest actions when there's a clear signal.`;
 
   console.log(`[decisionEngine] Calling Claude with ${metrics.length} videos, baselines: ctrThreshold=${(baseline.ctrThreshold * 100).toFixed(2)}%, viewsThreshold=${baseline.viewsThreshold}`);
+  console.log(`[decisionEngine] Anthropic call: model=${MODEL_REASONING}`);
 
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+    model: MODEL_REASONING,
     max_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
   });

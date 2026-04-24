@@ -4,6 +4,7 @@ import { getChannelConfig } from "./lib/channelConfig";
 import { env } from "./config";
 import { ActionType } from "./lib/types";
 import { liveVideoWhere } from "./lib/queries";
+import { MODEL_LIGHTWEIGHT } from "./lib/models";
 import type { Decision } from "./lib/types";
 import { sendTelegram } from "./telegram";
 
@@ -76,8 +77,9 @@ export async function generateRedditPosts(): Promise<Decision[]> {
     // Use Claude to draft a native-feeling Reddit post
     const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
     try {
+      console.log(`[redditPoster] Anthropic call: model=${MODEL_LIGHTWEIGHT}`);
       const message = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
+        model: MODEL_LIGHTWEIGHT,
         max_tokens: 512,
         messages: [{
           role: "user",

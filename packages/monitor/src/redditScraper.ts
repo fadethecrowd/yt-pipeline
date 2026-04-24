@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { goal as goalDb, topicSeeds } from "./lib/channelDb";
 import { getChannelConfig } from "./lib/channelConfig";
 import { env } from "./config";
+import { MODEL_LIGHTWEIGHT } from "./lib/models";
 
 const USER_AGENT = "yt-pipeline-monitor/0.1.0";
 
@@ -121,8 +122,9 @@ Example: [{"title": "...", "rationale": "..."}]`;
 
   // 4. Call Claude
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
+  console.log(`[redditScraper] Anthropic call: model=${MODEL_LIGHTWEIGHT}`);
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+    model: MODEL_LIGHTWEIGHT,
     max_tokens: 1024,
     messages: [{ role: "user", content: prompt }],
   });

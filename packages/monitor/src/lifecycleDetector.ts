@@ -3,6 +3,7 @@ import { videos, snapshots, actions } from "./lib/channelDb";
 import { env } from "./config";
 import { ActionType } from "./lib/types";
 import { liveVideoWhere } from "./lib/queries";
+import { MODEL_REASONING } from "./lib/models";
 import type { Decision } from "./lib/types";
 
 const REPROMO_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -10,8 +11,9 @@ const REPROMO_WINDOW_MS = 48 * 60 * 60 * 1000;
 async function callClaude(prompt: string): Promise<string> {
   const config = env();
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
+  console.log(`[lifecycle] Anthropic call: model=${MODEL_REASONING}`);
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+    model: MODEL_REASONING,
     max_tokens: 512,
     messages: [{ role: "user", content: prompt }],
   });
