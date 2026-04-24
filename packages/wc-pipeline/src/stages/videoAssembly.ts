@@ -110,6 +110,27 @@ function formatSRTTime(totalSeconds: number): string {
 // both halves past a 40-char midpoint when the whole chunk is 70+ chars).
 const SUBTITLE_MAX_CHARS_PER_LINE = 32;
 
+// Pixel-width budget for one rendered subtitle line at FontSize=20+Outline=2
+// on 1920-wide source, given the MarginL=MarginR=740 column. Used only as
+// a pre-render estimator to warn when a wrapped line will likely overflow.
+const SUBTITLE_COLUMN_PX = 440;
+
+function estimateRenderedWidthPx(line: string): number {
+  let w = 0;
+  for (const ch of line) {
+    if (ch === " ") w += 7;
+    else if (/[.,:;'"!?\-]/.test(ch)) w += 8;
+    else if (/[ijlt]/.test(ch)) w += 7;
+    else if (/[0-9]/.test(ch)) w += 12;
+    else if (/[A-Z]/.test(ch)) w += 14;
+    else if (/[mwW]/.test(ch)) w += 17;
+    else if (/[a-z]/.test(ch)) w += 11;
+    else w += 13;
+    w += 2; // outline padding per char
+  }
+  return w;
+}
+
 /**
  * Wrap a subtitle cue into multiple lines so NO line exceeds `maxChars`.
  *
@@ -182,14 +203,20 @@ function generateSRT(
       const start = offset + i * chunkDur;
       const end = offset + (i + 1) * chunkDur;
       const wrapped = wrapSubtitleText(chunks[i]);
-      // Post-wrap safety assertion: log any line that still exceeds the
-      // cap (expected 0 after recursive wrap; only fires on a single
-      // overlong word with no split boundary). Upstream operator gets
-      // visibility when content pathologies slip through.
+      // Post-wrap safety assertions:
+      //   (a) char-count cap — should always hold after recursive wrap
+      //   (b) pixel-width estimate — conservative check that this line
+      //       will fit inside the MarginL/MarginR column once rendered.
       for (const line of wrapped.split("\n")) {
         if (line.length > SUBTITLE_MAX_CHARS_PER_LINE) {
           console.warn(
             `[wc:assembly/subtitle] Line exceeds ${SUBTITLE_MAX_CHARS_PER_LINE}-char cap after wrap: "${line}" (${line.length} ch) — cue ${idx}`,
+          );
+        }
+        const estPx = estimateRenderedWidthPx(line);
+        if (estPx > SUBTITLE_COLUMN_PX) {
+          console.warn(
+            `[wc:assembly/subtitle] Line may overflow ${SUBTITLE_COLUMN_PX}px column at render: "${line}" (est ${estPx}px, ${line.length} ch) — cue ${idx}`,
           );
         }
       }
@@ -440,7 +467,25 @@ export async function wcVideoAssembly(
   // ── 6. Final pass: add audio + burn subtitles ──────────────────────
 
   const finalPath = join(outputDir, "final.mp4");
-  const subtitleFilter = `subtitles=${escapeFilterPath(srtPath)}:force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=40'`;
+  // Force subtitles into a narrow centered column (~440 px wide on 1920-wide
+  // source) so they survive the center 9:16 crop that shortsGenerator takes
+  // (crop keeps the middle 608 px). Pre-wrap cap (32 chars) is not enough
+  // alone because libass-rendered pixel width with Outline=2 exceeds what
+  // char count predicts for wide-character content.
+  //
+  // Script-unit geometry (MarginL/MarginR default to source pixels when
+  // PlayResX is unset):
+  //   column = 1920 − 740 − 740 = 440 px wide, centered at x=960
+  //   column bounds on source        = [740, 1180]
+  //   shortsGenerator crop keeps     = [656, 1264]
+  //   subtitle is inside crop with   ≈ 80 px margin each side
+  //   after scale to 1080×1920 Short = 440 × (1080/608) ≈ 782 px, centered
+  //   → Short subtitle bounds        = [149, 931]  (inside 86% safe = [76, 1004])
+  //
+  // FontSize lowered 22→20 for extra horizontal headroom. Alignment=2 is
+  // explicit (was relying on libass default). MarginV raised to 60 to nudge
+  // subtitle up from the very bottom edge of the Shorts safe area.
+  const subtitleFilter = `subtitles=${escapeFilterPath(srtPath)}:force_style='Alignment=2,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginL=740,MarginR=740,MarginV=60'`;
 
   await ff(
     "-i", concatPath,
