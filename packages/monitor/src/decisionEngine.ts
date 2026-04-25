@@ -169,6 +169,76 @@ async function computeViewsDeltas(
   };
 }
 
+// ── Cost guardrails ────────────────────────────────────────────────────
+// Skip Claude entirely on videos with insufficient signal. Cheaper, faster,
+// and Claude was already returning NO_ACTION on these in practice.
+
+const GUARD_MIN_VIEWS = 25;          // Skip outright if views < 25
+const GUARD_FRESH_AGE_MS = 24 * 60 * 60 * 1000;
+const GUARD_FRESH_VIEWS = 100;       // Skip if age < 24h AND views < GUARD_FRESH_VIEWS
+
+/**
+ * Apply pre-Claude cost guardrails. Returns the metrics worth evaluating.
+ * Each skip is logged with the reason; an empty result is logged separately
+ * by the caller before bypassing Claude.
+ */
+async function applyClaudeGuards(
+  metrics: VideoMetrics[],
+): Promise<VideoMetrics[]> {
+  if (metrics.length === 0) return metrics;
+
+  // One DB hit covering all candidate videos — pull publish reference
+  // timestamps (scheduledAt preferred, createdAt fallback for pre-launch
+  // private uploads). Single-row-per-video shape; channelDb's `videos`
+  // resolves to the right table per-channel.
+  const rows = await videos.findMany({
+    where: { id: { in: metrics.map((m) => m.videoId) } },
+    select: { id: true, createdAt: true, scheduledAt: true },
+  });
+  const publishedAtById = new Map<string, Date>();
+  for (const r of rows) {
+    publishedAtById.set(r.id, r.scheduledAt ?? r.createdAt);
+  }
+
+  const now = Date.now();
+  const kept: VideoMetrics[] = [];
+
+  for (const m of metrics) {
+    // Guard 1: too few total views to learn anything.
+    if (m.views < GUARD_MIN_VIEWS) {
+      console.log(
+        `[decisionEngine] Skipped video ${m.videoId} — insufficient views/age (views=${m.views} < ${GUARD_MIN_VIEWS})`,
+      );
+      continue;
+    }
+
+    // Guard 2: very fresh + still small — give it more time before deciding.
+    const publishedAt = publishedAtById.get(m.videoId);
+    if (publishedAt) {
+      const ageMs = now - publishedAt.getTime();
+      if (ageMs < GUARD_FRESH_AGE_MS && m.views < GUARD_FRESH_VIEWS) {
+        console.log(
+          `[decisionEngine] Skipped video ${m.videoId} — insufficient views/age (age=${Math.round(ageMs / 3600000)}h < 24h AND views=${m.views} < ${GUARD_FRESH_VIEWS})`,
+        );
+        continue;
+      }
+    }
+
+    // Guard 3: zeroed retention metrics → Analytics hasn't produced real
+    // data yet for this video; Claude can't draw conclusions.
+    if (m.avgViewDuration === 0 || m.avgViewPercentage === 0) {
+      console.log(
+        `[decisionEngine] Skipped video ${m.videoId} — insufficient views/age (avgViewDuration=${m.avgViewDuration ?? "n/a"}, avgViewPercentage=${m.avgViewPercentage ?? "n/a"})`,
+      );
+      continue;
+    }
+
+    kept.push(m);
+  }
+
+  return kept;
+}
+
 /**
  * Call Claude to evaluate video metrics and suggest actions.
  */
@@ -179,16 +249,28 @@ async function claudeEvaluate(
   const config = env();
   const decisions: Decision[] = [];
 
-  // Fetch view-deltas in parallel for all videos (one DB query each;
-  // bounded by tick cadence, same order-of-magnitude as Analytics calls).
+  // Pre-filter through cost guardrails — if everything gets skipped we
+  // never call Anthropic at all.
+  const eligible = await applyClaudeGuards(metrics);
+  if (eligible.length === 0) {
+    console.log(
+      "[decisionEngine] Skipping Claude — insufficient signal",
+    );
+    return decisions;
+  }
+
+  // Fetch view-deltas in parallel for all eligible videos (one DB query
+  // each; bounded by tick cadence, same order-of-magnitude as Analytics
+  // calls). Note: only eligible videos are processed — guard-skipped ones
+  // already left the pipeline.
   const deltasByVideo = new Map<string, ViewsDeltas>();
   await Promise.all(
-    metrics.map(async (m) => {
+    eligible.map(async (m) => {
       deltasByVideo.set(m.videoId, await computeViewsDeltas(m.videoId, m.views));
     }),
   );
 
-  const metricsContext = metrics.map((m) => {
+  const metricsContext = eligible.map((m) => {
     const d = deltasByVideo.get(m.videoId) ?? {
       viewsDelta24h: null, viewsDelta48h: null, viewsDelta7d: null,
     };
@@ -210,7 +292,7 @@ async function claudeEvaluate(
 
   // Fetch recent comments for comment-based actions (current channel only)
   const recentComments = await comments.findMany({
-    where: { videoId: { in: metrics.map((m) => m.videoId) } },
+    where: { videoId: { in: eligible.map((m) => m.videoId) } },
     orderBy: { likeCount: "desc" },
     take: 20,
   });
@@ -268,7 +350,7 @@ Payload requirements by action type:
 
 Be specific in your reasoning — reference the actual numbers. Only suggest actions when there's a clear signal.`;
 
-  console.log(`[decisionEngine] Calling Claude with ${metrics.length} videos, baselines: ctrThreshold=${(baseline.ctrThreshold * 100).toFixed(2)}%, viewsThreshold=${baseline.viewsThreshold}`);
+  console.log(`[decisionEngine] Calling Claude with ${eligible.length} videos (skipped ${metrics.length - eligible.length} via guards), baselines: ctrThreshold=${(baseline.ctrThreshold * 100).toFixed(2)}%, viewsThreshold=${baseline.viewsThreshold}`);
   console.log(`[decisionEngine] Anthropic call: model=${MODEL_REASONING}`);
 
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
