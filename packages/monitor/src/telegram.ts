@@ -6,6 +6,7 @@ import {
   actions,
   goal as goalDb,
 } from "./lib/channelDb";
+import { prisma } from "./lib/prisma";
 import { ActionStatus } from "./lib/types";
 import { liveVideoWhere } from "./lib/queries";
 import { youtube } from "./lib/youtube";
@@ -307,6 +308,33 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
           `Videos (stale/unfindable): ${stale}`,
         ];
 
+    // Latest PipelineRun for this channel (written by the pipelines, read here).
+    // errorMessage intentionally not included — may contain Markdown-trap chars.
+    const lastRun = await prisma.pipelineRun.findFirst({
+      where: { channel: config.CHANNEL },
+      orderBy: { createdAt: "desc" },
+    });
+    const runLines = !lastRun
+      ? ["", "Last pipeline run: (none recorded)"]
+      : (() => {
+          const warnCount = Array.isArray(lastRun.warnings)
+            ? (lastRun.warnings as unknown[]).length
+            : 0;
+          const dur =
+            lastRun.durationMs !== null && lastRun.durationMs !== undefined
+              ? `${(lastRun.durationMs / 1000).toFixed(1)}s`
+              : "n/a";
+          const items = [
+            "",
+            `Last pipeline run: ${lastRun.status} (${lastRun.runMode})`,
+            `  started:  ${lastRun.startTime.toISOString()}`,
+            `  duration: ${dur}`,
+          ];
+          if (lastRun.failedStage) items.push(`  failedStage: ${lastRun.failedStage}`);
+          if (warnCount > 0) items.push(`  warnings: ${warnCount}`);
+          return items;
+        })();
+
     const lines = [
       "📊 *Monitor Status*",
       "",
@@ -315,6 +343,7 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
       `Last snapshot: ${lastSnapshot ? lastSnapshot.createdAt.toISOString() : "none"}`,
       ...videoLines,
       `Decisions (24h): ${recentDecisions}`,
+      ...runLines,
     ];
 
     await bot!.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "Markdown" });

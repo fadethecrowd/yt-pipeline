@@ -323,3 +323,38 @@ model RedditPost {
   @@index([channel, videoId])
   @@index([channel, status])
 }
+
+// ── Pipeline run summary (mirrors root schema — must match exactly) ─────
+//
+// Read-only from monitor's perspective; pipelines are the writers.
+
+enum PipelineRunStatus {
+  CRITICAL
+  FAILED
+  WARNING
+  SUCCESS
+  IDLE
+}
+
+model PipelineRun {
+  id                    String            @id @default(cuid())
+  channel               String
+  runMode               String
+  status                PipelineRunStatus
+  startTime             DateTime
+  endTime               DateTime?
+  durationMs            Int?
+  failedStage           String?
+  errorMessage          String?
+  warnings              Json              @default("[]")
+  videoId               String?
+  youtubeId             String?
+  scheduledAt           DateTime?
+  shortsUrl             String?
+  verifiedChannelTitle  String?
+  verifiedChannelId     String?
+  createdAt             DateTime          @default(now())
+
+  @@map("pipeline_run")
+  @@index([channel, createdAt])
+}

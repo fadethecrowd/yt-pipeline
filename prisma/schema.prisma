@@ -199,3 +199,40 @@ model WcVideo {
   @@index([topicId])
   @@index([createdAt])
 }
+
+// ── Pipeline run summary ────────────────────────────────────────────────
+//
+// One row written per runPipeline() invocation by yt-pipeline / wc-pipeline.
+// Captures health/duration + dry-run-aware output verification. Read by
+// the monitor's Telegram /status command.
+
+enum PipelineRunStatus {
+  CRITICAL    // channel mismatch / token revoked at startup; pipeline aborted
+  FAILED      // a stage permanently failed (after retries)
+  WARNING     // all stages completed but output verification flagged something
+  SUCCESS     // all stages completed and outputs verified
+  IDLE        // topicDiscovery returned no work and no fallback was available
+}
+
+model PipelineRun {
+  id                    String            @id @default(cuid())
+  channel               String            // "ai-doom-scroll" | "wet-circuit"
+  runMode               String            // "LIVE" | "DRY_RUN"
+  status                PipelineRunStatus
+  startTime             DateTime
+  endTime               DateTime?
+  durationMs            Int?
+  failedStage           String?
+  errorMessage          String?
+  warnings              Json              @default("[]")
+  videoId               String?           // pipeline DB row id (NOT youtubeId)
+  youtubeId             String?
+  scheduledAt           DateTime?
+  shortsUrl             String?
+  verifiedChannelTitle  String?
+  verifiedChannelId     String?
+  createdAt             DateTime          @default(now())
+
+  @@map("pipeline_run")
+  @@index([channel, createdAt])
+}

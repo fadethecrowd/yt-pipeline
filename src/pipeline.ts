@@ -12,6 +12,7 @@ import {
   thumbnailGenerator,
   youtubeUpload,
   notify,
+  RunSummary,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -91,7 +92,33 @@ async function cleanupTmpDir(videoId: string): Promise<void> {
 
 // ── Orchestrator ───────────────────────────────────────────────────────────
 
-export async function runPipeline(): Promise<void> {
+/**
+ * Populate summary outputs from the final state of a Video DB row + run
+ * the runMode-aware output verification. Called at the successful end of
+ * either the resume path or the fresh-pipeline path.
+ */
+async function finalizeSummary(
+  summary: RunSummary | undefined,
+  videoDbId: string,
+): Promise<void> {
+  if (!summary) return;
+  const v = await prisma.video.findUnique({ where: { id: videoDbId } });
+  if (!v) return;
+  summary.setVideoId(v.id);
+  summary.setYoutubeId(v.youtubeId);
+  summary.setScheduledAt(v.scheduledAt);
+  summary.setShortsUrl(v.shortsUrl);
+  summary.verifyOutputs({
+    finalStatus: v.status,
+    videoYoutubeId: v.youtubeId,
+    videoScheduledAt: v.scheduledAt,
+    videoShortsUrl: v.shortsUrl,
+    thumbnailAPath: v.thumbnailA,
+    assemblyCompleted: true, // reaching this function means stages all succeeded
+  });
+}
+
+export async function runPipeline(summary?: RunSummary): Promise<void> {
   const config = env();
   const pipelineStart = Date.now();
 
@@ -115,6 +142,7 @@ export async function runPipeline(): Promise<void> {
       console.log(
         `[pipeline] Resuming video ${stuckVideo.id} (stuck at ${stuckVideo.status}) from ${resumeStages[0].name}`
       );
+      summary?.setVideoId(stuckVideo.id);
 
       // Rebuild context from DB fields
       const ctx: PipelineContext = {
@@ -150,6 +178,7 @@ export async function runPipeline(): Promise<void> {
           console.log(
             `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
           );
+          summary?.markFailed(stage.name, err);
           await failVideo(ctx, stage.name, reason);
           return;
         }
@@ -159,6 +188,7 @@ export async function runPipeline(): Promise<void> {
           console.log(
             `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
           );
+          summary?.markFailed(stage.name, new Error(result.error ?? "unknown error"));
           await failVideo(ctx, stage.name, result.error ?? "unknown error");
           return;
         }
@@ -169,6 +199,7 @@ export async function runPipeline(): Promise<void> {
       }
 
       await cleanupTmpDir(ctx.video.id);
+      await finalizeSummary(summary, ctx.video.id);
       console.log(
         `[pipeline] ✓ Resumed complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
       );
@@ -193,6 +224,7 @@ export async function runPipeline(): Promise<void> {
       console.log(
         `[pipeline] ▸ topicDiscovery ended at ${ts()} (${fmtDuration(Date.now() - discoveryStart)})`
       );
+      summary?.markFailed("topicDiscovery", err);
       return;
     }
 
@@ -213,6 +245,7 @@ export async function runPipeline(): Promise<void> {
 
       if (!fallbackTopic) {
         console.log("[pipeline] No APPROVED fallback topics either, exiting");
+        summary?.markIdle();
         return;
       }
 
@@ -228,6 +261,7 @@ export async function runPipeline(): Promise<void> {
     });
 
     const ctx: PipelineContext = { topic, video };
+    summary?.setVideoId(video.id);
     console.log(`[pipeline] Video ${video.id} created for topic "${topic.title}"`);
 
     // ── Stages 2–8 ───────────────────────────────────────────────────
@@ -248,6 +282,7 @@ export async function runPipeline(): Promise<void> {
         console.log(
           `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
         );
+        summary?.markFailed(stage.name, err);
         await failVideo(ctx, stage.name, reason);
         return;
       }
@@ -257,6 +292,7 @@ export async function runPipeline(): Promise<void> {
         console.log(
           `[pipeline] ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`
         );
+        summary?.markFailed(stage.name, new Error(result.error ?? "unknown error"));
         await failVideo(ctx, stage.name, result.error ?? "unknown error");
         return;
       }
@@ -267,6 +303,7 @@ export async function runPipeline(): Promise<void> {
     }
 
     await cleanupTmpDir(ctx.video.id);
+    await finalizeSummary(summary, ctx.video.id);
     console.log(
       `[pipeline] ✓ Complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`
     );

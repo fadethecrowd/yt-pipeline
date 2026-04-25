@@ -33,6 +33,12 @@ export { withRetry } from "./lib/retry";
 export { createMessage } from "./lib/anthropic";
 export { fetchLibraryTopic } from "./lib/topicLibrary";
 export type { LibraryTopic } from "./lib/topicLibrary";
+export { RunSummary } from "./lib/pipelineRun";
+export type {
+  PipelineChannel,
+  PipelineMode,
+  PipelineRunStatusValue,
+} from "./lib/pipelineRun";
 
 // ── Thumbnail ─────────────────────────────────────────────────────────────
 export { createSubjectLayer } from "./thumbnail/subjectLayer";

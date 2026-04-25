@@ -2,7 +2,12 @@
 export { runPipeline } from "./pipeline";
 
 import { runPipeline } from "./pipeline";
-import { disconnect, verifyChannel, CHANNELS } from "@yt-pipeline/pipeline-core";
+import {
+  disconnect,
+  verifyChannel,
+  CHANNELS,
+  RunSummary,
+} from "@yt-pipeline/pipeline-core";
 
 // ── Hard timeout: kill the process if pipeline exceeds 30 minutes ────────
 const PIPELINE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -20,23 +25,40 @@ process.on("SIGTERM", async () => {
 });
 
 // ── Run pipeline ─────────────────────────────────────────────────────────
+const runMode = process.env.DISABLE_ELEVEN === "true" ? "DRY_RUN" : "LIVE";
+const summary = new RunSummary("wet-circuit", runMode);
+
 verifyChannel(CHANNELS["wet-circuit"], "wc:pipeline")
   .then(async () => {
+    summary.setVerifiedChannel(
+      CHANNELS["wet-circuit"].title,
+      CHANNELS["wet-circuit"].id,
+    );
     if (process.env.PIPELINE_MODE === "auth_check") {
       console.log(
         "[wc:pipeline] PIPELINE_MODE=auth_check — skipping runPipeline(), exiting 0",
       );
+      await summary.persist();
       await disconnect();
       process.exit(0);
     }
-    return runPipeline();
+    return runPipeline(summary);
   })
   .then(async () => {
+    await summary.persist();
     await disconnect();
     process.exit(0);
   })
   .catch(async (err) => {
     console.error("[wc:pipeline] Fatal:", err);
+    if (!summary.hasVerifiedChannel()) {
+      summary.markCritical(
+        err instanceof Error ? err.message : String(err),
+      );
+    } else {
+      summary.markFailed("__top_level__", err);
+    }
+    await summary.persist();
     await disconnect();
     process.exit(1);
   });

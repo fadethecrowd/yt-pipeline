@@ -7,6 +7,7 @@ import {
   withAdvisoryLock,
   withRetry,
   env,
+  RunSummary,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -121,6 +122,7 @@ async function cleanupTmpDir(videoId: string): Promise<void> {
 async function runStages(
   stages: StageDefinition[],
   ctx: PipelineContext,
+  summary?: RunSummary,
 ): Promise<boolean> {
   for (const stage of stages) {
     const stageStart = Date.now();
@@ -136,6 +138,7 @@ async function runStages(
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`${LOG} ✗ ${stage.name} threw: ${reason}`);
       console.log(`${LOG} ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`);
+      summary?.markFailed(stage.name, err);
       await failVideo(ctx, stage.name, reason);
       return false;
     }
@@ -143,6 +146,7 @@ async function runStages(
     if (!result.success) {
       console.error(`${LOG} ✗ ${stage.name} rejected: ${result.error}`);
       console.log(`${LOG} ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`);
+      summary?.markFailed(stage.name, new Error(result.error ?? "unknown error"));
       await failVideo(ctx, stage.name, result.error ?? "unknown error");
       return false;
     }
@@ -153,9 +157,35 @@ async function runStages(
   return true;
 }
 
+/**
+ * Populate summary outputs from the final state of a WcVideo DB row +
+ * run runMode-aware output verification. Called at the successful end of
+ * either the resume path or the fresh-pipeline path.
+ */
+async function finalizeSummary(
+  summary: RunSummary | undefined,
+  videoDbId: string,
+): Promise<void> {
+  if (!summary) return;
+  const v = await prisma.wcVideo.findUnique({ where: { id: videoDbId } });
+  if (!v) return;
+  summary.setVideoId(v.id);
+  summary.setYoutubeId(v.youtubeId);
+  summary.setScheduledAt(v.scheduledAt);
+  summary.setShortsUrl(v.shortsUrl);
+  summary.verifyOutputs({
+    finalStatus: v.status,
+    videoYoutubeId: v.youtubeId,
+    videoScheduledAt: v.scheduledAt,
+    videoShortsUrl: v.shortsUrl,
+    thumbnailAPath: v.thumbnailA,
+    assemblyCompleted: true,
+  });
+}
+
 // ── Orchestrator ───────────────────────────────────────────────────────────
 
-export async function runPipeline(): Promise<void> {
+export async function runPipeline(summary?: RunSummary): Promise<void> {
   const pipelineStart = Date.now();
   console.log(`${LOG} ═══ Run started at ${ts()} ═══`);
   console.log(`${LOG} Channel: Wet Circuit (${WC_CHANNEL_ID})`);
@@ -194,6 +224,9 @@ export async function runPipeline(): Promise<void> {
       console.warn(
         `${LOG} To proceed: retry by setting status to a stuck state (SEO_DONE/VOICEOVER_DONE/ASSEMBLY_DONE), or acknowledge by prefixing failReason with "[ack]".`,
       );
+      summary?.addWarning(
+        `halt-blocked: ${unackFailures.length} unacknowledged LIVE failure(s) within ${FAILURE_HALT_WINDOW_MS / 3600000}h`,
+      );
       return;
     }
 
@@ -212,6 +245,7 @@ export async function runPipeline(): Promise<void> {
       console.log(
         `${LOG} Resuming video ${stuckVideo.id} (stuck at ${stuckVideo.status}) from ${resumeStages[0].name}`,
       );
+      summary?.setVideoId(stuckVideo.id);
 
       // Rebuild context from DB fields
       const ctx: PipelineContext = {
@@ -231,9 +265,10 @@ export async function runPipeline(): Promise<void> {
             : undefined,
       };
 
-      const ok = await runStages(resumeStages, ctx);
+      const ok = await runStages(resumeStages, ctx, summary);
       if (ok) {
         await cleanupTmpDir(ctx.video.id);
+        await finalizeSummary(summary, ctx.video.id);
         console.log(`${LOG} ✓ Resumed complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`);
       }
       return;
@@ -255,6 +290,7 @@ export async function runPipeline(): Promise<void> {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`${LOG} ✗ topicDiscovery failed: ${msg}`);
       console.log(`${LOG} ▸ topicDiscovery ended at ${ts()} (${fmtDuration(Date.now() - discoveryStart)})`);
+      summary?.markFailed("topicDiscovery", err);
       return;
     }
 
@@ -273,6 +309,7 @@ export async function runPipeline(): Promise<void> {
 
       if (!fallbackTopic) {
         console.log(`${LOG} No APPROVED fallback topics either, exiting`);
+        summary?.markIdle();
         return;
       }
 
@@ -290,13 +327,15 @@ export async function runPipeline(): Promise<void> {
     });
 
     const ctx: PipelineContext = { topic, video };
+    summary?.setVideoId(video.id);
     console.log(`${LOG} Video ${video.id} created for topic "${topic.title}"`);
 
     // ── Stages 2–8 (scriptGenerator → notify) ─────────────────────────
 
-    const ok = await runStages(STAGES.slice(1), ctx);
+    const ok = await runStages(STAGES.slice(1), ctx, summary);
     if (ok) {
       await cleanupTmpDir(ctx.video.id);
+      await finalizeSummary(summary, ctx.video.id);
       console.log(`${LOG} ✓ Complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`);
     }
   });
