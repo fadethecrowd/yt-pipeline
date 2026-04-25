@@ -246,9 +246,21 @@ async function handleStart(msg: TelegramBot.Message): Promise<void> {
   await bot!.sendMessage(msg.chat.id, text, { parse_mode: "Markdown" });
 }
 
+/**
+ * Escape characters reserved in Telegram MarkdownV2 so dynamic strings
+ * (timestamps with dots/dashes, IDs/stage names with underscores, error
+ * text with parens, etc.) cannot break message parsing. Per Telegram docs
+ * https://core.telegram.org/bots/api#markdownv2-style — required set:
+ *   _ * [ ] ( ) ~ ` > # + - = | { } . !
+ */
+function escapeTelegramMarkdown(text: string): string {
+  return text.replace(/([_*\[\]()~`>#+\-=|{}.!])/g, "\\$1");
+}
+
 async function handleStatus(msg: TelegramBot.Message): Promise<void> {
   try {
     const config = env();
+    const E = escapeTelegramMarkdown;
 
     // DB-side count of real (non-dryrun) uploaded videos.
     const dbRows = await videos.findMany({
@@ -297,15 +309,17 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
       select: { createdAt: true },
     });
 
+    // Static parens / dots / dashes pre-escaped for MarkdownV2.
+    // Dynamic values are wrapped through E() at interpolation time.
     const videoLines = liveProbeError
       ? [
-          `Videos (uploaded in DB): ${uploadedInDb}`,
-          `Videos (live on YouTube): probe failed — ${liveProbeError.slice(0, 80)}`,
+          `Videos \\(uploaded in DB\\): ${uploadedInDb}`,
+          `Videos \\(live on YouTube\\): probe failed — ${E(liveProbeError.slice(0, 80))}`,
         ]
       : [
-          `Videos (live on YouTube): ${livePublic}`,
-          `Videos (uploaded in DB): ${uploadedInDb}`,
-          `Videos (stale/unfindable): ${stale}`,
+          `Videos \\(live on YouTube\\): ${livePublic}`,
+          `Videos \\(uploaded in DB\\): ${uploadedInDb}`,
+          `Videos \\(stale/unfindable\\): ${stale}`,
         ];
 
     // Latest PipelineRun for this channel (written by the pipelines, read here).
@@ -315,7 +329,7 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
       orderBy: { createdAt: "desc" },
     });
     const runLines = !lastRun
-      ? ["", "Last pipeline run: (none recorded)"]
+      ? ["", "Last pipeline run: \\(none recorded\\)"]
       : (() => {
           const warnCount = Array.isArray(lastRun.warnings)
             ? (lastRun.warnings as unknown[]).length
@@ -326,11 +340,11 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
               : "n/a";
           const items = [
             "",
-            `Last pipeline run: ${lastRun.status} (${lastRun.runMode})`,
-            `  started:  ${lastRun.startTime.toISOString()}`,
-            `  duration: ${dur}`,
+            `Last pipeline run: ${E(lastRun.status)} \\(${E(lastRun.runMode)}\\)`,
+            `  started:  ${E(lastRun.startTime.toISOString())}`,
+            `  duration: ${E(dur)}`,
           ];
-          if (lastRun.failedStage) items.push(`  failedStage: ${lastRun.failedStage}`);
+          if (lastRun.failedStage) items.push(`  failedStage: ${E(lastRun.failedStage)}`);
           if (warnCount > 0) items.push(`  warnings: ${warnCount}`);
           return items;
         })();
@@ -338,15 +352,15 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
     const lines = [
       "📊 *Monitor Status*",
       "",
-      `Channel: ${config.CHANNEL}`,
-      `Last tick: ${lastTickTime ? lastTickTime.toISOString() : "not yet"}`,
-      `Last snapshot: ${lastSnapshot ? lastSnapshot.createdAt.toISOString() : "none"}`,
+      `Channel: ${E(config.CHANNEL)}`,
+      `Last tick: ${E(lastTickTime ? lastTickTime.toISOString() : "not yet")}`,
+      `Last snapshot: ${E(lastSnapshot ? lastSnapshot.createdAt.toISOString() : "none")}`,
       ...videoLines,
-      `Decisions (24h): ${recentDecisions}`,
+      `Decisions \\(24h\\): ${recentDecisions}`,
       ...runLines,
     ];
 
-    await bot!.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "Markdown" });
+    await bot!.sendMessage(msg.chat.id, lines.join("\n"), { parse_mode: "MarkdownV2" });
   } catch (err) {
     console.error("[telegram] /status failed:", err instanceof Error ? err.message : err);
     await bot!.sendMessage(msg.chat.id, "Failed to fetch status.");
