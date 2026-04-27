@@ -1,6 +1,7 @@
 import { videos, snapshots } from "./lib/channelDb";
 import { youtube, youtubeAnalytics } from "./lib/youtube";
 import { liveVideoWhere } from "./lib/queries";
+import { parseIsoDurationSeconds, isShortVideo, videoTypeLabel } from "./lib/videoType";
 import type { VideoMetrics } from "./lib/types";
 
 interface AnalyticsData {
@@ -275,7 +276,7 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
   for (let i = 0; i < youtubeIds.length; i += 50) {
     const batch = youtubeIds.slice(i, i + 50);
     const res = await yt.videos.list({
-      part: ["statistics"],
+      part: ["statistics", "contentDetails"],
       id: batch,
     });
 
@@ -285,12 +286,20 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
       const video = videoRows.find((v: { id: string; youtubeId: string | null }) => v.youtubeId === item.id);
       if (!video || !item.statistics) continue;
 
+      // Short vs long-form classification — duration is the de facto
+      // signal (YouTube Data API has no "isShort" field). Threshold 60s.
+      const durationSeconds = parseIsoDurationSeconds(
+        item.contentDetails?.duration ?? null,
+      );
+
       metrics.push({
         videoId: video.id,
         youtubeId: item.id!,
         views: Number(item.statistics.viewCount ?? 0),
         likes: Number(item.statistics.likeCount ?? 0),
         comments: Number(item.statistics.commentCount ?? 0),
+        durationSeconds,
+        isShort: isShortVideo(durationSeconds),
       });
     }
 
@@ -367,6 +376,7 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
         avgViewDuration: a.avgViewDuration ?? null,
         avgViewPercentage: a.avgViewPercentage ?? null,
         estimatedMinutesWatched: a.estimatedMinutesWatched ?? null,
+        isShort: m.isShort ?? false,
       };
     }),
   });
@@ -379,8 +389,10 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     const m = metrics[i];
     const a = analyticsMap.get(m.videoId) ?? {};
     const ctrPct = a.ctr !== undefined ? `${(a.ctr * 100).toFixed(3)}%` : "n/a";
+    const typeLabel = videoTypeLabel(m.durationSeconds ?? 0);
     console.log(
       `[poller/debug] #${i + 1}/${metrics.length} vid=${m.videoId} yt=${m.youtubeId} ` +
+        `type=${typeLabel} dur=${m.durationSeconds ?? "n/a"}s ` +
         `views=${m.views} analytics.views=${a.analyticsViews ?? "n/a"} ` +
         `impressions=${a.impressions ?? "n/a"} ctr=${ctrPct}`,
     );

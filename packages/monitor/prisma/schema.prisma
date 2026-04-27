@@ -231,6 +231,7 @@ model VideoSnapshot {
   avgViewDuration         Float?
   avgViewPercentage       Float?
   estimatedMinutesWatched Float?
+  isShort                 Boolean  @default(false)
   createdAt               DateTime @default(now())
 
   @@index([channel, videoId, createdAt])

@@ -50,6 +50,8 @@ export interface VideoMetrics {
   avgViewDuration?: number;
   avgViewPercentage?: number;      // 0..100 — % of video length the avg viewer watches
   estimatedMinutesWatched?: number; // integer — total watch minutes in window
+  durationSeconds?: number;        // total video length in seconds (from contentDetails.duration)
+  isShort?: boolean;               // duration > 0 AND ≤ 60s — see lib/videoType.ts
 }
 
 export interface YouTubeComment {

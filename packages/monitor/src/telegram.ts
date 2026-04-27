@@ -262,10 +262,12 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
     const config = env();
     const E = escapeTelegramMarkdown;
 
-    // DB-side count of real (non-dryrun) uploaded videos.
+    // DB-side count of real (non-dryrun) uploaded videos. Also includes
+    // the internal id so we can cross-reference VideoSnapshot.isShort to
+    // split live counts into Long-form vs Shorts.
     const dbRows = await videos.findMany({
       where: { ...liveVideoWhere },
-      select: { youtubeId: true },
+      select: { id: true, youtubeId: true },
     });
     const uploadedInDb = dbRows.length;
 
@@ -277,13 +279,15 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
     let livePublic = 0;
     let stale = 0;
     let liveProbeError: string | null = null;
+    // Hoisted so the post-probe Long/Shorts split can scope to actual
+    // live-public youtubeIds rather than the broader dbRows set.
+    const publicIds = new Set<string>();
 
     const ytIds = dbRows.map((r) => r.youtubeId!).filter(Boolean);
     if (ytIds.length > 0) {
       try {
         const yt = youtube();
         const returned = new Set<string>();
-        const publicIds = new Set<string>();
         // Batch in groups of 50 (Data API limit per call).
         for (let i = 0; i < ytIds.length; i += 50) {
           const batch = ytIds.slice(i, i + 50);
@@ -298,6 +302,38 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
         stale = ytIds.length - returned.size;
       } catch (err) {
         liveProbeError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    // Split the live-public set into Long-form vs Shorts using each
+    // video's latest VideoSnapshot.isShort value. Scoped strictly to
+    // youtubeIds YouTube returned with privacyStatus="public" — not to
+    // every dbRow. Skipped on probe error (publicIds is empty in that
+    // branch) and when there are zero live-public videos.
+    let totalLong = 0;
+    let totalShort = 0;
+    if (!liveProbeError && publicIds.size > 0) {
+      const livePublicInternalIds = dbRows
+        .filter((r) => r.youtubeId !== null && publicIds.has(r.youtubeId))
+        .map((r) => r.id);
+
+      if (livePublicInternalIds.length > 0) {
+        const snaps = await prisma.videoSnapshot.findMany({
+          where: { videoId: { in: livePublicInternalIds } },
+          orderBy: { createdAt: "desc" },
+          select: { videoId: true, isShort: true },
+        });
+        // First snapshot per videoId wins (descending order = most recent).
+        const latestByVideo = new Map<string, boolean>();
+        for (const s of snaps) {
+          if (!latestByVideo.has(s.videoId)) latestByVideo.set(s.videoId, s.isShort);
+        }
+        // Videos with no snapshot yet default to LONG (defensive — matches
+        // videoTypeLabel() default in lib/videoType.ts).
+        for (const id of livePublicInternalIds) {
+          if (latestByVideo.get(id) ?? false) totalShort++;
+          else totalLong++;
+        }
       }
     }
 
@@ -317,7 +353,9 @@ async function handleStatus(msg: TelegramBot.Message): Promise<void> {
           `Videos \\(live on YouTube\\): probe failed — ${E(liveProbeError.slice(0, 80))}`,
         ]
       : [
-          `Videos \\(live on YouTube\\): ${livePublic}`,
+          `Videos \\(live on YouTube\\):`,
+          `  Long\\-form: ${totalLong}`,
+          `  Shorts: ${totalShort}`,
           `Videos \\(uploaded in DB\\): ${uploadedInDb}`,
           `Videos \\(stale/unfindable\\): ${stale}`,
         ];

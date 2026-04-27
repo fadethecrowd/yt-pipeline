@@ -65,9 +65,42 @@ export async function detectLifecycleEvents(): Promise<Decision[]> {
   // `NOT: { failReason: { startsWith: ... } }` excludes rows with NULL
   // failReason (SQL three-valued logic on NOT LIKE null) — we want those
   // rows INCLUDED.
-  const publishedVideos = rawPublished.filter(
+  const liveVideos = rawPublished.filter(
     (v: any) => !(v.failReason ?? "").startsWith("[orphan]"),
   );
+
+  // Skip Shorts. COMMUNITY_POST / END_SCREEN / REPROMOTE are long-form
+  // lifecycle artifacts; community posts on a Short look spammy and
+  // end-screen suggestions don't apply (Shorts have no end-screen UI).
+  // Source the isShort flag from each video's latest VideoSnapshot —
+  // single batch query, descending order, first hit per videoId wins.
+  // Videos with no snapshot yet default to LONG (defensive — same as
+  // /status's split logic).
+  let publishedVideos = liveVideos;
+  if (liveVideos.length > 0) {
+    const ids = liveVideos.map((v: any) => v.id);
+    const snaps = await snapshots.findMany({
+      where: { videoId: { in: ids } },
+      orderBy: { createdAt: "desc" },
+      select: { videoId: true, isShort: true },
+    });
+    const isShortByVideo = new Map<string, boolean>();
+    for (const s of snaps) {
+      if (!isShortByVideo.has(s.videoId)) isShortByVideo.set(s.videoId, s.isShort);
+    }
+    const filtered: typeof liveVideos = [];
+    for (const v of liveVideos) {
+      const isShort = isShortByVideo.get(v.id) ?? false;
+      if (isShort) {
+        console.log(
+          `[lifecycle] Skipping Shorts video ${v.id} yt=${v.youtubeId ?? "(null)"} — long-form-only lifecycle actions don't apply`,
+        );
+        continue;
+      }
+      filtered.push(v);
+    }
+    publishedVideos = filtered;
+  }
 
   if (publishedVideos.length === 0) return decisions;
 
