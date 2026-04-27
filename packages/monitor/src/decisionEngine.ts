@@ -434,17 +434,20 @@ export async function evaluate(
   const decisions: Decision[] = [];
   const baseline = await getBaseline();
 
+  const longFormVideos = metrics.filter(v => !v.isShort);
+  console.log(`[decision] filtered out ${metrics.length - longFormVideos.length} Shorts before evaluation`);
+
   // ── Claude-based evaluation ─────────────────────────────────────────
-  if (metrics.length > 0) {
+  if (longFormVideos.length > 0) {
     try {
-      const claudeDecisions = await claudeEvaluate(metrics, baseline);
+      const claudeDecisions = await claudeEvaluate(longFormVideos, baseline);
       decisions.push(...claudeDecisions);
     } catch (err) {
       console.error(
         `[decisionEngine] Claude evaluation failed, falling back to rules: ${err instanceof Error ? err.message : err}`,
       );
       // Fallback: rule-based CTR check
-      for (const m of metrics) {
+      for (const m of longFormVideos) {
         if (m.ctr !== undefined && m.ctr < baseline.ctrThreshold && m.views > baseline.viewsThreshold) {
           const existing = await actions.findFirst({
             where: {
