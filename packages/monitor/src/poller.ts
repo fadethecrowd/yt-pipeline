@@ -259,7 +259,7 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
         { scheduledAt: null },
       ],
     },
-    select: { id: true, youtubeId: true },
+    select: { id: true, youtubeId: true, shortsUrl: true },
   });
 
   if (videoRows.length === 0) {
@@ -267,14 +267,28 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     return [];
   }
 
-  const youtubeIds = videoRows.map((v: { id: string; youtubeId: string | null }) => v.youtubeId!);
+  const youtubeIds = videoRows.map((v: { id: string; youtubeId: string | null; shortsUrl: string | null }) => v.youtubeId!);
+
+  // Extract Short YouTube IDs from shortsUrl (format: https://youtube.com/shorts/<id>).
+  // Build a reverse-lookup map so batch results can be matched back to the
+  // internal Video.id that owns the Short.
+  const shortIdToVideoId = new Map<string, string>();
+  for (const row of videoRows) {
+    if (row.shortsUrl) {
+      const shortId = row.shortsUrl.split("/shorts/")[1];
+      if (shortId) shortIdToVideoId.set(shortId, row.id);
+    }
+  }
+  // Merge long-form IDs and Short IDs into one deduplicated list so both are
+  // fetched in the same batched yt.videos.list() calls below.
+  const allYoutubeIds = [...new Set([...youtubeIds, ...shortIdToVideoId.keys()])];
   const yt = youtube();
 
   // Batch fetch basic stats (max 50 per request)
   const metrics: VideoMetrics[] = [];
 
-  for (let i = 0; i < youtubeIds.length; i += 50) {
-    const batch = youtubeIds.slice(i, i + 50);
+  for (let i = 0; i < allYoutubeIds.length; i += 50) {
+    const batch = allYoutubeIds.slice(i, i + 50);
     const res = await yt.videos.list({
       part: ["statistics", "contentDetails"],
       id: batch,
@@ -283,23 +297,26 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     const returnedIds = new Set<string>();
     for (const item of res.data.items ?? []) {
       if (item.id) returnedIds.add(item.id);
-      const video = videoRows.find((v: { id: string; youtubeId: string | null }) => v.youtubeId === item.id);
-      if (!video || !item.statistics) continue;
+      const longFormRow = videoRows.find((v: { id: string; youtubeId: string | null; shortsUrl: string | null }) => v.youtubeId === item.id);
+      const shortOwnerVideoId = shortIdToVideoId.get(item.id!);
+      const videoId = longFormRow?.id ?? shortOwnerVideoId;
+      if (!videoId || !item.statistics) continue;
 
-      // Short vs long-form classification — duration is the de facto
-      // signal (YouTube Data API has no "isShort" field). Threshold 60s.
+      // Short vs long-form: Short IDs (from shortsUrl) are always Shorts.
+      // For long-form IDs fall back to duration-based detection as before.
+      const isShortEntry = shortIdToVideoId.has(item.id!);
       const durationSeconds = parseIsoDurationSeconds(
         item.contentDetails?.duration ?? null,
       );
 
       metrics.push({
-        videoId: video.id,
+        videoId,
         youtubeId: item.id!,
         views: Number(item.statistics.viewCount ?? 0),
         likes: Number(item.statistics.likeCount ?? 0),
         comments: Number(item.statistics.commentCount ?? 0),
         durationSeconds,
-        isShort: isShortVideo(durationSeconds),
+        isShort: isShortEntry || isShortVideo(durationSeconds),
       });
     }
 
@@ -312,10 +329,11 @@ export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
     // scripts/ghost-repair history.
     for (const requested of batch) {
       if (!returnedIds.has(requested)) {
-        const videoRow = videoRows.find((v: { id: string; youtubeId: string | null }) => v.youtubeId === requested);
+        const videoRow = videoRows.find((v: { id: string; youtubeId: string | null; shortsUrl: string | null }) => v.youtubeId === requested);
+        const dbRowId = videoRow?.id ?? shortIdToVideoId.get(requested);
         console.warn(
           `[poller/ghost] youtubeId=${requested} requested but not returned by YouTube — ` +
-            `video likely deleted. DB row: ${videoRow?.id ?? "(not found)"}`,
+            `video likely deleted. DB row: ${dbRowId ?? "(not found)"}`,
         );
       }
     }
