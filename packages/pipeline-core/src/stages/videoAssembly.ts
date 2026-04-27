@@ -525,9 +525,9 @@ export async function videoAssembly(
   //   → Short subtitle bounds        = [149, 931]  (inside 86% safe = [76, 1004])
   //
   // FontSize lowered 22→20 for extra horizontal headroom. Alignment=2 is
-  // explicit (was relying on libass default). MarginV raised to 60 to nudge
-  // subtitle up from the very bottom edge of the Shorts safe area.
-  const subtitleFilter = `subtitles=${escapeFilterPath(srtPath)}:force_style='Alignment=2,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginL=740,MarginR=740,MarginV=60'`;
+  // explicit (was relying on libass default). MarginV raised to 140 to place
+  // subtitles in the bottom safe area.
+  const subtitleFilter = `subtitles=${escapeFilterPath(srtPath)}:force_style='Alignment=2,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginL=740,MarginR=740,MarginV=140'`;
 
   await ff(
     "-i", concatPath,
