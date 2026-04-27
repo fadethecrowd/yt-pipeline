@@ -94,12 +94,12 @@ function wrapText(text: string, maxChars = 35): string {
   return lines.join("\n");
 }
 
-function formatSRTTime(totalSeconds: number): string {
+function formatASSTime(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = Math.floor(totalSeconds % 60);
-  const ms = Math.round((totalSeconds % 1) * 1000);
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+  const cs = Math.round((totalSeconds % 1) * 100);
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 
 // Max chars per rendered subtitle line. Sized so a line stays well inside
@@ -179,12 +179,26 @@ function wrapSubtitleText(
   return `${wrappedA}\n${wrappedB}`;
 }
 
-function generateSRT(
+function generateASS(
   segments: ScriptSegment[],
   actualDurations: number[],
   titleOffset: number,
 ): string {
-  const entries: string[] = [];
+  const header = [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    "PlayResX: 1920",
+    "PlayResY: 1080",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,740,740,140,1",
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+  ].join("\n");
+
+  const lines: string[] = [];
   let idx = 1;
   let offset = titleOffset;
 
@@ -220,15 +234,15 @@ function generateSRT(
           );
         }
       }
-      entries.push(
-        `${idx}\n${formatSRTTime(start)} --> ${formatSRTTime(end)}\n${wrapped}`,
+      lines.push(
+        `Dialogue: 0,${formatASSTime(start)},${formatASSTime(end)},Default,,0,0,0,,${wrapped.replace(/\n/g, "\\N")}`,
       );
       idx++;
     }
     offset += duration;
   }
 
-  return entries.join("\n\n") + "\n";
+  return header + "\n" + lines.join("\n") + "\n";
 }
 
 function escapeFilterPath(p: string): string {
@@ -442,9 +456,9 @@ export async function wcVideoAssembly(
 
   // ── 4. Generate SRT subtitles ──────────────────────────────────────
 
-  const srtPath = join(tmpDir, "subtitles.srt");
-  await writeFile(srtPath, generateSRT(segments, actualDurations, TITLE_CARD_DURATION));
-  console.log(`[wc:assembly] Generated subtitles.srt`);
+  const assPath = join(tmpDir, "subtitles.ass");
+  await writeFile(assPath, generateASS(segments, actualDurations, TITLE_CARD_DURATION));
+  console.log(`[wc:assembly] Generated subtitles.ass`);
 
   // ── 5. Concatenate all clips ───────────────────────────────────────
 
@@ -467,25 +481,20 @@ export async function wcVideoAssembly(
   // ── 6. Final pass: add audio + burn subtitles ──────────────────────
 
   const finalPath = join(outputDir, "final.mp4");
-  // Force subtitles into a narrow centered column (~440 px wide on 1920-wide
-  // source) so they survive the center 9:16 crop that shortsGenerator takes
-  // (crop keeps the middle 608 px). Pre-wrap cap (32 chars) is not enough
-  // alone because libass-rendered pixel width with Outline=2 exceeds what
-  // char count predicts for wide-character content.
+  // Subtitles are generated as ASS (not SRT) so that PlayResX=1920 /
+  // PlayResY=1080 are explicit in the script header. With SRT, FFmpeg's
+  // internal conversion uses the ASS default PlayResY=288, which makes
+  // margin values scale as fractions of frame height rather than pixels
+  // (MarginV=140 with PlayResY=288 lands near the vertical center).
   //
-  // Script-unit geometry (MarginL/MarginR default to source pixels when
-  // PlayResX is unset):
+  // Pixel geometry with PlayResX=1920, PlayResY=1080 (all values are pixels):
   //   column = 1920 − 740 − 740 = 440 px wide, centered at x=960
   //   column bounds on source        = [740, 1180]
   //   shortsGenerator crop keeps     = [656, 1264]
-  //   subtitle is inside crop with   ≈ 80 px margin each side
+  //   subtitle inside crop with      ≈ 80 px margin each side
   //   after scale to 1080×1920 Short = 440 × (1080/608) ≈ 782 px, centered
-  //   → Short subtitle bounds        = [149, 931]  (inside 86% safe = [76, 1004])
-  //
-  // FontSize lowered 22→20 for extra horizontal headroom. Alignment=2 is
-  // explicit (was relying on libass default). MarginV raised to 140 to place
-  // subtitles in the bottom safe area.
-  const subtitleFilter = `subtitles=${escapeFilterPath(srtPath)}:force_style='Alignment=2,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginL=740,MarginR=740,MarginV=140'`;
+  //   MarginV=140 on source (1080px) → after Short scale: 140×(1920/1080) ≈ 249 px from bottom
+  const subtitleFilter = `subtitles=${escapeFilterPath(assPath)}`;
 
   await ff(
     "-i", concatPath,
