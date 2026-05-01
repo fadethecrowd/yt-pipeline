@@ -53,6 +53,62 @@ async function searchPexelsHook(
   return null;
 }
 
+// Searches for and transcodes the hook clip without concatenating — determines
+// hookOffset before short.mp4 exists so audio seek and captions can be pre-shifted.
+async function tryPrepareHookClip(
+  tmpDir: string,
+  pexelsApiKey: string,
+): Promise<boolean> {
+  let hookUrl: string | null = null;
+  for (const kw of BIKINI_KEYWORDS) {
+    try {
+      hookUrl = await searchPexelsHook(kw, pexelsApiKey);
+    } catch (err) {
+      console.warn(`[wc:shorts] Pexels hook search failed for keyword "${kw}": ${err instanceof Error ? err.message : err}`);
+    }
+    if (hookUrl) break;
+  }
+  if (!hookUrl) return false;
+
+  const rawHookPath = join(tmpDir, "hook-raw.mp4");
+  const hookReadyPath = join(tmpDir, "hook-ready.mp4");
+
+  try {
+    const dlRes = await fetch(hookUrl);
+    if (!dlRes.ok) {
+      console.warn(`[wc:shorts] Hook clip download failed: HTTP ${dlRes.status} for ${hookUrl}`);
+      return false;
+    }
+    await writeFile(rawHookPath, Buffer.from(await dlRes.arrayBuffer()));
+
+    const hookAudioPath = join(tmpDir, "hook-audio.aac");
+    const hasHookAudio = existsSync(hookAudioPath);
+    const hookAudioInput: string[] = hasHookAudio
+      ? ["-i", hookAudioPath]
+      : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"];
+
+    await execFile(FFMPEG, [
+      "-y", "-loglevel", "error",
+      "-i", rawHookPath,
+      ...hookAudioInput,
+      "-t", String(HOOK_DURATION_SECS),
+      "-vf", "crop=ih*9/16:ih,scale=1080:1920,setsar=1,format=yuv420p",
+      "-r", "30",
+      "-c:v", "libx264", "-preset", "fast",
+      "-c:a", "aac", "-b:a", "128k",
+      "-map", "0:v", "-map", "1:a",
+      hookReadyPath,
+    ], { maxBuffer: 50 * 1024 * 1024 });
+
+    return true;
+  } catch (err) {
+    console.warn(
+      `[wc:shorts] Hook clip preparation failed: ${err instanceof Error ? err.message : err}`,
+    );
+    return false;
+  }
+}
+
 async function tryPrependBikiniHook(
   shortPath: string,
   tmpDir: string,
@@ -194,6 +250,7 @@ function generateShortsASS(
   text: string,
   totalDuration: number,
   fontSize: number,
+  timeOffset = 0,
 ): string {
   const header = [
     "[Script Info]",
@@ -218,8 +275,8 @@ function generateShortsASS(
   const chunkDur = totalDuration / Math.max(chunks.length, 1);
   const lines: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
-    const s = i * chunkDur;
-    const e = (i + 1) * chunkDur;
+    const s = timeOffset + i * chunkDur;
+    const e = timeOffset + (i + 1) * chunkDur;
     lines.push(
       `Dialogue: 0,${formatASSTime(s)},${formatASSTime(e)},Default,,0,0,0,,${chunks[i]}`,
     );
@@ -348,6 +405,19 @@ export async function wcShortsGenerator(
       audioPath,
     ], { maxBuffer: 50 * 1024 * 1024 });
 
+    // ── 1b. Prepare bikini hook — hook-audio.aac is ready at this point ──
+    // Must run before step 4 so hookOffset is known for caption + audio sync.
+
+    let hookInserted = false;
+    if (process.env.WC_SHORTS_BIKINI_HOOK === "true") {
+      console.log("[wc:shorts] Bikini hook enabled — preparing clip");
+      hookInserted = await tryPrepareHookClip(tmpDir, config.PEXELS_API_KEY);
+      console.log(hookInserted
+        ? "[wc:shorts] Bikini hook clip prepared"
+        : "[wc:shorts] Bikini hook skipped — no suitable clip found");
+    }
+    const hookOffset = hookInserted ? HOOK_DURATION_SECS : 0;
+
     // ── 2. Fetch 3 fresh Pexels clips for visual variety ───────────────
 
     const clipLinks = await searchPexelsMulti(
@@ -435,7 +505,7 @@ export async function wcShortsGenerator(
     const assPath = join(tmpDir, "captions.ass");
     await writeFile(
       assPath,
-      generateShortsASS(hook.text ?? "", trimDuration, SHORT_CAPTION_FONT_SIZE),
+      generateShortsASS(hook.text ?? "", trimDuration, SHORT_CAPTION_FONT_SIZE, hookOffset),
     );
 
     // ── 5. Combine visual + captions + audio → short.mp4 ──────────────
@@ -443,6 +513,7 @@ export async function wcShortsGenerator(
     await execFile(FFMPEG, [
       "-y", "-loglevel", "error",
       "-i", visualPath,
+      ...(hookOffset > 0 ? ["-ss", String(hookOffset)] : []),
       "-i", audioPath,
       "-vf", `subtitles=${escapeASSPath(assPath)}`,
       "-af", "apad=pad_dur=1.5",
@@ -455,20 +526,25 @@ export async function wcShortsGenerator(
 
     console.log(`[wc:shortsGenerator] Generated: ${shortPath}`);
 
-    // ── 6. Bikini hook (prepended before upload) ───────────────────────
+    // ── 6. Prepend hook clip prepared in step 1b ───────────────────────
 
-    if (process.env.WC_SHORTS_BIKINI_HOOK === "true") {
-      console.log("[wc:shorts] Bikini hook enabled");
-      const inserted = await tryPrependBikiniHook(
-        shortPath,
-        tmpDir,
-        config.PEXELS_API_KEY,
-      );
-      if (inserted) {
-        console.log("[wc:shorts] Bikini hook inserted successfully");
-      } else {
-        console.log("[wc:shorts] Bikini hook skipped — no suitable clip found");
-      }
+    if (hookInserted) {
+      const hookReadyPath = join(tmpDir, "hook-ready.mp4");
+      const combinedPath = join(tmpDir, "combined.mp4");
+      await execFile(FFMPEG, [
+        "-y", "-loglevel", "error",
+        "-i", hookReadyPath,
+        "-i", shortPath,
+        "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]",
+        "-map", "[outv]",
+        "-map", "[outa]",
+        "-c:v", "libx264", "-preset", "fast",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        combinedPath,
+      ], { maxBuffer: 50 * 1024 * 1024 });
+      await rename(combinedPath, shortPath);
+      console.log("[wc:shorts] Bikini hook inserted successfully");
     }
 
     // ── 7. DRY_RUN — skip upload, leave file on disk for inspection ────
