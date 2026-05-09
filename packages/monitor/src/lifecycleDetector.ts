@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { videos, snapshots, actions } from "./lib/channelDb";
 import { env } from "./config";
+import { acquireAICall } from "./lib/aiCallBudget";
 import { ActionType } from "./lib/types";
 import { liveVideoWhere } from "./lib/queries";
 import { MODEL_REASONING } from "./lib/models";
@@ -9,6 +10,7 @@ import type { Decision } from "./lib/types";
 const REPROMO_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 async function callClaude(prompt: string): Promise<string> {
+  if (!acquireAICall("lifecycleDetector")) return "";
   const config = env();
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
   console.log(`[lifecycle] Anthropic call: model=${MODEL_REASONING}`);

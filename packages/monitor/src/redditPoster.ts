@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { videos, actions, redditPosts } from "./lib/channelDb";
 import { getChannelConfig } from "./lib/channelConfig";
 import { env } from "./config";
+import { acquireAICall } from "./lib/aiCallBudget";
 import { ActionType } from "./lib/types";
 import { liveVideoWhere } from "./lib/queries";
 import { MODEL_LIGHTWEIGHT } from "./lib/models";
@@ -75,6 +76,7 @@ export async function generateRedditPosts(): Promise<Decision[]> {
     );
 
     // Use Claude to draft a native-feeling Reddit post
+    if (!acquireAICall("redditPoster")) continue;
     const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
     try {
       console.log(`[redditPoster] Anthropic call: model=${MODEL_LIGHTWEIGHT}`);

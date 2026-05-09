@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { ActionType } from "./lib/types";
 import { videos, snapshots, comments, actions, goal as goalDb } from "./lib/channelDb";
 import { env } from "./config";
+import { acquireAICall } from "./lib/aiCallBudget";
 import { MODEL_REASONING } from "./lib/models";
 import type { BootstrapBenchmarks, Decision, VideoMetrics } from "./lib/types";
 
@@ -349,6 +350,8 @@ Payload requirements by action type:
 - All others: payload can be {}
 
 Be specific in your reasoning — reference the actual numbers. Only suggest actions when there's a clear signal.`;
+
+  if (!acquireAICall("decisionEngine")) return decisions;
 
   console.log(`[decisionEngine] Calling Claude with ${eligible.length} videos (skipped ${metrics.length - eligible.length} via guards), baselines: ctrThreshold=${(baseline.ctrThreshold * 100).toFixed(2)}%, viewsThreshold=${baseline.viewsThreshold}`);
   console.log(`[decisionEngine] Anthropic call: model=${MODEL_REASONING}`);

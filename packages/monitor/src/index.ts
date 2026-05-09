@@ -103,8 +103,17 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `[${serviceLabel}] Starting with poll interval ${config.POLL_INTERVAL_MS}ms`,
+    `[${serviceLabel}] Starting with poll interval ${config.POLL_INTERVAL_MS}ms (${config.POLL_INTERVAL_MS / 60_000} min)`,
   );
+  if (config.MONITOR_AI_ENABLED) {
+    console.log(
+      `[${serviceLabel}] AI enabled — daily Claude call limit: ${config.MONITOR_AI_DAILY_CALL_LIMIT}`,
+    );
+  } else {
+    console.log(
+      `[${serviceLabel}] AI disabled (MONITOR_AI_ENABLED is not "true") — all Claude calls will be skipped`,
+    );
+  }
 
   // Check for ChannelGoal for this channel
   const goal = await goalDb.find();

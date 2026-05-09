@@ -114,6 +114,8 @@ export interface MonitorConfig {
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
   POLL_INTERVAL_MS: number;
+  MONITOR_AI_ENABLED: boolean;
+  MONITOR_AI_DAILY_CALL_LIMIT: number;
   REDDIT_CLIENT_ID?: string;
   REDDIT_CLIENT_SECRET?: string;
   REDDIT_USERNAME?: string;

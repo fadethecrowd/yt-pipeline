@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { goal as goalDb, topicSeeds } from "./lib/channelDb";
 import { getChannelConfig } from "./lib/channelConfig";
 import { env } from "./config";
+import { acquireAICall } from "./lib/aiCallBudget";
 import { MODEL_LIGHTWEIGHT } from "./lib/models";
 
 const USER_AGENT = "yt-pipeline-monitor/0.1.0";
@@ -121,6 +122,7 @@ Respond with ONLY a JSON array of 5 objects, each with "title" and "rationale" f
 Example: [{"title": "...", "rationale": "..."}]`;
 
   // 4. Call Claude
+  if (!acquireAICall("redditScraper")) return;
   const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
   console.log(`[redditScraper] Anthropic call: model=${MODEL_LIGHTWEIGHT}`);
   const message = await anthropic.messages.create({

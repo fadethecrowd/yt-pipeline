@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { MonitorConfig } from "./lib/types";
 
+const MIN_POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+
 const envSchema = z.object({
   DATABASE_URL: z.string().startsWith("postgresql://"),
   YOUTUBE_API_KEY: z.string().optional(),
@@ -12,7 +14,18 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_CHAT_ID: z.coerce.string().min(1),
-  POLL_INTERVAL_MS: z.coerce.number().default(900_000), // 15 min
+  POLL_INTERVAL_MS: z.coerce.number().default(3_600_000).transform((v) => {
+    if (v < MIN_POLL_INTERVAL_MS) {
+      console.warn(
+        `[config] POLL_INTERVAL_MS=${v} is below the 15-minute minimum — clamping to ${MIN_POLL_INTERVAL_MS}ms`,
+      );
+      return MIN_POLL_INTERVAL_MS;
+    }
+    return v;
+  }),
+  // Claude cost controls
+  MONITOR_AI_ENABLED: z.string().optional().transform((v) => v === "true"),
+  MONITOR_AI_DAILY_CALL_LIMIT: z.coerce.number().default(20),
   // Reddit auto-posting (optional — disabled if not set)
   REDDIT_CLIENT_ID: z.string().min(1).optional(),
   REDDIT_CLIENT_SECRET: z.string().min(1).optional(),
