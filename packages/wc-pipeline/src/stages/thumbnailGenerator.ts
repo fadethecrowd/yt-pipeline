@@ -325,8 +325,13 @@ export async function wcThumbnailGenerator(
   console.log(`[wc:thumbnailGenerator] Headline: "${headline}"`);
   console.log(`[wc:thumbnailGenerator] Subtext: "${subtext}"`);
 
-  // Create output directory
-  const outDir = join(process.cwd(), "tmp", ctx.video.id);
+  // Create output directory. Must NOT be tmp/<videoId>: this stage runs
+  // before wcVideoAssembly, which uses tmp/<videoId> as its scratch dir and
+  // rm -rf's it when it finishes — thumbnails written there were deleted
+  // before wcYoutubeUpload could apply them. output/<videoId> holds
+  // final.mp4 and survives both assembly cleanup and the pipeline-level
+  // tmp cleanup.
+  const outDir = join(process.cwd(), "output", ctx.video.id);
   await mkdir(outDir, { recursive: true });
 
   const pathA = join(outDir, "thumbnail_a.jpg");
