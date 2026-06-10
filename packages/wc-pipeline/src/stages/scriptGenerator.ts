@@ -171,6 +171,41 @@ function parseJSON(text: string): unknown {
   return JSON.parse(raw);
 }
 
+// ── Hook/CTA folding ────────────────────────────────────────────────────────
+//
+// The voiceover stage only renders segments[].narration — script.hook and
+// script.cta were generated and quality-scored but never voiced. Fold the
+// hook into the first segment's narration and the CTA into the last so they
+// are actually spoken, while keeping segment count, titles, visual prompts,
+// and downstream subtitle/chapter timing assumptions unchanged. The hook/cta
+// fields stay on the script: wcThumbnailHeadlineGenerator and seoGenerator
+// read them for prompt context. Lives inside generateScript so qualityGate's
+// rewrite path (which persists generateScript output directly) is covered.
+
+const NARRATION_WORDS_PER_SECOND = 2.5; // ≈150 wpm TTS pace, estimates only
+
+function estimateSpokenSeconds(text: string): number {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return Math.round(words / NARRATION_WORDS_PER_SECOND);
+}
+
+export function foldHookAndCtaIntoSegments(script: Script): Script {
+  const segments = script.segments.map((s) => ({ ...s }));
+  const first = segments[0];
+  const last = segments[segments.length - 1];
+  const hookSecs = estimateSpokenSeconds(script.hook);
+  const ctaSecs = estimateSpokenSeconds(script.cta);
+  first.narration = `${script.hook} ${first.narration}`.trim();
+  first.duration_seconds += hookSecs;
+  last.narration = `${last.narration} ${script.cta}`.trim();
+  last.duration_seconds += ctaSecs;
+  return {
+    ...script,
+    segments,
+    estimatedTotalDuration: script.estimatedTotalDuration + hookSecs + ctaSecs,
+  };
+}
+
 /**
  * Extract the pillar tag from the topic summary.
  * topicDiscovery stores it as "[RANKED_LIST] actual summary text..."
@@ -256,7 +291,7 @@ export async function generateScript(
     return { error: `Script validation failed: ${issues}` };
   }
 
-  return { script: validation.data };
+  return { script: foldHookAndCtaIntoSegments(validation.data) };
 }
 
 // ── Stage entry point ───────────────────────────────────────────────────────
@@ -295,18 +330,22 @@ export async function scriptGenerator(
     `[wc:scriptGenerator] Generated ${script.segments.length} segments, ~${script.estimatedTotalDuration}s, ~${wordCount} words`,
   );
 
-  // Compute hookSegment: hook narration + first segment, with timestamp range
+  // Compute hookSegment for Shorts clipping. segments[0].narration already
+  // begins with the hook (folded in by generateScript), so it is the caption
+  // source 1:1 with voiced audio — no unvoiced text. startTime is 0:04
+  // because narration begins after the title card (audio delayed by
+  // TITLE_CARD_OFFSET in videoAssembly's final mux).
   const TITLE_CARD_OFFSET = 4;
   const firstSeg = script.segments[0];
   const hookEndSeconds = TITLE_CARD_OFFSET + (firstSeg?.duration_seconds ?? 45);
   const hookSegment = JSON.stringify({
-    text: `${script.hook} ${firstSeg?.narration ?? ""}`.trim(),
-    startTime: "0:00",
+    text: (firstSeg?.narration ?? "").trim(),
+    startTime: `0:0${TITLE_CARD_OFFSET}`,
     endTime: `0:${String(Math.min(hookEndSeconds, 59)).padStart(2, "0")}`,
     segmentIndex: 0,
   });
 
-  console.log(`[wc:scriptGenerator] hookSegment: 0:00-0:${String(Math.min(hookEndSeconds, 59)).padStart(2, "0")}`);
+  console.log(`[wc:scriptGenerator] hookSegment: 0:0${TITLE_CARD_OFFSET}-0:${String(Math.min(hookEndSeconds, 59)).padStart(2, "0")}`);
 
   await prisma.wcVideo.update({
     where: { id: ctx.video.id },
