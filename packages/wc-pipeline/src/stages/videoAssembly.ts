@@ -500,6 +500,11 @@ export async function wcVideoAssembly(
     "-i", concatPath,
     "-i", video.voiceoverPath,
     "-vf", subtitleFilter,
+    // Narration must start AFTER the title card: subtitle cues, chapter
+    // timestamps, and segment visuals are all laid out assuming audio
+    // begins at TITLE_CARD_DURATION. all=1 delays every channel (mono or
+    // stereo) without needing per-channel values.
+    "-af", `adelay=${TITLE_CARD_DURATION * 1000}:all=1`,
     "-c:v", "libx264", "-preset", "fast",
     "-c:a", "aac", "-b:a", "192k",
     "-map", "0:v", "-map", "1:a",
