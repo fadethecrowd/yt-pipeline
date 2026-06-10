@@ -25,7 +25,10 @@ function getNextPublishSlot(): Date {
   const today = new Date(now);
   today.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
 
-  if (PUBLISH_DAYS.includes(today.getUTCDay())) {
+  // Same-day slot only if it is still in the future — YouTube requires
+  // publishAt to be ahead of upload time; runs after 19:00 UTC on a
+  // publish day fall through to the next-day search below.
+  if (PUBLISH_DAYS.includes(today.getUTCDay()) && today > now) {
     console.log(`[youtubeUpload] Using same-day slot: ${today.toISOString()}`);
     return today;
   }
