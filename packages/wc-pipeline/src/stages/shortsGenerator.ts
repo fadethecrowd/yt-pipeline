@@ -277,8 +277,13 @@ function generateShortsASS(
   for (let i = 0; i < chunks.length; i++) {
     const s = timeOffset + i * chunkDur;
     const e = timeOffset + (i + 1) * chunkDur;
+    // A negative timeOffset (bikini-hook path) shifts cues earlier; cues
+    // that end at/before 0 cover words spoken under the hook clip (which
+    // has no captions burned) and are dropped. The cue straddling 0 is
+    // clamped — formatASSTime can't represent negative timestamps.
+    if (e <= 0) continue;
     lines.push(
-      `Dialogue: 0,${formatASSTime(s)},${formatASSTime(e)},Default,,0,0,0,,${chunks[i]}`,
+      `Dialogue: 0,${formatASSTime(Math.max(0, s))},${formatASSTime(e)},Default,,0,0,0,,${chunks[i]}`,
     );
   }
 
@@ -503,9 +508,17 @@ export async function wcShortsGenerator(
 
     console.log(`[wc:shorts] Caption font size=${SHORT_CAPTION_FONT_SIZE}`);
     const assPath = join(tmpDir, "captions.ass");
+    // Captions are burned into the MAIN short, which in the final concat
+    // starts at absolute t=hookOffset and whose audio is seeked by
+    // -ss hookOffset (step 5) — main-local time t carries voiceover time
+    // t + hookOffset. Caption chunk i covers voiceover [i·d, (i+1)·d], so
+    // cues must shift EARLIER by hookOffset (negative offset; cues fully
+    // inside the hook window are dropped by generateShortsASS). A positive
+    // shift here double-counts the hook and lags every caption by
+    // 2×HOOK_DURATION_SECS. hookOffset=0 (hook off) is unaffected.
     await writeFile(
       assPath,
-      generateShortsASS(hook.text ?? "", trimDuration, SHORT_CAPTION_FONT_SIZE, hookOffset),
+      generateShortsASS(hook.text ?? "", trimDuration, SHORT_CAPTION_FONT_SIZE, -hookOffset),
     );
 
     // ── 5. Combine visual + captions + audio → short.mp4 ──────────────
