@@ -5,21 +5,9 @@ import type { Decision } from "./lib/types";
 import { routeAction } from "./actionRouter";
 import { sendApprovalRequest } from "./telegram";
 
-/**
- * Heart a comment via the YouTube API.
- */
-export async function heartComment(commentId: string): Promise<void> {
-  // YouTube API doesn't have a direct "heart" endpoint in v3.
-  // Hearting is done by setting the moderationStatus or via the
-  // comments.markAsSpam / setModerationStatus approach.
-  // For now, use the comment rating approach:
-  const yt = youtube();
-  await yt.comments.setModerationStatus({
-    id: [commentId],
-    moderationStatus: "published",
-  });
-  console.log(`[executor] Hearted comment ${commentId}`);
-}
+// NOTE: there is intentionally no heartComment() here — the YouTube Data
+// API v3 has no endpoint that hearts a comment. HEART_COMMENT is handled
+// in actionRouter as a Telegram Studio suggestion.
 
 /**
  * Update a video's title via the YouTube API.

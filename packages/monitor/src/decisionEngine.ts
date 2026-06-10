@@ -486,10 +486,30 @@ export async function evaluate(
     });
 
     for (const comment of unhearted) {
+      // Dedup per comment: the MonitorAction row is the durable
+      // "already suggested" marker. Without it this rule re-fired every
+      // tick forever — isHearted never becomes true because the Data API
+      // cannot actually heart a comment (the action is a Studio
+      // suggestion, see actionRouter). FAILED is deliberately not in the
+      // status list so a failed Telegram send retries next tick.
+      const existing = await actions.findFirst({
+        where: {
+          videoId: m.videoId,
+          type: ActionType.HEART_COMMENT,
+          payload: { path: ["commentId"], equals: comment.youtubeCommentId },
+          status: { in: ["PENDING", "EXECUTED", "AWAITING_APPROVAL"] },
+        },
+      });
+      if (existing) continue;
+
       decisions.push({
         videoId: m.videoId,
         type: ActionType.HEART_COMMENT,
-        payload: { commentId: comment.youtubeCommentId, likeCount: comment.likeCount },
+        payload: {
+          commentId: comment.youtubeCommentId,
+          commentText: comment.text.slice(0, 200),
+          likeCount: comment.likeCount,
+        },
         reason: `Comment by ${comment.authorName} has ${comment.likeCount} likes`,
       });
     }

@@ -2,7 +2,6 @@ import { ActionType } from "./lib/types";
 import type { Decision, ActionResult } from "./lib/types";
 import { videos } from "./lib/channelDb";
 import {
-  heartComment,
   updateVideoTitle,
   updateVideoTags,
   updateVideoDescription,
@@ -16,9 +15,20 @@ type ActionHandler = (decision: Decision) => Promise<ActionResult>;
 
 const handlers: Record<ActionType, ActionHandler> = {
   [ActionType.HEART_COMMENT]: async (d) => {
-    const commentId = d.payload.commentId as string;
-    await heartComment(commentId);
-    return { success: true, message: `Hearted comment ${commentId}` };
+    // The YouTube Data API has no endpoint to heart a comment — the old
+    // heartComment() call set moderationStatus instead, which hearts
+    // nothing. Send a Studio suggestion like PIN_COMMENT does.
+    const commentText = (d.payload.commentText as string) ?? "N/A";
+    const likeCount = d.payload.likeCount ?? "?";
+    const video = await videos.findUnique({
+      where: { id: d.videoId },
+      select: { youtubeId: true, seoTitle: true },
+    });
+    const studioLink = `https://studio.youtube.com/video/${video?.youtubeId ?? ""}/comments`;
+    await sendAlert(
+      `Heart this comment\n\nVideo: "${video?.seoTitle ?? d.videoId}"\nComment (${likeCount} likes): "${commentText}"\n\n${studioLink}`,
+    );
+    return { success: true, message: "Heart comment suggestion sent to Telegram" };
   },
 
   [ActionType.UPDATE_TITLE]: async (d) => {
