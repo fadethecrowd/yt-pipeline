@@ -10,3 +10,9 @@ dist/
 token-ai-doom-scroll.json
 token-wet-circuit.json
 token.json
+
+# Render artifacts and scratch (large, regenerable, machine-specific)
+tmp/
+audio/
+output/
+video/

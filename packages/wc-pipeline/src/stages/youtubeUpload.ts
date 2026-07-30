@@ -1,7 +1,10 @@
 import { createReadStream, existsSync } from "node:fs";
 import { google } from "googleapis";
 import { VideoStatus } from "@prisma/client";
-import { prisma, env } from "@yt-pipeline/pipeline-core";
+import {
+  prisma, env,
+  prepareUpload, confirmUploadState, assertNoDuplicateUploadRecord,
+} from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult, UploadResult } from "@yt-pipeline/pipeline-core";
 
 // ── Launch gate ─────────────────────────────────────────────────────────────
@@ -130,19 +133,37 @@ export async function wcYoutubeUpload(
     return { success: false, error: "Missing SEO metadata in context", durationMs: Date.now() - start };
   }
 
+  const preLaunch = isBeforeLaunch();
+  const decision = await prepareUpload({
+    channelKey: "wet-circuit",
+    serviceLabel: "wc:youtubeUpload",
+    existingYoutubeId: video.youtubeId,
+    scheduledSlot: preLaunch ? null : getNextPublishSlot(),
+  });
+
+  if (decision.alreadyUploaded) {
+    ctx.youtubeId = decision.existingYoutubeId;
+    await prisma.wcVideo.update({
+      where: { id: ctx.video.id },
+      data: { status: VideoStatus.UPLOADED },
+    });
+    return {
+      success: true,
+      data: { youtubeId: decision.existingYoutubeId!, scheduledAt: video.scheduledAt ?? new Date() },
+      durationMs: Date.now() - start,
+    };
+  }
+
   await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: { status: VideoStatus.UPLOAD_PENDING },
   });
 
-  const preLaunch = isBeforeLaunch();
-  const scheduledAt = preLaunch ? null : getNextPublishSlot();
-
-  if (preLaunch) {
-    console.log(`[wc:youtubeUpload] PRE-LAUNCH: uploading as private (launch date: ${LAUNCH_DATE})`);
-  } else {
-    console.log(`[wc:youtubeUpload] POST-LAUNCH: scheduled publish ${scheduledAt!.toISOString()}`);
-  }
+  const scheduledAt = decision.publishAt;
+  console.log(
+    `[wc:youtubeUpload] privacy=private publishAt=${scheduledAt?.toISOString() ?? "none (fully private)"}` +
+      ` (preLaunch=${preLaunch}, launchDate=${LAUNCH_DATE})`,
+  );
   console.log(`[wc:youtubeUpload] Title: ${ctx.seo.title}`);
   console.log(`[wc:youtubeUpload] Video file: ${video.videoPath}`);
 
@@ -162,7 +183,7 @@ export async function wcYoutubeUpload(
         defaultLanguage: "en",
       },
       status: {
-        privacyStatus: "private",
+        privacyStatus: decision.privacyStatus,
         ...(scheduledAt ? { publishAt: scheduledAt.toISOString() } : {}),
         selfDeclaredMadeForKids: false,
       },
@@ -204,11 +225,20 @@ export async function wcYoutubeUpload(
   await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: {
-      youtubeId: result.youtubeId,
-      scheduledAt: scheduledAt,
+      youtubeId,
+      scheduledAt,
       status: VideoStatus.UPLOADED,
     },
   });
+
+  await confirmUploadState({
+    channelKey: "wet-circuit",
+    serviceLabel: "wc:youtubeUpload",
+    youtubeId,
+    expectPrivate: scheduledAt === null,
+    videoId: ctx.video.id,
+  }).catch((e) => console.warn(`[wc:youtubeUpload] Upload confirmation failed: ${e}`));
+  await assertNoDuplicateUploadRecord(youtubeId, "wet-circuit", ctx.video.id);
 
   ctx.youtubeId = result.youtubeId;
 

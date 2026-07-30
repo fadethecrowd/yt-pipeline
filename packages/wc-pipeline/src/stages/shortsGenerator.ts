@@ -4,7 +4,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { google } from "googleapis";
-import { prisma, env } from "@yt-pipeline/pipeline-core";
+import { prisma, env, prepareUpload, confirmUploadState } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
 
 const execFile = promisify(execFileCb);
@@ -575,6 +575,22 @@ export async function wcShortsGenerator(
 
     // ── 8. Upload ──────────────────────────────────────────────────────
 
+    // Shorts previously uploaded with a hardcoded privacyStatus of "public",
+    // bypassing the launch gate and every test-mode guard the long-form path
+    // has. Route them through the same upload-safety decision instead.
+    const decision = await prepareUpload({
+      channelKey: "wet-circuit",
+      serviceLabel: "wc:shorts",
+      existingYoutubeId: video.shortsUrl?.split("/").pop() ?? null,
+      scheduledSlot: null,
+    });
+
+    if (decision.alreadyUploaded) {
+      console.log(`[wc:shorts] Short already uploaded (${video.shortsUrl}) — skipping`);
+      await rm(tmpDir, { recursive: true, force: true });
+      return { success: true, data: { shortsUrl: video.shortsUrl }, durationMs: Date.now() - start };
+    }
+
     const youtube = getYouTubeClient();
     const title = `${video.seoTitle ?? video.topic?.title ?? ctx.topic.title} #Shorts`;
 
@@ -588,7 +604,7 @@ export async function wcShortsGenerator(
           categoryId: "28",
         },
         status: {
-          privacyStatus: "public",
+          privacyStatus: decision.privacyStatus,
           selfDeclaredMadeForKids: false,
         },
       },
@@ -604,7 +620,15 @@ export async function wcShortsGenerator(
     }
 
     const shortsUrl = `https://youtube.com/shorts/${shortYoutubeId}`;
-    console.log(`[wc:shortsGenerator] Uploaded Short: ${shortsUrl}`);
+    console.log(`[wc:shortsGenerator] Uploaded Short (${decision.privacyStatus}): ${shortsUrl}`);
+
+    await confirmUploadState({
+      channelKey: "wet-circuit",
+      serviceLabel: "wc:shorts",
+      youtubeId: shortYoutubeId,
+      expectPrivate: true,
+      videoId: ctx.video.id,
+    }).catch((e) => console.warn(`[wc:shorts] Upload confirmation failed: ${e}`));
 
     await prisma.wcVideo.update({
       where: { id: ctx.video.id },

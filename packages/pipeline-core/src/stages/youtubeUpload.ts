@@ -3,6 +3,11 @@ import { google } from "googleapis";
 import { VideoStatus } from "@prisma/client";
 import { prisma } from "../lib/db";
 import { env } from "../config";
+import {
+  prepareUpload,
+  confirmUploadState,
+  assertNoDuplicateUploadRecord,
+} from "../lib/uploadSafety";
 import type { PipelineContext, StageResult, UploadResult } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -105,13 +110,37 @@ export async function youtubeUpload(
     };
   }
 
+  // Verify channel, enforce private-on-test, and refuse a second upload of an
+  // asset that already has a YouTube ID.
+  const decision = await prepareUpload({
+    channelKey: "ai-doom-scroll",
+    serviceLabel: "youtubeUpload",
+    existingYoutubeId: video.youtubeId,
+    scheduledSlot: getNextPublishSlot(),
+  });
+
+  if (decision.alreadyUploaded) {
+    ctx.youtubeId = decision.existingYoutubeId;
+    await prisma.video.update({
+      where: { id: ctx.video.id },
+      data: { status: VideoStatus.UPLOADED },
+    });
+    return {
+      success: true,
+      data: { youtubeId: decision.existingYoutubeId!, scheduledAt: video.scheduledAt ?? new Date() },
+      durationMs: Date.now() - start,
+    };
+  }
+
   await prisma.video.update({
     where: { id: ctx.video.id },
     data: { status: VideoStatus.UPLOAD_PENDING },
   });
 
-  const scheduledAt = getNextPublishSlot();
-  console.log(`[youtubeUpload] Scheduled publish: ${scheduledAt.toISOString()}`);
+  const scheduledAt = decision.publishAt;
+  console.log(
+    `[youtubeUpload] privacy=private publishAt=${scheduledAt?.toISOString() ?? "none (fully private)"}`,
+  );
   console.log(`[youtubeUpload] Title: ${ctx.seo.title}`);
   console.log(`[youtubeUpload] Video file: ${video.videoPath}`);
 
@@ -128,8 +157,8 @@ export async function youtubeUpload(
         defaultLanguage: "en",
       },
       status: {
-        privacyStatus: "private",
-        publishAt: scheduledAt.toISOString(),
+        privacyStatus: decision.privacyStatus,
+        ...(scheduledAt ? { publishAt: scheduledAt.toISOString() } : {}),
         selfDeclaredMadeForKids: false,
       },
     },
@@ -165,16 +194,27 @@ export async function youtubeUpload(
     console.log("[youtubeUpload] No thumbnail available to set");
   }
 
-  const result: UploadResult = { youtubeId, scheduledAt };
+  const result: UploadResult = { youtubeId, scheduledAt: scheduledAt ?? new Date() };
 
   await prisma.video.update({
     where: { id: ctx.video.id },
     data: {
-      youtubeId: result.youtubeId,
-      scheduledAt: result.scheduledAt,
+      youtubeId,
+      scheduledAt,
       status: VideoStatus.UPLOADED,
     },
   });
+
+  // Confirm with YouTube that it is private and on the right channel, and that
+  // no second row claims this ID.
+  await confirmUploadState({
+    channelKey: "ai-doom-scroll",
+    serviceLabel: "youtubeUpload",
+    youtubeId,
+    expectPrivate: scheduledAt === null,
+    videoId: ctx.video.id,
+  }).catch((e) => console.warn(`[youtubeUpload] Upload confirmation failed: ${e}`));
+  await assertNoDuplicateUploadRecord(youtubeId, "ai-doom-scroll", ctx.video.id);
 
   ctx.youtubeId = result.youtubeId;
 

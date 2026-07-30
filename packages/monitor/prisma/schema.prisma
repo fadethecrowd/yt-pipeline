@@ -53,26 +53,26 @@ model Topic {
 }
 
 model Video {
-  id             String      @id @default(cuid())
-  topicId        String
-  topic          Topic       @relation(fields: [topicId], references: [id])
-  status         VideoStatus @default(SCRIPT_PENDING)
+  id      String      @id @default(cuid())
+  topicId String
+  topic   Topic       @relation(fields: [topicId], references: [id])
+  status  VideoStatus @default(SCRIPT_PENDING)
 
-  scriptJson     Json?
-  hookSegment    String?     // best hook excerpt + timestamp range for Shorts clipping
-  qualityScore   Int?
+  scriptJson   Json?
+  hookSegment  String? // best hook excerpt + timestamp range for Shorts clipping
+  qualityScore Int?
 
-  voiceoverUrls  String[]
-  voiceoverPath  String?
+  voiceoverUrls String[]
+  voiceoverPath String?
 
-  videoPath      String?
-  videoUrl       String?
+  videoPath String?
+  videoUrl  String?
 
   thumbnailHeadline String?
   thumbnailSubtext  String?
-  thumbnailA     String?
-  thumbnailB     String?
-  thumbnailC     String?
+  thumbnailA        String?
+  thumbnailB        String?
+  thumbnailC        String?
 
   seoTitle       String?
   titleVariantB  String?
@@ -81,15 +81,15 @@ model Video {
   seoTags        String[]
   seoChapters    Json?
 
-  youtubeId      String?
-  shortsUrl      String?
-  scheduledAt    DateTime?
-  publishedAt    DateTime?
+  youtubeId   String?
+  shortsUrl   String?
+  scheduledAt DateTime?
+  publishedAt DateTime?
 
-  failReason     String?
-  retryCount     Int         @default(0)
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  failReason String?
+  retryCount Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // VideoSnapshot relation removed — monitor tables are now channel-scoped
   // and reference videoId as a plain string (see packages/monitor/src/lib/channelDb.ts).
@@ -119,8 +119,8 @@ model TopicLibrary {
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
-  @@map("topic_library")
   @@index([channel, status, priority])
+  @@map("topic_library")
 }
 
 // ── Wet Circuit models (shared DB, not used by monitor but must be present) ──
@@ -137,52 +137,52 @@ model WcTopic {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  @@map("wc_topic")
   @@index([status])
   @@index([source])
   @@index([createdAt])
+  @@map("wc_topic")
 }
 
 // WcVideo mirrors Video field-for-field so the shared PipelineContext.video
 // type accepts both. thumbnailHeadline/Subtext are AI-Doom-only at runtime
 // (wc-pipeline never sets them) but must exist on WcVideo for type parity.
 model WcVideo {
-  id             String      @id @default(cuid())
-  topicId        String
-  topic          WcTopic     @relation(fields: [topicId], references: [id])
-  status         VideoStatus @default(SCRIPT_PENDING)
-  runMode        String      @default("LIVE")
-  scriptJson     Json?
-  hookSegment    String?
-  qualityScore   Int?
-  voiceoverUrls  String[]
-  voiceoverPath  String?
-  videoPath      String?
-  videoUrl       String?
+  id                String      @id @default(cuid())
+  topicId           String
+  topic             WcTopic     @relation(fields: [topicId], references: [id])
+  status            VideoStatus @default(SCRIPT_PENDING)
+  runMode           String      @default("LIVE")
+  scriptJson        Json?
+  hookSegment       String?
+  qualityScore      Int?
+  voiceoverUrls     String[]
+  voiceoverPath     String?
+  videoPath         String?
+  videoUrl          String?
   thumbnailHeadline String?
   thumbnailSubtext  String?
-  thumbnailA     String?
-  thumbnailB     String?
-  thumbnailC     String?
-  seoTitle       String?
-  titleVariantB  String?
-  titleVariantC  String?
-  seoDescription String?
-  seoTags        String[]
-  seoChapters    Json?
-  youtubeId      String?
-  shortsUrl      String?
-  scheduledAt    DateTime?
-  publishedAt    DateTime?
-  failReason     String?
-  retryCount     Int         @default(0)
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  thumbnailA        String?
+  thumbnailB        String?
+  thumbnailC        String?
+  seoTitle          String?
+  titleVariantB     String?
+  titleVariantC     String?
+  seoDescription    String?
+  seoTags           String[]
+  seoChapters       Json?
+  youtubeId         String?
+  shortsUrl         String?
+  scheduledAt       DateTime?
+  publishedAt       DateTime?
+  failReason        String?
+  retryCount        Int         @default(0)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
-  @@map("wc_video")
   @@index([status])
   @@index([topicId])
   @@index([createdAt])
+  @@map("wc_video")
 }
 
 // ── Monitor enums ───────────────────────────────────────────────────────
@@ -296,13 +296,13 @@ model ChannelGoal {
 }
 
 model TopicSeed {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   channel   String
   title     String
   rationale String
-  source    String   // e.g. "reddit:r/artificial"
+  source    String // e.g. "reddit:r/artificial"
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([channel, createdAt])
 }
@@ -311,11 +311,11 @@ model RedditPost {
   id           String    @id @default(cuid())
   channel      String
   videoId      String
-  subreddit    String    // e.g. "r/artificial"
+  subreddit    String // e.g. "r/artificial"
   title        String
   body         String
-  redditPostId String?   // Reddit's thing ID after posting
-  redditUrl    String?   // full URL to the posted thread
+  redditPostId String? // Reddit's thing ID after posting
+  redditUrl    String? // full URL to the posted thread
   status       String    @default("DRAFT") // DRAFT, APPROVED, POSTED, FAILED
   createdAt    DateTime  @default(now())
   postedAt     DateTime?
@@ -338,24 +338,208 @@ enum PipelineRunStatus {
 }
 
 model PipelineRun {
-  id                    String            @id @default(cuid())
-  channel               String
-  runMode               String
-  status                PipelineRunStatus
-  startTime             DateTime
-  endTime               DateTime?
-  durationMs            Int?
-  failedStage           String?
-  errorMessage          String?
-  warnings              Json              @default("[]")
-  videoId               String?
-  youtubeId             String?
-  scheduledAt           DateTime?
-  shortsUrl             String?
-  verifiedChannelTitle  String?
-  verifiedChannelId     String?
-  createdAt             DateTime          @default(now())
+  id                   String            @id @default(cuid())
+  channel              String
+  runMode              String
+  status               PipelineRunStatus
+  startTime            DateTime
+  endTime              DateTime?
+  durationMs           Int?
+  failedStage          String?
+  errorMessage         String?
+  warnings             Json              @default("[]")
+  videoId              String?
+  youtubeId            String?
+  scheduledAt          DateTime?
+  shortsUrl            String?
+  verifiedChannelTitle String?
+  verifiedChannelId    String?
+  createdAt            DateTime          @default(now())
 
-  @@map("pipeline_run")
   @@index([channel, createdAt])
+  @@map("pipeline_run")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Reliability / QA / cost-control models
+//
+// All additive — no existing table or column is modified. Shared by
+// yt-pipeline (ai-doom-scroll) and wc-pipeline (wet-circuit); every row
+// carries `channel` so the two never mix.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Which testing stage consumed the resource. Budgets are tracked per stage
+/// so diagnostic/qualification spend can be separated from production spend.
+enum TestStage {
+  DIAGNOSTIC
+  QUALIFICATION
+  RETEST
+  REPEATABILITY
+  PRODUCTION
+}
+
+/// One row per ElevenLabs API attempt (success or failure).
+///
+/// `chargedChars` is read from the `character-cost` response header and is
+/// the authoritative charge — never assume 1 credit per character.
+/// `generationId` is the `history-item-id` header, `requestId` the
+/// `request-id` header.
+///
+/// Idempotency key is (videoId, segmentIndex, scriptHash): if a successful
+/// row exists for that triple AND its outputPath is still on disk, the
+/// generation is reused instead of re-requested. A failed render, upload,
+/// caption or thumbnail step therefore never re-charges for audio that was
+/// already produced.
+model ElevenLabsUsage {
+  id             String    @id @default(cuid())
+  channel        String
+  testStage      TestStage @default(PRODUCTION)
+  runId          String?
+  videoId        String
+  segmentIndex   Int
+  scriptHash     String
+  generationId   String?
+  requestId      String?
+  model          String
+  voiceId        String
+  outputFormat   String
+  requestedChars Int
+  chargedChars   Int?
+  attempt        Int       @default(1)
+  retryReason    String?
+  outputPath     String?
+  audioDurationS Float?
+  success        Boolean
+  reused         Boolean   @default(false)
+  errorMessage   String?
+  createdAt      DateTime  @default(now())
+
+  @@index([channel, createdAt])
+  @@index([videoId, segmentIndex])
+  @@index([videoId, segmentIndex, scriptHash, success])
+  @@index([testStage, channel])
+  @@map("elevenlabs_usage")
+}
+
+/// Per-scene visual provenance and validation outcome. One row per scene per
+/// video, so every frame on screen is traceable to a source and a validation
+/// verdict.
+model SceneRecord {
+  id              String   @id @default(cuid())
+  channel         String
+  videoId         String
+  sceneNumber     Int
+  narration       String
+  startTimeS      Float
+  endTimeS        Float
+  prompt          String
+  assetSource     String
+  assetId         String?
+  assetUrl        String?
+  localPath       String?
+  width           Int?
+  height          Int?
+  durationS       Float?
+  cropMethod      String?
+  validation      String
+  rejectionReason String?
+  renderStatus    String
+  createdAt       DateTime @default(now())
+
+  @@unique([videoId, sceneNumber])
+  @@index([channel, createdAt])
+  @@index([validation])
+  @@map("scene_record")
+}
+
+/// Machine-readable QA result for one rendered asset. `checks` holds the full
+/// per-check JSON; the scalar columns exist so failures are queryable.
+model QaRecord {
+  id                String    @id @default(cuid())
+  channel           String
+  testStage         TestStage
+  videoId           String
+  assetKind         String
+  youtubeId         String?
+  runtimeS          Float?
+  audioDurationS    Float?
+  videoDurationS    Float?
+  captionStartS     Float?
+  captionEndS       Float?
+  captionOffsetHead Float?
+  captionOffsetMid  Float?
+  captionOffsetTail Float?
+  maxCaptionOffset  Float?
+  scriptHash        String?
+  creditsCharged    Int?
+  generationIds     String[]
+  privacyStatus     String?
+  verifiedChannelId String?
+  audioResult       String?
+  captionResult     String?
+  visualResult      String?
+  metadataResult    String?
+  uploadResult      String?
+  overall           String
+  failureNotes      String?
+  requiredRepair    String?
+  retestOf          String?
+  reviewer          String?
+  checks            Json      @default("{}")
+  createdAt         DateTime  @default(now())
+
+  @@index([channel, createdAt])
+  @@index([overall])
+  @@index([videoId])
+  @@map("qa_record")
+}
+
+/// Credit budget per (channel, stage). `reservedChars` is incremented inside a
+/// transaction before an ElevenLabs call and reconciled to the real
+/// `character-cost` afterwards, so two pipelines running concurrently cannot
+/// oversubscribe the same balance.
+model CreditBudget {
+  id            String    @id @default(cuid())
+  channel       String
+  testStage     TestStage
+  limitChars    Int
+  reservedChars Int       @default(0)
+  chargedChars  Int       @default(0)
+  enabled       Boolean   @default(true)
+  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime  @default(now())
+
+  @@unique([channel, testStage])
+  @@map("credit_budget")
+}
+
+/// Circuit-breaker state. A single row per channel plus a global row
+/// (channel = "*"). While `tripped` is true no new generation job may start.
+model CircuitBreaker {
+  id           String    @id @default(cuid())
+  channel      String    @unique
+  tripped      Boolean   @default(false)
+  trigger      String?
+  detail       String?
+  affectedJobs String[]
+  trippedAt    DateTime?
+  clearedAt    DateTime?
+  clearedBy    String?
+  updatedAt    DateTime  @updatedAt
+
+  @@map("circuit_breaker")
+}
+
+/// Append-only log of circuit-breaker trips and clears, for post-mortem.
+model CircuitBreakerEvent {
+  id        String   @id @default(cuid())
+  channel   String
+  event     String
+  trigger   String
+  detail    String?
+  videoId   String?
+  createdAt DateTime @default(now())
+
+  @@index([channel, createdAt])
+  @@map("circuit_breaker_event")
 }
