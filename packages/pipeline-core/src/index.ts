@@ -112,6 +112,34 @@ export type { QaInput, QaResult, Check, Severity } from "./lib/qa";
 export { createSubjectLayer } from "./thumbnail/subjectLayer";
 export type { SubjectLayerResult } from "./thumbnail/subjectLayer";
 
+// ── Model-response classification ─────────────────────────────────────────
+export {
+  classifyModelResponse, promptHash, recordScriptFailure,
+  priorAttemptsForPrompt, isRetryable, NON_RETRYABLE,
+} from "./lib/modelResponse";
+export type { Classification } from "./lib/modelResponse";
+
+// ── Shorts hook window ────────────────────────────────────────────────────
+export {
+  resolveHookWindow,
+  validateHookWindow,
+  normalizeToken,
+  HookAlignmentError,
+} from "./lib/hookWindow";
+export type { HookWindow, ResolveHookOptions } from "./lib/hookWindow";
+
+// ── Job quarantine ────────────────────────────────────────────────────────
+export {
+  quarantineJob,
+  releaseQuarantine,
+  quarantinedVideoIds,
+  resumableJobs,
+  RESUMABLE_STATUSES,
+  QUARANTINE_STATUS,
+  QUARANTINE_PREFIX,
+} from "./lib/quarantine";
+export type { QuarantineInput, QuarantineResult } from "./lib/quarantine";
+
 // ── Upload safety ─────────────────────────────────────────────────────────
 export {
   prepareUpload,

@@ -40,6 +40,40 @@ const RELEVANCE_GATE_KEYWORDS = [
   "axiom", "elite", "hds", "hook reveal", "nss", "nso",
 ];
 
+/**
+ * Hard vetoes. An item matching any of these is dropped no matter how many
+ * gate keywords it also hits.
+ *
+ * The gate above admits anything mentioning a vendor name, "gps" or "radar",
+ * and Garmin's newsroom feed covers aviation, automotive, motorsport, fitness
+ * and earnings alongside marine. That is how "Catalyst R1 racing radar",
+ * "avionics navigation database", "zūmo XT3 motorcycle GPS" and a Q4 earnings
+ * release all reached the scriptwriter — which correctly refused to write a
+ * marine electronics script about them, at the cost of a wasted Claude call and
+ * a failed pipeline run each time.
+ */
+const NON_MARINE_VETO_KEYWORDS = [
+  // Aviation
+  "avionics", "aircraft", "aviation", "cockpit", "autothrottle", "pilots",
+  "airspace", "flight deck", "g1000", "g3000", "helicopter",
+  // Automotive / motorsport
+  "motorcycle", "motorsport", "racetrack", "race track", "racing radar",
+  "car audio", "dash cam", "dashcam", "zumo", "zūmo", "catalyst",
+  "lap time", "track day", "automotive",
+  // Fitness / wearables
+  "smartwatch", "fitness tracker", "running watch", "golf watch",
+  "heart rate monitor", "cycling computer", "forerunner", "fenix", "vivoactive",
+  // Corporate / financial
+  "quarterly results", "fiscal year", "earnings", "dividend",
+  "shareholder", "investor relations", "nasdaq", "annual report",
+];
+
+/** True when an item is from a non-marine product line or is corporate news. */
+export function isNonMarine(text: string): string | null {
+  const t = text.toLowerCase();
+  return NON_MARINE_VETO_KEYWORDS.find((k) => t.includes(k)) ?? null;
+}
+
 /** Weighted scoring keywords — signals purchase intent and content value. */
 const SCORING_KEYWORDS: Record<string, number> = {
   // Strong technical comparison signals (3-4 pts)
@@ -419,8 +453,17 @@ async function fetchRedditPosts(): Promise<FeedItem[]> {
 
 // ── Relevance gate ──────────────────────────────────────────────────────────
 
-function passesRelevanceGate(item: FeedItem): boolean {
+export function passesRelevanceGate(item: FeedItem): boolean {
   const text = `${item.title} ${item.summary ?? ""}`.toLowerCase();
+
+  // Veto wins over any keyword match: a non-marine product line mentioning
+  // "garmin", "gps" or "radar" must not reach the scriptwriter.
+  const veto = isNonMarine(text);
+  if (veto) {
+    console.log(`[wc:topicDiscovery] vetoed (non-marine: "${veto}"): ${item.title.slice(0, 80)}`);
+    return false;
+  }
+
   return RELEVANCE_GATE_KEYWORDS.some((kw) => text.includes(kw));
 }
 

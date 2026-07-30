@@ -6,6 +6,7 @@ import {
   disconnect,
   withAdvisoryLock,
   withRetry,
+  quarantinedVideoIds,
   env,
   voiceover,
   videoAssembly,
@@ -130,8 +131,17 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
     // ── Check for stuck videos that can be resumed ────────────────────
 
     const resumableStatuses = Object.keys(RESUME_FROM) as VideoStatus[];
+    // Quarantined jobs are excluded explicitly as well as by status, so
+    // restoring a row's status by hand cannot silently re-arm it.
+    const quarantined = await quarantinedVideoIds();
+    if (quarantined.length > 0) {
+      console.log(`[pipeline] ${quarantined.length} quarantined job(s) excluded from resume`);
+    }
     const stuckVideo = await prisma.video.findFirst({
-      where: { status: { in: resumableStatuses } },
+      where: {
+        status: { in: resumableStatuses },
+        id: { notIn: quarantined.length ? quarantined : ["__none__"] },
+      },
       include: { topic: true },
       orderBy: { updatedAt: "asc" }, // oldest stuck video first
     });

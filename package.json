@@ -14,10 +14,16 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "pipeline": "tsx src/pipeline.ts",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:generate": "prisma generate && prisma generate --schema=packages/monitor/prisma/schema.prisma",
+    "db:push": "node scripts/prisma-guard.mjs db push",
+    "db:migrate": "node scripts/prisma-guard.mjs migrate dev",
+    "db:studio": "prisma studio",
+    "db:deploy": "node scripts/prisma-guard.mjs migrate deploy",
+    "db:validate": "prisma validate --schema=packages/monitor/prisma/schema.prisma && prisma validate --schema=prisma/schema.prisma",
+    "db:check-migrations": "node scripts/check-migrations.mjs",
+    "test": "tsx --test tests/*.test.ts",
+    "test:unit": "tsx --test tests/prisma-guard.test.ts tests/check-migrations.test.ts tests/pipeline-logic.test.ts",
+    "test:youtube": "node scripts/with-railway-youtube.mjs yt-pipeline -- tsx --test tests/integration.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

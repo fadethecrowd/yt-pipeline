@@ -4,7 +4,12 @@ import { createReadStream, existsSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { google } from "googleapis";
-import { prisma, env, prepareUpload, confirmUploadState } from "@yt-pipeline/pipeline-core";
+import {
+  prisma, env, prepareUpload, confirmUploadState,
+  readManifest, readAlignments, buildLongformCaptions, buildShortsCaptions,
+  resolveHookWindow, validateHookWindow, HookAlignmentError,
+  TITLE_CARD_DURATION,
+} from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
 
 const execFile = promisify(execFileCb);
@@ -16,7 +21,6 @@ const HOOK_DURATION_SECS = 2.5;
 const SHORT_MAX_SECS = 55;
 const MIN_SHORT_SECS = 30;
 const SHORT_CAPTION_FONT_SIZE = 72;
-const SHORT_WORDS_PER_CAPTION = 5;
 const NUM_VISUAL_CLIPS = 3;
 
 // ── Bikini hook ───────────────────────────────────────────────────────────
@@ -109,77 +113,6 @@ async function tryPrepareHookClip(
   }
 }
 
-async function tryPrependBikiniHook(
-  shortPath: string,
-  tmpDir: string,
-  pexelsApiKey: string,
-): Promise<boolean> {
-  let hookUrl: string | null = null;
-  for (const kw of BIKINI_KEYWORDS) {
-    try {
-      hookUrl = await searchPexelsHook(kw, pexelsApiKey);
-    } catch (err) {
-      console.warn(`[wc:shorts] Pexels hook search failed for keyword "${kw}": ${err instanceof Error ? err.message : err}`);
-    }
-    if (hookUrl) break;
-  }
-  if (!hookUrl) return false;
-
-  const rawHookPath = join(tmpDir, "hook-raw.mp4");
-  const hookReadyPath = join(tmpDir, "hook-ready.mp4");
-  const combinedPath = join(tmpDir, "combined.mp4");
-
-  try {
-    const dlRes = await fetch(hookUrl);
-    if (!dlRes.ok) {
-      console.warn(`[wc:shorts] Hook clip download failed: HTTP ${dlRes.status} for ${hookUrl}`);
-      return false;
-    }
-    await writeFile(rawHookPath, Buffer.from(await dlRes.arrayBuffer()));
-
-    // crop/scale to 1080x1920, trim to HOOK_DURATION_SECS, use voiceover audio if available
-    const hookAudioPath = join(tmpDir, "hook-audio.aac");
-    const hasHookAudio = existsSync(hookAudioPath);
-    const hookAudioInput: string[] = hasHookAudio
-      ? ["-i", hookAudioPath]
-      : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"];
-    await execFile(FFMPEG, [
-      "-y", "-loglevel", "error",
-      "-i", rawHookPath,
-      ...hookAudioInput,
-      "-t", String(HOOK_DURATION_SECS),
-      "-vf", "crop=ih*9/16:ih,scale=1080:1920,setsar=1,format=yuv420p",
-      "-r", "30",
-      "-c:v", "libx264", "-preset", "fast",
-      "-c:a", "aac", "-b:a", "128k",
-      "-map", "0:v", "-map", "1:a",
-      hookReadyPath,
-    ], { maxBuffer: 50 * 1024 * 1024 });
-
-    // concat hook + main short
-    await execFile(FFMPEG, [
-      "-y", "-loglevel", "error",
-      "-i", hookReadyPath,
-      "-i", shortPath,
-      "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]",
-      "-map", "[outv]",
-      "-map", "[outa]",
-      "-c:v", "libx264", "-preset", "fast",
-      "-c:a", "aac", "-b:a", "128k",
-      "-movflags", "+faststart",
-      combinedPath,
-    ], { maxBuffer: 50 * 1024 * 1024 });
-
-    await rename(combinedPath, shortPath);
-    return true;
-  } catch (err) {
-    console.warn(
-      `[wc:shorts] Hook clip processing failed: ${err instanceof Error ? err.message : err}`,
-    );
-    return false;
-  }
-}
-
 // ── Fresh Pexels clips for visual track ──────────────────────────────────
 
 async function searchPexelsMulti(
@@ -207,88 +140,19 @@ async function searchPexelsMulti(
   return links;
 }
 
-// ── Sentence-boundary duration trim ──────────────────────────────────────
-
-function trimToSentenceBoundary(text: string, rawDuration: number): number {
-  if (rawDuration <= SHORT_MAX_SECS) return rawDuration;
-
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .filter((s) => s.trim().length > 0);
-  if (sentences.length <= 1) return Math.min(rawDuration, SHORT_MAX_SECS);
-
-  const totalChars = sentences.reduce((sum, s) => sum + s.length, 0);
-  let charsSoFar = 0;
-  let bestEnd = 0;
-
-  for (const sentence of sentences) {
-    charsSoFar += sentence.length;
-    const estimatedEnd = (charsSoFar / totalChars) * rawDuration;
-    if (estimatedEnd <= SHORT_MAX_SECS) {
-      bestEnd = estimatedEnd;
-    } else {
-      break;
-    }
-  }
-
-  // If no good sentence boundary found above MIN_SHORT_SECS, hard-cap instead
-  if (bestEnd >= MIN_SHORT_SECS) return bestEnd;
-  return Math.min(rawDuration, SHORT_MAX_SECS);
-}
+// The former trimToSentenceBoundary() estimated a sentence boundary by
+// character proportion of an estimated duration. The clip window is now
+// resolved against real word timings by resolveHookWindow(), which snaps to
+// actual sentence-ending words, so the estimator has been removed.
 
 // ── Shorts ASS captions ───────────────────────────────────────────────────
 
-function formatASSTime(totalSeconds: number): string {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = Math.floor(totalSeconds % 60);
-  const cs = Math.round((totalSeconds % 1) * 100);
-  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
-}
-
-function generateShortsASS(
-  text: string,
-  totalDuration: number,
-  fontSize: number,
-  timeOffset = 0,
-): string {
-  const header = [
-    "[Script Info]",
-    "ScriptType: v4.00+",
-    "PlayResX: 1080",
-    "PlayResY: 1920",
-    "",
-    "[V4+ Styles]",
-    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Default,Arial,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,1,2,60,60,300,1`,
-    "",
-    "[Events]",
-    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-  ].join("\n");
-
-  const words = text.trim().split(/\s+/);
-  const chunks: string[] = [];
-  for (let i = 0; i < words.length; i += SHORT_WORDS_PER_CAPTION) {
-    chunks.push(words.slice(i, i + SHORT_WORDS_PER_CAPTION).join(" "));
-  }
-
-  const chunkDur = totalDuration / Math.max(chunks.length, 1);
-  const lines: string[] = [];
-  for (let i = 0; i < chunks.length; i++) {
-    const s = timeOffset + i * chunkDur;
-    const e = timeOffset + (i + 1) * chunkDur;
-    // A negative timeOffset (bikini-hook path) shifts cues earlier; cues
-    // that end at/before 0 cover words spoken under the hook clip (which
-    // has no captions burned) and are dropped. The cue straddling 0 is
-    // clamped — formatASSTime can't represent negative timestamps.
-    if (e <= 0) continue;
-    lines.push(
-      `Dialogue: 0,${formatASSTime(Math.max(0, s))},${formatASSTime(e)},Default,,0,0,0,,${chunks[i]}`,
-    );
-  }
-
-  return header + "\n" + lines.join("\n") + "\n";
-}
+// The former generateShortsASS() lived here. It divided the hook text into
+// fixed 5-word chunks of equal duration (totalDuration / chunkCount), which
+// ignored pauses and speech-rate variation and drifted exactly the way the
+// long-form path used to. It has been removed rather than deprecated so it
+// cannot be selected again by accident; Shorts captions are now built by
+// buildShortsCaptions() from the narration manifest's real word timings.
 
 function escapeASSPath(p: string): string {
   return p
@@ -372,21 +236,49 @@ export async function wcShortsGenerator(
     return { success: true, durationMs: Date.now() - start };
   }
 
-  const startSec = parseTimestamp(hook.startTime);
-  const endSec = parseTimestamp(hook.endTime);
-  const rawDuration = endSec - startSec;
-
-  if (rawDuration <= 0 || rawDuration > 120) {
-    console.warn(
-      `[wc:shortsGenerator] Invalid duration ${rawDuration}s — skipping`,
-    );
+  // ── Resolve the clip window from the FINAL audio ─────────────────────
+  //
+  // hookSegment's timestamps come from the script's estimated
+  // duration_seconds, which never matches the real narration. Locate the hook
+  // text in the actual spoken words instead and snap the window to word
+  // boundaries. If it cannot be aligned we skip the Short — we never fall back
+  // to a words-per-minute estimate.
+  const audioDir = join(process.cwd(), "audio", ctx.video.id);
+  const manifest = await readManifest(audioDir);
+  if (!manifest) {
+    console.warn("[wc:shortsGenerator] No narration manifest — cannot align hook, skipping Short");
     return { success: true, durationMs: Date.now() - start };
   }
 
-  const trimDuration = trimToSentenceBoundary(hook.text ?? "", rawDuration);
+  const alignments = await readAlignments(manifest);
+  const allCaptions = buildLongformCaptions(
+    alignments,
+    manifest.segments.map((s) => s.offsetS),
+    TITLE_CARD_DURATION,
+  );
+
+  let window;
+  try {
+    window = resolveHookWindow({
+      words: allCaptions.words,
+      hookText: hook.text ?? "",
+      maxDurationS: SHORT_MAX_SECS,
+      minDurationS: MIN_SHORT_SECS,
+    });
+    validateHookWindow(window, allCaptions.words);
+  } catch (err) {
+    if (err instanceof HookAlignmentError) {
+      console.warn(`[wc:shortsGenerator] ${err.message} — skipping Short (no estimated fallback)`);
+      return { success: true, durationMs: Date.now() - start };
+    }
+    throw err;
+  }
+
+  const startSec = window.startS;
+  const trimDuration = window.durationS;
   console.log(
-    `[wc:shorts] Selected end timestamp=${(startSec + trimDuration).toFixed(1)}s` +
-      ` (trimDuration=${trimDuration.toFixed(1)}s, raw=${rawDuration.toFixed(1)}s)`,
+    `[wc:shorts] Hook window from final audio: ${window.startS.toFixed(2)}s–${window.endS.toFixed(2)}s ` +
+      `(${trimDuration.toFixed(2)}s, ${window.words.length} words, match ${(window.matchRatio * 100).toFixed(0)}%)`,
   );
 
   const tmpDir = join(process.cwd(), "tmp", `short-${ctx.video.id}`);
@@ -506,19 +398,23 @@ export async function wcShortsGenerator(
 
     // ── 4. Generate mobile-optimised captions ──────────────────────────
 
-    console.log(`[wc:shorts] Caption font size=${SHORT_CAPTION_FONT_SIZE}`);
     const assPath = join(tmpDir, "captions.ass");
-    // Captions are burned into the MAIN short, which in the final concat
-    // starts at absolute t=hookOffset and whose audio is seeked by
-    // -ss hookOffset (step 5) — main-local time t carries voiceover time
-    // t + hookOffset. Caption chunk i covers voiceover [i·d, (i+1)·d], so
-    // cues must shift EARLIER by hookOffset (negative offset; cues fully
-    // inside the hook window are dropped by generateShortsASS). A positive
-    // shift here double-counts the hook and lags every caption by
-    // 2×HOOK_DURATION_SECS. hookOffset=0 (hook off) is unaffected.
-    await writeFile(
-      assPath,
-      generateShortsASS(hook.text ?? "", trimDuration, SHORT_CAPTION_FONT_SIZE, -hookOffset),
+    // Captions are burned into the MAIN short. In the final concat the main
+    // short begins at absolute t=hookOffset, and its audio is seeked by
+    // -ss hookOffset (step 5), so main-local time t carries narration time
+    // window.startS + hookOffset + t. buildShortsCaptions re-bases the real
+    // word timings onto that local timeline, so the hook offset is applied
+    // exactly once and the cues keep the pauses the speaker actually took.
+    const shortCaptions = buildShortsCaptions(
+      allCaptions.words,
+      window.startS + hookOffset,
+      window.endS,
+      0,
+    );
+    await writeFile(assPath, shortCaptions.ass);
+    console.log(
+      `[wc:shorts] ${shortCaptions.cues.length} caption cues from real word timings ` +
+        `(first ${shortCaptions.firstCueStart.toFixed(2)}s, last ends ${shortCaptions.lastCueEnd.toFixed(2)}s, hookOffset ${hookOffset}s)`,
     );
 
     // ── 5. Combine visual + captions + audio → short.mp4 ──────────────

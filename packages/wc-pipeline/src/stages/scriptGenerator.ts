@@ -1,7 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { VideoStatus } from "@prisma/client";
-import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
+import { ScriptFailureType } from "@prisma/client";
+import {
+  prisma, env, createMessage,
+  classifyModelResponse, promptHash, recordScriptFailure, priorAttemptsForPrompt,
+} from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 
 // ── Zod schema for Claude's JSON output ────────────────────────────────────
@@ -13,6 +17,16 @@ const segmentSchema = z.object({
   visual_prompt: z.string().min(1),
   duration_seconds: z.number().positive(),
 });
+
+/** Structured decline the system prompt invites instead of prose. */
+const declineSchema = z.object({
+  declined: z.literal(true),
+  reason: z.enum(["OFF_TOPIC", "THIN_SOURCE"]),
+  explanation: z.string().default(""),
+});
+
+/** Identical prompts are not retried past this many recorded failures. */
+const MAX_ATTEMPTS_PER_PROMPT = 2;
 
 const scriptSchema = z.object({
   hook: z.string().min(1),
@@ -159,17 +173,30 @@ Respond ONLY with valid JSON matching this exact structure:
 }
 
 The estimatedTotalDuration should be 360-480 (6-8 minutes).
-Total narration word count across hook + all segments + CTA should be 900-1100 words.`;
+Total narration word count across hook + all segments + CTA should be 900-1100 words.
+
+IF YOU CANNOT WRITE THE SCRIPT:
+Some topics reaching you are not marine electronics at all — Garmin's press
+feed also carries aviation, automotive, motorsport and fitness news — and some
+source material is too thin to write from without inventing specs. Both are
+correct reasons to decline.
+
+When that happens do NOT write prose explaining yourself. Respond with exactly
+this JSON instead, so the pipeline can classify it:
+{
+  "declined": true,
+  "reason": "OFF_TOPIC" | "THIN_SOURCE",
+  "explanation": "one sentence"
+}
+
+Never invent specs, prices or model numbers to work around a thin source.
+Never stretch an off-topic product into a marine angle.`;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function parseJSON(text: string): unknown {
-  let raw = text.trim();
-  if (raw.startsWith("```")) {
-    raw = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  }
-  return JSON.parse(raw);
-}
+// parseJSON() was removed: parsing is now preceded by classifyModelResponse(),
+// which recognises refusals, scope objections, thin-source declines and
+// truncation before any JSON.parse is attempted.
 
 // ── Hook/CTA folding ────────────────────────────────────────────────────────
 //
@@ -237,7 +264,7 @@ export async function generateScript(
   anthropic: Anthropic,
   ctx: PipelineContext,
   feedback?: string,
-): Promise<{ script?: Script; error?: string }> {
+): Promise<{ script?: Script; error?: string; failureType?: ScriptFailureType }> {
   const pillar = extractPillar(ctx.topic);
   const systemPrompt = buildSystemPrompt(pillar);
 
@@ -263,32 +290,70 @@ export async function generateScript(
   }
 
   const userPrompt = parts.filter(Boolean).join("\n");
+  const hash = promptHash(systemPrompt, userPrompt);
 
-  const message = await createMessage(anthropic, {
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  // Retrying an identical prompt that already produced a refusal or a scope
+  // objection just spends another Anthropic call to get the same answer.
+  const priorAttempts = await priorAttemptsForPrompt(hash);
+  if (priorAttempts >= MAX_ATTEMPTS_PER_PROMPT) {
+    const err = `Prompt already failed ${priorAttempts}x — not retrying identical request. Replace the topic.`;
+    return { error: err, failureType: "OFF_TOPIC" as ScriptFailureType };
+  }
+
+  const recordAndReturn = async (
+    failureType: Exclude<ScriptFailureType, "VALID">,
+    detail: string,
+  ) => {
+    await recordScriptFailure({
+      channel: "wet-circuit",
+      videoId: ctx.video?.id ?? null,
+      topicId: ctx.topic?.id ?? null,
+      topicTitle: ctx.topic?.title ?? null,
+      pillar,
+      failureType,
+      detail,
+      promptHash: hash,
+      attempt: priorAttempts + 1,
+    });
+    return { error: `${failureType}: ${detail.slice(0, 300)}`, failureType };
+  };
+
+  let message;
+  try {
+    message = await createMessage(anthropic, {
+      model: "claude-sonnet-4-6",
+      max_tokens: 8192,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+  } catch (e) {
+    return recordAndReturn("API_ERROR", e instanceof Error ? e.message : String(e));
+  }
 
   const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    return { error: "No text in Claude response" };
+  const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
+
+  // Classify BEFORE parsing — a refusal must never reach JSON.parse.
+  const classified = classifyModelResponse(text, (message as any).stop_reason);
+  if (classified.type !== "VALID") {
+    return recordAndReturn(classified.type, classified.detail);
   }
 
-  let parsed: unknown;
-  try {
-    parsed = parseJSON(textBlock.text);
-  } catch {
-    return { error: `Invalid JSON from Claude: ${textBlock.text.slice(0, 200)}` };
+  // Structured decline (the escape hatch the system prompt offers).
+  const asDecline = declineSchema.safeParse(classified.json);
+  if (asDecline.success && asDecline.data.declined) {
+    return recordAndReturn(
+      asDecline.data.reason,
+      `Model declined via structured response: ${asDecline.data.explanation}`,
+    );
   }
 
-  const validation = scriptSchema.safeParse(parsed);
+  const validation = scriptSchema.safeParse(classified.json);
   if (!validation.success) {
     const issues = validation.error.issues
       .map((i) => `${i.path.join(".")}: ${i.message}`)
       .join("; ");
-    return { error: `Script validation failed: ${issues}` };
+    return recordAndReturn("SCHEMA_INVALID", issues);
   }
 
   return { script: foldHookAndCtaIntoSegments(validation.data) };

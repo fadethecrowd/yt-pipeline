@@ -543,3 +543,65 @@ model CircuitBreakerEvent {
   @@index([channel, createdAt])
   @@map("circuit_breaker_event")
 }
+
+// ── Operational safety: quarantine + script failure classification ────────
+
+/// Explicit, reversible quarantine for jobs that must never be auto-resumed.
+///
+/// The pipeline's resume logic selects videos by status, so a stale row in a
+/// resumable status is picked up on the next restart. Quarantining records the
+/// original status here and moves the row to a non-resumable status; restoring
+/// is a matter of writing `originalStatus` back and setting `releasedAt`.
+model JobQuarantine {
+  id             String    @id @default(cuid())
+  channel        String
+  videoId        String
+  table          String
+  originalStatus String
+  newStatus      String
+  reason         String
+  operator       String
+  actionSource   String
+  releasedAt     DateTime?
+  releasedBy     String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([videoId, releasedAt])
+  @@index([channel, createdAt])
+  @@map("job_quarantine")
+}
+
+/// How a script-generation attempt failed.
+///
+/// A model declining to write a script is a legitimate, correct outcome — most
+/// often because topic discovery surfaced something out of scope. It must be
+/// recorded as a refusal, never parsed as a script and never retried verbatim.
+enum ScriptFailureType {
+  VALID
+  MODEL_REFUSAL
+  OFF_TOPIC
+  THIN_SOURCE
+  TRUNCATED_JSON
+  MALFORMED_JSON
+  EMPTY_RESPONSE
+  SCHEMA_INVALID
+  API_ERROR
+}
+
+model ScriptGenerationFailure {
+  id          String            @id @default(cuid())
+  channel     String
+  videoId     String?
+  topicId     String?
+  topicTitle  String?
+  pillar      String?
+  failureType ScriptFailureType
+  detail      String
+  promptHash  String
+  attempt     Int               @default(1)
+  createdAt   DateTime          @default(now())
+
+  @@index([channel, createdAt])
+  @@index([failureType])
+  @@map("script_generation_failure")
+}
