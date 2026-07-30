@@ -1,6 +1,6 @@
 import { videos, snapshots } from "./lib/channelDb";
 import { youtube, youtubeAnalytics } from "./lib/youtube";
-import { liveVideoWhere } from "./lib/queries";
+import { liveVideoWhereExcludingQuarantined } from "./lib/queries";
 import { parseIsoDurationSeconds, isShortVideo, videoTypeLabel } from "./lib/videoType";
 import type { VideoMetrics } from "./lib/types";
 
@@ -252,7 +252,7 @@ async function fetchChannelReach(
 export async function pollVideoMetrics(): Promise<VideoMetrics[]> {
   const videoRows = await videos.findMany({
     where: {
-      ...liveVideoWhere,
+      ...(await liveVideoWhereExcludingQuarantined()),
       // Only poll videos that have already published (scheduledAt in the past or null)
       OR: [
         { scheduledAt: { lte: new Date() } },
