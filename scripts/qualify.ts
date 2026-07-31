@@ -174,9 +174,15 @@ async function findOrCreateRow(spec: AssetSpec) {
         update: {},
       });
 
-  const existing = repo.isWc
-    ? await prisma.wcVideo.findFirst({ where: { topicId: topic.id, failReason: { contains: marker } }, orderBy: { createdAt: "desc" } })
-    : await prisma.video.findFirst({ where: { topicId: topic.id, failReason: { contains: marker } }, orderBy: { createdAt: "desc" } });
+  // Match on the topic, NOT on a marker inside failReason: quarantineJob
+  // rewrites failReason, which previously destroyed the marker and caused a
+  // second row — and therefore a second, unnecessary ElevenLabs charge — to be
+  // created on the next run. Prefer a row that already has narration.
+  const candidates = repo.isWc
+    ? await prisma.wcVideo.findMany({ where: { topicId: topic.id }, orderBy: { createdAt: "desc" } })
+    : await prisma.video.findMany({ where: { topicId: topic.id }, orderBy: { createdAt: "desc" } });
+  const existing =
+    candidates.find((c) => c.voiceoverPath && c.scriptJson) ?? candidates[0];
   if (existing) return { topic, video: existing, reused: true };
 
   const video = repo.isWc
