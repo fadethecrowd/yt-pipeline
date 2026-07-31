@@ -126,7 +126,7 @@ export type { RuntimeRange, RuntimeCheck, Format } from "./lib/runtimeTargets";
 // ── Visual beats & brand guard ────────────────────────────────────────────
 export {
   planVisualBeats, planSegmentBeats, summarizeBeats, minimumBeatsFor,
-  BEAT_TARGET_S, BEAT_MIN_S, BEAT_MAX_S,
+  BEAT_TARGET_S, BEAT_MIN_S, BEAT_MAX_S, MIN_FRAGMENT_S,
 } from "./lib/visualBeats";
 export type { VisualBeat, BeatPlanSummary } from "./lib/visualBeats";
 export {
@@ -134,6 +134,19 @@ export {
   narrationMentionsBrand, isHighBrandRiskFootage,
 } from "./lib/brandGuard";
 export type { BrandCheck, BrandDecision } from "./lib/brandGuard";
+
+// ── Pre-TTS visual feasibility gate ───────────────────────────────────────
+export {
+  assessVisualFeasibility, assertVisuallyFeasible, planPreliminaryBeats,
+  feasibilityQueries, pexelsOnlySource, formatFeasibility,
+  withVisualFeasibilityGate, VisualFeasibilityError,
+  MAX_CARD_SHARE, POOL_SAFETY_FACTOR, DURATION_SAFETY_FACTOR,
+  MAX_CONCEPT_SHARE, MIN_DISTINCT_CONCEPTS,
+} from "./lib/visualFeasibility";
+export type {
+  FeasibilityInput, FeasibilityDeps, FeasibilityReport, FeasibilityCheck,
+  OutlineSegment, PredictedBeat,
+} from "./lib/visualFeasibility";
 
 // ── Immutable approved artifact ───────────────────────────────────────────
 export {

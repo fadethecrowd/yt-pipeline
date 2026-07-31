@@ -123,6 +123,33 @@ describe("brand relevance guard", () => {
     assert.equal(narrationMentionsBrand(hbm, "volkswagen"), false);
   });
 
+  test("brand names that are ordinary words need corroborating context", () => {
+    // "arm" is a chip designer AND the part of a robot that moves. Matching the
+    // bare token rejected "industrial robot arm on an assembly line", which is
+    // the single most useful shot for any robotics topic.
+    const robot = checkBrandFromMetadata(
+      "industrial robot arm on an assembly line", "factory automation",
+      "Warehouse robots now navigate without a fixed map.",
+    );
+    assert.equal(robot.visibleBrandDetected, false, "a robot arm is not Arm Holdings");
+    assert.equal(brandAdmits(robot), true);
+
+    // The company itself, named as such, is still caught.
+    const holdings = checkBrandFromMetadata(
+      "arm cortex processor die shot", "chip design",
+      "Warehouse robots now navigate without a fixed map.",
+    );
+    assert.equal(holdings.visibleBrandDetected, true);
+    assert.equal(brandAdmits(holdings), false, "unrelated Arm branding is still rejected");
+
+    // Same treatment for the other everyday-word brands.
+    const aim = checkBrandFromMetadata(
+      "a camera target on a calibration board", "computer vision",
+      "Vision systems are calibrated before deployment.",
+    );
+    assert.equal(aim.visibleBrandDetected, false, "a calibration target is not the retailer");
+  });
+
   test("industrial aerials are flagged as brand-risk for frame inspection", () => {
     // The Volkswagen clip was described only as an industrial aerial — its
     // metadata carried no brand hint at all, so it must be flagged for the

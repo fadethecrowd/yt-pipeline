@@ -19,6 +19,60 @@ export const BEAT_TARGET_S = 19;
 export const BEAT_MIN_S = 8;
 /** Hard ceiling for ordinary stock footage. Exceeding this fails QA. */
 export const BEAT_MAX_S = 30;
+/**
+ * Shortest usable fragment of a beat. A beat may be covered by several
+ * consecutive fragments, each from a different asset; below this length a cut
+ * reads as a flash rather than a shot.
+ *
+ * Assembly and the pre-TTS feasibility gate must agree on this number — the
+ * gate predicts how many unique assets assembly will need, and that prediction
+ * is only meaningful if both use the same minimum fragment.
+ */
+export const MIN_FRAGMENT_S = 6;
+
+/**
+ * Decide how much of a source clip to use for the unfilled part of a beat.
+ *
+ * Returns null when this source cannot be used here — the caller should try a
+ * different asset rather than accept a bad fit.
+ *
+ * The rule that matters is the third case. Taking as much as the source allows
+ * can leave a remainder too short to be its own fragment: a beat with 8.6s left
+ * and an 8.0s clip leaves 0.6s, which is not enough for another shot and
+ * therefore became a 0.6-SECOND BRANDED CARD. The HBM qualification asset
+ * carried ten of these — two thirds of its fallback cards were sub-six-second
+ * slivers produced by arithmetic, not by any shortage of footage.
+ *
+ * The previous implementation tried to avoid exactly this and was defeated by
+ * its own final clamp: it set `useDur = remaining` to close the beat, then
+ * immediately clamped back to the source duration, restoring the sliver. When
+ * a source genuinely cannot close the beat, the fix is to take LESS from it and
+ * leave a remainder that a further unique asset can fill.
+ */
+export function fitFragment(
+  remainingS: number,
+  sourceDurationS: number,
+): { useS: number } | null {
+  const cap = Math.min(remainingS, sourceDurationS, BEAT_MAX_S);
+  if (cap < MIN_FRAGMENT_S) return null;
+
+  const leftover = remainingS - cap;
+  // Exact fit, or a remainder another fragment can cover.
+  if (leftover <= 0.01 || leftover >= MIN_FRAGMENT_S) return { useS: cap };
+
+  // The source is long enough to close the beat outright.
+  if (sourceDurationS >= remainingS && remainingS <= BEAT_MAX_S) {
+    return { useS: remainingS };
+  }
+
+  // It is not. Take less, so what is left is a usable fragment rather than a
+  // sliver. Never loop, never freeze, never stretch to cover the difference.
+  const reduced = remainingS - MIN_FRAGMENT_S;
+  if (reduced >= MIN_FRAGMENT_S) return { useS: reduced };
+
+  // Nothing this source can do here without leaving a sliver.
+  return null;
+}
 
 export interface VisualBeat {
   index: number;

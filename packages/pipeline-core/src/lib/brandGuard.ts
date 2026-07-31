@@ -43,6 +43,34 @@ const KNOWN_BRANDS = [
 ];
 
 /**
+ * Brand names that are also ordinary English words. Matching these on the bare
+ * token rejects footage that has nothing to do with the company: "industrial
+ * robot arm on an assembly line" was being rejected as Arm Holdings branding,
+ * which would starve every robotics topic of its most obvious B-roll. Each of
+ * these only counts as branding when the surrounding text corroborates it.
+ */
+const AMBIGUOUS_BRANDS: Record<string, string[]> = {
+  arm: ["arm holdings", "arm cortex", "arm chip", "arm processor", "arm architecture",
+        "arm-based", "arm server", "arm cpu"],
+  target: ["target store", "target retail", "target corporation", "target warehouse",
+           "target distribution", "target shopping"],
+  meta: ["meta platforms", "meta ai", "meta quest", "facebook", "instagram", "metaverse"],
+  apple: ["apple inc", "apple store", "apple silicon", "apple iphone", "apple mac",
+          "apple computer", "apple watch"],
+  orange: ["orange telecom", "orange mobile"],
+};
+
+/**
+ * True when an ambiguous token appears in a context that genuinely reads as
+ * the company rather than the everyday word.
+ */
+function ambiguousBrandConfirmed(brand: string, haystack: string): boolean {
+  const contexts = AMBIGUOUS_BRANDS[brand];
+  if (!contexts) return true; // not ambiguous — the bare token is enough
+  return contexts.some((c) => haystack.includes(c));
+}
+
+/**
  * Facility signage: "<ProperNoun> <Place|Plant|Works>". Matched on the
  * ORIGINAL text and requiring a capitalised leading token, so ordinary
  * descriptions like "modern semiconductor manufacturing facility" are not
@@ -98,7 +126,9 @@ export function checkBrandFromMetadata(
 ): BrandCheck {
   const haystack = norm(`${text} ${query}`);
 
-  const hit = KNOWN_BRANDS.find((b) => haystack.includes(` ${b.trim()} `));
+  const hit = KNOWN_BRANDS.find(
+    (b) => haystack.includes(` ${b.trim()} `) && ambiguousBrandConfirmed(b.trim(), haystack),
+  );
   const facilityMatch = FACILITY_PATTERN.exec(text);
   const facility =
     facilityMatch && !GENERIC_FACILITY_WORDS.has(facilityMatch[1].toLowerCase())

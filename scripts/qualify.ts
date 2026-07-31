@@ -29,6 +29,7 @@ import {
   runtimeRange, CHARS_PER_SECOND, TITLE_CARD_S,
   sha256File, sha256Manifest, storeApproval, verifyApproved,
   BEAT_MAX_S,
+  assessVisualFeasibility, pexelsOnlySource, formatFeasibility,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
@@ -46,6 +47,11 @@ interface AssetSpec {
   summary: string;
   /** For Shorts: the long-form asset whose narration is reused. */
   derivedFrom?: string;
+  /**
+   * Set when an asset has been withdrawn from active qualification. Running it
+   * is refused; the record and every artifact are preserved.
+   */
+  withdrawn?: string;
 }
 
 // ── The six Phase 6 assets ────────────────────────────────────────────────
@@ -69,6 +75,32 @@ export const ASSETS: AssetSpec[] = [
       + "priced out of training runs, cloud providers ration capacity, and memory vendors capture a growing share of the "
       + "value that used to accrue to chip designers. Concrete, visual subject matter: wafers, memory stacks, cleanrooms, "
       + "packaging lines, data-centre buildouts.",
+    withdrawn:
+      "VISUAL_SOURCE_INCOMPATIBLE_WITH_CURRENT_LIBRARY — audio, captions and content all PASS, but Pexels "
+      + "carries too little distinct HBM / wafer / packaging / semiconductor-production footage to cover the "
+      + "runtime. Replaced by ai1r. Script, narration, generation IDs, all V1–V4 renders, scene manifests, "
+      + "QA records and hashes are preserved; see scripts/record-hbm-disposition.ts.",
+  },
+  {
+    // Replacement for the withdrawn ai1. Selected by scripts/screen-topics.ts:
+    // the only one of three candidates to pass every pre-TTS feasibility check
+    // against the current Pexels-only library — 218 accepted unique assets,
+    // 3,335 usable seconds for a 351s timeline, 0% predicted fallback cards,
+    // five distinct visual categories, largest concept 37%.
+    key: "ai1r",
+    channel: "ai-doom-scroll",
+    format: "LONGFORM",
+    targetS: 355, // 5:55 — inside the 5:30–6:15 target and the 5:00–8:00 range
+    topicTitle: "The Camera Above the Aisle Is Now Watching You",
+    topicUrl: "https://qualification.local/ai-doom/computer-vision-retail-surveillance",
+    summary:
+      "Computer vision has turned retail and warehouse CCTV from a recording device into an analytics "
+      + "system. Shrink detection, queue management, dwell-time tracking, self-checkout monitoring and "
+      + "worker productivity measurement now run on the same cameras that used to just record. "
+      + "Consequences: consent and regulation questions, false-positive accusations against shoppers, "
+      + "and workplace surveillance of staff. Concrete visuals: security cameras, CCTV monitors, "
+      + "retail stores, checkout areas, control rooms, object detection overlays, warehouse cameras, "
+      + "packing stations.",
   },
   {
     key: "ai2",
@@ -233,7 +265,10 @@ function validateScript(s: Script, targetChars: number, channel: ChannelKey): st
 async function main() {
   if (process.argv.includes("--list")) {
     for (const a of ASSETS) {
-      console.log(`  ${a.key.padEnd(9)} ${a.channel.padEnd(15)} ${a.format.padEnd(9)} target ${fmtRuntime(a.targetS)}  "${a.topicTitle}"`);
+      console.log(
+        `  ${a.key.padEnd(9)} ${a.channel.padEnd(15)} ${a.format.padEnd(9)} target ${fmtRuntime(a.targetS)}  ` +
+        `"${a.topicTitle}"${a.withdrawn ? "  [WITHDRAWN]" : ""}`,
+      );
     }
     await disconnect();
     return;
@@ -243,6 +278,9 @@ async function main() {
   const noUpload = process.argv.includes("--no-upload");
   const spec = ASSETS.find((a) => a.key === key);
   if (!spec) fail(`unknown asset "${key}" — try --list`);
+  if (spec.withdrawn) {
+    fail(`asset "${key}" is withdrawn from active qualification.\n    ${spec.withdrawn}`);
+  }
 
   const stage = currentTestStage();
   if (stage !== "QUALIFICATION") fail(`TEST_STAGE is ${stage}, expected QUALIFICATION`);
@@ -292,6 +330,48 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
     console.log(`  script : ${script!.segments.length} segments, ${scriptChars(script!)} chars — validated`);
   } else {
     console.log(`  script : reusing stored script (${scriptChars(script)} chars)`);
+  }
+
+  // ── 1b. Visual feasibility — BEFORE any ElevenLabs call ─────────────
+  //
+  // Qualification asset ai1 was narrated, rendered, and only then found to be
+  // unillustratable from the configured library: 38.5% of its timeline fell
+  // back to cards because Pexels has almost no HBM, wafer or packaging
+  // footage. That cost 7,071 credits to discover. The question is now asked
+  // while it is still free to answer.
+  //
+  // Narration already bought is not re-gated — the credits are spent either
+  // way, and blocking a resumed render would strand a paid-for asset.
+  const alreadyNarrated = Boolean((video as { voiceoverPath?: string }).voiceoverPath);
+  if (!alreadyNarrated) {
+    const feas = await assessVisualFeasibility(
+      {
+        channel: spec.channel,
+        topicTitle: spec.topicTitle,
+        targetRuntimeS: spec.targetS,
+        segments: script!.segments.map((s) => ({
+          segmentIndex: s.segmentIndex,
+          title: s.title,
+          narration: s.narration,
+          visual_prompt: s.visual_prompt,
+        })),
+      },
+      pexelsOnlySource(env().PEXELS_API_KEY),
+    );
+    console.log(`\n${formatFeasibility(feas)}\n`);
+    await writeFile(
+      join(process.cwd(), "output", `feasibility-${spec.key}.json`),
+      JSON.stringify(feas, null, 2),
+    ).catch(() => {});
+
+    if (!feas.pass) {
+      fail(
+        `visual feasibility FAILED — no narration purchased, zero credits spent.\n    ${feas.failureReason}`,
+      );
+    }
+    console.log(`  feasibility: PASS — safe to purchase narration`);
+  } else {
+    console.log(`  feasibility: skipped — narration already purchased for this row`);
   }
 
   // ── 2. Narration (idempotent) ───────────────────────────────────────

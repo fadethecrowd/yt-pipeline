@@ -13,7 +13,7 @@ import {
   validateCandidateMeta, validateDownloadedClip, writeCardTextFile,
 } from "../lib/visuals";
 import { scoreRelevance, VisualPlan, buildSearchQueries } from "../lib/visualRelevance";
-import { planVisualBeats, summarizeBeats, minimumBeatsFor, BEAT_MAX_S } from "../lib/visualBeats";
+import { planVisualBeats, summarizeBeats, minimumBeatsFor, BEAT_MAX_S, MIN_FRAGMENT_S, fitFragment } from "../lib/visualBeats";
 import type { VisualBeat } from "../lib/visualBeats";
 import { checkBrandFromMetadata, brandAdmits, isHighBrandRiskFootage } from "../lib/brandGuard";
 import type { BrandCheck } from "../lib/brandGuard";
@@ -136,9 +136,6 @@ async function gatherCandidates(
  * reversing, ping-ponging, replaying, speed-changing or frame-freezing is used
  * to stretch footage.
  */
-/** Shortest usable fragment — below this a cut reads as a flash. */
-const MIN_FRAGMENT_S = 6;
-
 /**
  * Fill one visual beat with one or more consecutive UNIQUE clips.
  *
@@ -220,14 +217,15 @@ async function renderBeat(
     const srcDur = await videoDuration(rawPath).catch(() => 0);
     if (srcDur < MIN_FRAGMENT_S) continue;
 
-    // Use as much of this clip as the beat still needs, capped by the source.
-    let useDur = Math.min(remaining, srcDur, BEAT_MAX_S);
-    // Never leave an unusable sliver behind.
-    if (remaining - useDur > 0 && remaining - useDur < MIN_FRAGMENT_S) {
-      useDur = Math.min(remaining, srcDur);
-      if (remaining - useDur > 0 && remaining - useDur < MIN_FRAGMENT_S) useDur = remaining;
+    // Use as much of this clip as the beat still needs, without leaving a
+    // remainder too short to be a fragment. A source that cannot fit here is
+    // skipped in favour of another asset rather than producing a sliver card.
+    const fit = fitFragment(remaining, srcDur);
+    if (!fit) {
+      console.log(`[${label}] beat ${beat.index}.${fragment}: skip ${c.assetId} — ${srcDur.toFixed(1)}s source cannot fill ${remaining.toFixed(1)}s without leaving a sliver`);
+      continue;
     }
-    if (useDur > srcDur) useDur = srcDur;
+    const useDur = fit.useS;
 
     const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
     await ff(
