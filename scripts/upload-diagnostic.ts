@@ -33,10 +33,9 @@ function titleFor(channel: ChannelKey): string {
 const DESCRIPTION = [
   "PRIVATE DIAGNOSTIC RENDER — not for publication.",
   "",
-  "Stage-1 pipeline verification asset. Contains deliberate spoken timing",
-  "markers near the beginning, middle and end so caption alignment can be",
-  "checked at three points, plus a fast section, a slow section and pauses of",
-  "differing lengths.",
+  "Stage-1 pipeline verification asset. Caption/audio synchronisation is",
+  "measured at three natural anchor sentences near the beginning, middle and",
+  "end; the script also varies pace and pause length deliberately.",
   "",
   "This video is not channel content and must remain private.",
 ].join("\n");
