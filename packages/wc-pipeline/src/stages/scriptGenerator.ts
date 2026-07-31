@@ -153,9 +153,37 @@ STRUCTURE:
 SEGMENT COUNT: 5-7 segments`,
 };
 
+/**
+ * Target runtime for the script being written.
+ *
+ * The historical instruction asked for 6-8 minutes / 900-1100 words, but the
+ * nine published Wet Circuit videos run 3:42-5:20 — the target has never been
+ * met. Qualification and production runs set TARGET_RUNTIME_SECONDS so the
+ * requested length matches what the channel actually publishes.
+ */
+function lengthInstruction(): string {
+  const t = Number(process.env.TARGET_RUNTIME_SECONDS ?? 0);
+  if (!t) {
+    return "The estimatedTotalDuration should be 360-480 (6-8 minutes).\n"
+      + "Total narration word count across hook + all segments + CTA should be 900-1100 words.";
+  }
+  // Measured from the approved diagnostic: 15.02 spoken characters per second.
+  const chars = Math.round((t - 4) * 15.02);
+  const words = Math.round(chars / 6.1);
+  const segments = Math.max(4, Math.min(7, Math.round((t - 4) / 55)));
+  const perSegment = Math.round(words / segments);
+  return `The estimatedTotalDuration should be about ${Math.round(t)} seconds.\n\n`
+    + `LENGTH BUDGET — this is a hard budget, not a suggestion:\n`
+    + `- Write exactly ${segments} segments.\n`
+    + `- Each segment's narration must be approximately ${perSegment} words (±15%).\n`
+    + `- TOTAL narration across hook + all ${segments} segments + CTA must be ${words} words (${chars} characters).\n`
+    + `- Do NOT exceed ${Math.round(words * 1.2)} words in total. Going long is a failure, not thoroughness.\n`
+    + `- Count as you write. Stop when the budget is met.`;
+}
+
 // ── JSON response format ────────────────────────────────────────────────────
 
-const JSON_FORMAT = `
+function jsonFormat(): string { return `
 Respond ONLY with valid JSON matching this exact structure:
 {
   "hook": "attention-grabbing opening narration (10-15 seconds spoken)",
@@ -172,8 +200,7 @@ Respond ONLY with valid JSON matching this exact structure:
   "estimatedTotalDuration": 420
 }
 
-The estimatedTotalDuration should be 360-480 (6-8 minutes).
-Total narration word count across hook + all segments + CTA should be 900-1100 words.
+${lengthInstruction()}
 
 IF YOU CANNOT WRITE THE SCRIPT:
 Some topics reaching you are not marine electronics at all — Garmin's press
@@ -190,7 +217,7 @@ this JSON instead, so the pipeline can classify it:
 }
 
 Never invent specs, prices or model numbers to work around a thin source.
-Never stretch an off-topic product into a marine angle.`;
+Never stretch an off-topic product into a marine angle.`; }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -251,7 +278,7 @@ function extractPillar(topic: PipelineContext["topic"]): Pillar {
 }
 
 function buildSystemPrompt(pillar: Pillar): string {
-  return `${VOICE}\n\n${PILLAR_TEMPLATES[pillar]}\n${JSON_FORMAT}`;
+  return `${VOICE}\n\n${PILLAR_TEMPLATES[pillar]}\n${jsonFormat()}`;
 }
 
 // ── Script generation ───────────────────────────────────────────────────────

@@ -4,6 +4,31 @@ import { VideoStatus } from "@prisma/client";
 import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 
+/**
+ * Target runtime for the script being written. Defaults to the channel's
+ * historical 3-6 minute instruction; qualification and production runs set
+ * TARGET_RUNTIME_SECONDS so the script is actually long enough for the
+ * channel's real published length (median 5:50, up to 7:53).
+ */
+function lengthInstruction(): string {
+  const t = Number(process.env.TARGET_RUNTIME_SECONDS ?? 0);
+  if (!t) return "3-6 minutes";
+  const mins = (t / 60).toFixed(1);
+  // Measured from the approved diagnostic: 12.86 spoken characters per second.
+  const chars = Math.round((t - 4) * 12.86);
+  const words = Math.round(chars / 6.1);
+  const segments = Math.max(4, Math.min(6, Math.round((t - 4) / 75)));
+  const perSegment = Math.round(words / segments);
+  return `${mins} minutes.
+
+LENGTH BUDGET — this is a hard budget, not a suggestion:
+- Write exactly ${segments} body segments.
+- Each segment's narration must be approximately ${perSegment} words (±15%).
+- TOTAL narration across hook + all ${segments} segments + CTA must be ${words} words (${chars} characters).
+- Do NOT exceed ${Math.round(words * 1.2)} words in total. Going long is a failure, not thoroughness.
+- Count as you write. Stop when the budget is met`;
+}
+
 const TITLE_CARD_OFFSET = 4; // seconds — matches videoAssembly title card duration
 
 // ── Zod schema for Claude's JSON output ────────────────────────────────────
@@ -25,7 +50,7 @@ const scriptSchema = z.object({
 
 // ── System prompt ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a YouTube scriptwriter for an AI/tech news channel.
+function systemPrompt(): string { return `You are a YouTube scriptwriter for an AI/tech news channel.
 You write punchy, engaging scripts optimized for viewer retention.
 
 RULES:
@@ -35,7 +60,7 @@ RULES:
 - Visual prompts describe what the viewer sees on screen (b-roll, graphics, text overlays)
 - Each segment should be 30-90 seconds
 - The CTA should encourage likes, subscribes, and comments
-- Total video length: 3-6 minutes
+- Total video length: ${lengthInstruction()}
 
 Respond ONLY with valid JSON matching this exact structure:
 {
@@ -51,7 +76,7 @@ Respond ONLY with valid JSON matching this exact structure:
   ],
   "cta": "closing call to action narration",
   "estimatedTotalDuration": 240
-}`;
+}`; }
 
 function parseJSON(text: string): unknown {
   let raw = text.trim();
@@ -126,7 +151,7 @@ async function generateScript(
   const message = await createMessage(anthropic, {
     model: "claude-sonnet-4-6",
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt(),
     messages: [{ role: "user", content: userPrompt }],
   });
 
