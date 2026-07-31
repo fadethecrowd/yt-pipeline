@@ -27,6 +27,8 @@ import {
   budgetReport, setBudgetLimit, breakerStatus, quarantineJob,
   checkRuntime, charsForRuntime, fmtRuntime, extractFrame,
   runtimeRange, CHARS_PER_SECOND, TITLE_CARD_S,
+  sha256File, sha256Manifest, storeApproval, verifyApproved,
+  BEAT_MAX_S,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
@@ -358,8 +360,43 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
   console.log(`  video    : ${out.videoPath}`);
   console.log(`  frames   : ${framesDir}`);
 
+  // ── Immutable approval ──────────────────────────────────────────────
+  const manifest = out.beats.map((b) => ({
+    index: b.index, startS: b.startS, endS: b.endS, durationS: b.durationS,
+    assetId: b.assetId, assetDescription: b.assetDescription,
+    looped: b.looped, reused: b.reused,
+    relevanceScore: b.relevanceScore, concept: b.concept,
+    brandDecision: b.brand.brandDecision, decision: b.decision,
+  }));
+  const fileSha256 = await sha256File(out.videoPath);
+  const manifestSha256 = sha256Manifest(manifest);
+  await storeApproval({
+    videoId: video.id, filePath: out.videoPath, fileSha256, manifestSha256,
+    manifest, qaRecordId: qaId, approvedAt: new Date().toISOString(),
+  });
+
+  console.log(`\n── visual timeline (${manifest.length} beats) ──`);
+  for (const b of manifest) {
+    console.log(
+      `  ${String(b.index).padStart(2)} ${fmtRuntime(TITLE_CARD_S + b.startS)}–${fmtRuntime(TITLE_CARD_S + b.endS)} ` +
+      `(${b.durationS.toFixed(1)}s) ${b.assetId ?? "CARD"} [${b.relevanceScore?.toFixed(2) ?? "-"} ${b.concept}] ` +
+      `brand=${b.brandDecision} "${(b.assetDescription ?? "").slice(0, 46)}"`,
+    );
+  }
+  const durs = manifest.map((b) => b.durationS);
+  console.log(
+    `  beats=${manifest.length} avg=${(durs.reduce((a, b) => a + b, 0) / durs.length).toFixed(1)}s ` +
+    `max=${Math.max(...durs).toFixed(1)}s (cap ${BEAT_MAX_S}s) cards=${manifest.filter((b) => b.decision === "FALLBACK_CARD").length} ` +
+    `looped=${manifest.filter((b) => b.looped).length} reused=${manifest.filter((b) => b.reused).length}`,
+  );
+  console.log(`\n  approved file sha256    : ${fileSha256}`);
+  console.log(`  approved manifest sha256: ${manifestSha256}`);
+
   if (qa.overall !== "PASS") fail("automated QA did not pass — not uploading");
-  if (!noUpload) await upload(spec, video.id, out.videoPath, qaId);
+  if (!noUpload) {
+    await verifyApproved({ filePath: out.videoPath, fileSha256, manifestSha256, manifest });
+    await upload(spec, video.id, out.videoPath, qaId, fileSha256);
+  }
 
   await disconnect();
 }
@@ -372,7 +409,20 @@ async function runShort(spec: AssetSpec, noUpload: boolean) {
   void noUpload;
 }
 
-async function upload(spec: AssetSpec, videoId: string, videoPath: string, qaId: string) {
+/**
+ * Upload an ALREADY-APPROVED artifact.
+ *
+ * This function performs no script generation, no ElevenLabs call, no visual
+ * search or selection, no assembly, no caption rendering and no thumbnail
+ * work. It sends the exact file whose hash was approved, or it fails closed.
+ */
+async function upload(
+  spec: AssetSpec, videoId: string, videoPath: string, qaId: string, fileSha256: string,
+) {
+  const actual = await sha256File(videoPath);
+  if (actual !== fileSha256) {
+    fail(`artifact changed since approval — expected ${fileSha256.slice(0, 16)}… got ${actual.slice(0, 16)}…`);
+  }
   const repo = repoFor(spec.channel);
   const row = await repo.getVideo(videoId);
   if (isRealYoutubeId(row?.youtubeId)) fail(`already uploaded as ${row!.youtubeId}`);

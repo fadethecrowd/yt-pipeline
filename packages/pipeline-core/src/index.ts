@@ -123,6 +123,24 @@ export {
 } from "./lib/runtimeTargets";
 export type { RuntimeRange, RuntimeCheck, Format } from "./lib/runtimeTargets";
 
+// ── Visual beats & brand guard ────────────────────────────────────────────
+export {
+  planVisualBeats, planSegmentBeats, summarizeBeats, minimumBeatsFor,
+  BEAT_TARGET_S, BEAT_MIN_S, BEAT_MAX_S,
+} from "./lib/visualBeats";
+export type { VisualBeat, BeatPlanSummary } from "./lib/visualBeats";
+export {
+  checkBrandFromMetadata, brandCheckFromFrameInspection, brandAdmits,
+  narrationMentionsBrand, isHighBrandRiskFootage,
+} from "./lib/brandGuard";
+export type { BrandCheck, BrandDecision } from "./lib/brandGuard";
+
+// ── Immutable approved artifact ───────────────────────────────────────────
+export {
+  sha256File, sha256Manifest, storeApproval, verifyApproved, ArtifactMismatchError,
+} from "./lib/approvedArtifact";
+export type { ApprovedArtifact, SceneManifestEntry } from "./lib/approvedArtifact";
+
 // ── QA ────────────────────────────────────────────────────────────────────
 export {
   runQa, persistQa, formatQa, measureCaptionOffsets,

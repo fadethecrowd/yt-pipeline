@@ -13,6 +13,12 @@ import {
   validateCandidateMeta, validateDownloadedClip, writeCardTextFile,
 } from "../lib/visuals";
 import { scoreRelevance, VisualPlan, buildSearchQueries } from "../lib/visualRelevance";
+import { planVisualBeats, summarizeBeats, minimumBeatsFor, BEAT_MAX_S } from "../lib/visualBeats";
+import type { VisualBeat } from "../lib/visualBeats";
+import { checkBrandFromMetadata, brandAdmits, isHighBrandRiskFootage } from "../lib/brandGuard";
+import type { BrandCheck } from "../lib/brandGuard";
+import { wordsFromAlignment } from "../lib/captions";
+import type { Candidate } from "../lib/visuals";
 import { readAlignments, readManifest } from "./voiceoverShared";
 import type { NarrationManifest } from "./voiceoverShared";
 import type { PipelineContext, ScriptSegment, StageResult } from "../types";
@@ -33,6 +39,9 @@ export const DURATION_TOLERANCE = 0.75;
 
 /** Bounded retrieval — never loop indefinitely looking for a usable clip. */
 const MAX_CANDIDATES = 12;
+
+/** Candidates pooled per segment; beats draw unique assets from this pool. */
+const CANDIDATE_POOL = 40;
 
 function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "'\\''");
@@ -63,6 +72,7 @@ export interface AssemblyOutcome {
   narrationDurationS: number;
   captions: BuiltCaptions;
   manifest: NarrationManifest;
+  beats: RenderedBeat[];
 }
 
 /**
@@ -71,71 +81,97 @@ export interface AssemblyOutcome {
  * candidates have been tried and rejected — and the rejection reason is
  * recorded rather than silently swallowed.
  */
-async function prepareSegmentClip(
+/** One rendered visual beat, with full provenance for the QA timeline. */
+export interface RenderedBeat {
+  index: number;
+  startS: number;
+  endS: number;
+  durationS: number;
+  narration: string;
+  assetId: string | null;
+  assetDescription: string | null;
+  assetUrl: string | null;
+  sourceStartS: number;
+  sourceEndS: number;
+  looped: false;
+  reused: false;
+  relevanceScore: number | null;
+  concept: string | null;
+  brand: BrandCheck;
+  decision: "RENDERED" | "FALLBACK_CARD";
+  clipPath: string;
+}
+
+/**
+ * Build a pooled, de-duplicated candidate list for a segment.
+ *
+ * Beats need many unique assets, so candidates are gathered once per segment
+ * across several queries rather than re-searched per beat.
+ */
+async function gatherCandidates(
   seg: ScriptSegment,
-  sceneNumber: number,
-  segStart: number,
-  segDuration: number,
+  channel: "ai-doom-scroll" | "wet-circuit",
+  pexelsKey: string,
+  label: string,
+): Promise<Candidate[]> {
+  const queries = buildSearchQueries(seg.visual_prompt, seg.title, channel);
+  const seen = new Set<string>();
+  const pool: Candidate[] = [];
+  for (const q of queries) {
+    for (const c of await searchPexelsCandidates(q, pexelsKey, { perPage: 20 })) {
+      if (!seen.has(c.assetId)) { seen.add(c.assetId); pool.push(c); }
+    }
+    if (pool.length >= CANDIDATE_POOL) break;
+  }
+  console.log(`[${label}] segment ${seg.segmentIndex}: pooled ${pool.length} candidates from ${queries.length} queries`);
+  return pool;
+}
+
+/**
+ * Render one visual beat.
+ *
+ * A clip is CUT to the beat length, never looped. If the source is shorter
+ * than the beat it is rejected here and a different asset is tried; when
+ * nothing suitable remains the caller falls back to a branded card. No
+ * reversing, ping-ponging, replaying, speed-changing or frame-freezing is used
+ * to stretch footage.
+ */
+async function renderBeat(
+  beat: VisualBeat,
+  seg: ScriptSegment,
+  pool: Candidate[],
   ledger: AssetLedger,
   plan: VisualPlan,
   tmpDir: string,
-  clipPath: string,
   deps: AssemblyDeps,
   videoId: string,
-  pexelsKey: string,
-): Promise<void> {
+): Promise<RenderedBeat> {
   const { label, channel } = deps;
+  const clipPath = join(tmpDir, `beat-${beat.index}.mp4`);
   const base = {
-    channel, videoId, sceneNumber,
-    narration: seg.narration,
-    startTimeS: segStart,
-    endTimeS: segStart + segDuration,
+    channel, videoId, sceneNumber: beat.index,
+    narration: beat.narration,
+    startTimeS: TITLE_CARD_DURATION + beat.startS,
+    endTimeS: TITLE_CARD_DURATION + beat.endS,
     prompt: seg.visual_prompt,
   };
 
-  // Bounded retrieval: a few distinct queries, then give up cleanly. Never an
-  // unbounded loop.
-  const queries = buildSearchQueries(
-    seg.visual_prompt, seg.title, deps.channel as "ai-doom-scroll" | "wet-circuit",
-  );
-  console.log(`[${label}] scene ${sceneNumber}: queries ${queries.map((q) => `"${q}"`).join(", ")}`);
-  const seen = new Set<string>();
-  let candidates: typeof queries extends never ? never : Awaited<ReturnType<typeof searchPexelsCandidates>> = [];
-  for (const q of queries) {
-    for (const c of await searchPexelsCandidates(q, pexelsKey)) {
-      if (!seen.has(c.assetId)) { seen.add(c.assetId); candidates.push(c); }
-    }
-    if (candidates.length >= MAX_CANDIDATES) break;
-  }
+  const scored = pool
+    .filter((c) => ledger.isAvailable(c.assetId))
+    .map((c) => ({
+      c,
+      r: scoreRelevance({
+        channel: channel as "ai-doom-scroll" | "wet-circuit",
+        narration: beat.narration,
+        prompt: seg.visual_prompt,
+        description: c.description ?? "",
+      }),
+    }))
+    .sort((a, b) => b.r.score - a.r.score);
 
-  // Rank by semantic relevance to the narration before anything is downloaded,
-  // so the first technically-valid clip is no longer automatically the winner.
-  const scored = candidates.map((c) => ({
-    c,
-    r: scoreRelevance({
-      channel: deps.channel as "ai-doom-scroll" | "wet-circuit",
-      narration: seg.narration,
-      prompt: seg.visual_prompt,
-      description: c.description ?? "",
-    }),
-  }));
-  scored.sort((a, b) => b.r.score - a.r.score);
-
-  // Ordered selection: relevance threshold first, then ranking, then the
-  // composition rules — which are relaxed rather than allowed to force a
-  // less relevant asset onto the timeline.
   const ranked = scored.map((x) => ({ candidate: x.c, relevance: x.r }));
-
-  for (const x of scored) {
-    if (x.r.verdict === "REJECT") {
-      console.log(
-        `[${label}] scene ${sceneNumber}: reject ${x.c.assetId} "${x.c.description}" — ${x.r.reasons.join("; ")}`,
-      );
-    }
-  }
-
-  // Try candidates in selection order, validating each technically before use.
   const tried = new Set<string>();
+
   for (let attempt = 0; attempt < MAX_CANDIDATES; attempt++) {
     const pick = plan.selectCandidate(
       ranked.filter((x) => !tried.has(x.candidate.assetId)),
@@ -146,95 +182,106 @@ async function prepareSegmentClip(
     const r = pick.relevance;
     tried.add(c.assetId);
 
-    if (pick.relaxed) {
-      console.log(
-        `[${label}] scene ${sceneNumber}: diversity relaxed to keep relevance — ${c.assetId} "${c.description}" [${r.verdict} ${r.score.toFixed(2)}]`,
-      );
-    }
-
-    const meta = validateCandidateMeta(c, segDuration);
-    if (!meta.ok) {
-      console.log(`[${label}] scene ${sceneNumber}: reject ${c.assetId} — ${meta.reason}`);
-      continue;
-    }
-
-    const rawPath = join(tmpDir, `raw-${sceneNumber}.mp4`);
-    try {
-      await downloadTo(c.url, rawPath);
-    } catch (e) {
-      console.warn(`[${label}] scene ${sceneNumber}: download failed — ${e}`);
-      continue;
-    }
-
-    const content = await validateDownloadedClip(rawPath, segDuration);
-    if (!content.ok) {
-      console.log(`[${label}] scene ${sceneNumber}: reject ${c.assetId} — ${content.reason}`);
+    // ── Visible-brand relevance, before download ──────────────────────
+    const brand = checkBrandFromMetadata(
+      `${c.description ?? ""} ${c.pageUrl ?? ""}`,
+      seg.visual_prompt,
+      beat.narration,
+    );
+    if (!brandAdmits(brand)) {
+      console.log(`[${label}] beat ${beat.index}: reject ${c.assetId} — ${brand.rejectionReason}`);
       await recordScene({
         ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
-        assetDescription: c.description, width: c.width, height: c.height, durationS: c.durationS,
-        relevanceScore: r.score, relevanceVerdict: r.verdict, relevanceReasons: r.reasons,
-        validation: "REJECT", rejectionReason: content.reason, renderStatus: "REJECTED",
+        assetDescription: c.description, relevanceScore: r.score, relevanceVerdict: r.verdict,
+        relevanceReasons: [...r.reasons, brand.rejectionReason ?? ""],
+        validation: "REJECT", rejectionReason: brand.rejectionReason, renderStatus: "REJECTED",
       });
       continue;
     }
 
-    const srcDur = await videoDuration(rawPath).catch(() => 0);
-    let input = rawPath;
-    if (srcDur > 0 && srcDur < segDuration) {
-      const looped = join(tmpDir, `looped-${sceneNumber}.mp4`);
-      await ffRaw(
-        ["-y", "-loglevel", "error",
-         "-stream_loop", String(Math.ceil(segDuration / srcDur)),
-         "-i", rawPath, "-t", String(segDuration),
-         "-c:v", "libx264", "-preset", "fast", "-an", looped],
-        label,
+    if (!validateCandidateMeta(c, beat.durationS).ok) continue;
+
+    // ── Source must COVER the beat — no looping to fill ───────────────
+    if (c.durationS > 0 && c.durationS < beat.durationS) {
+      console.log(
+        `[${label}] beat ${beat.index}: skip ${c.assetId} — source ${c.durationS}s shorter than beat ${beat.durationS.toFixed(1)}s (looping is forbidden)`,
       );
-      input = looped;
+      continue;
     }
 
+    const rawPath = join(tmpDir, `raw-${beat.index}.mp4`);
+    try {
+      await downloadTo(c.url, rawPath);
+    } catch { continue; }
+
+    const content = await validateDownloadedClip(rawPath, beat.durationS);
+    if (!content.ok) {
+      console.log(`[${label}] beat ${beat.index}: reject ${c.assetId} — ${content.reason}`);
+      continue;
+    }
+
+    const srcDur = await videoDuration(rawPath).catch(() => 0);
+    if (srcDur > 0 && srcDur < beat.durationS - 0.25) {
+      console.log(`[${label}] beat ${beat.index}: skip ${c.assetId} — decoded ${srcDur.toFixed(1)}s < beat`);
+      continue;
+    }
+
+    // Cut from the start of the source, trimmed to exactly the beat length.
     await ff(
-      ["-i", input, "-t", String(segDuration),
+      ["-i", rawPath, "-t", String(beat.durationS),
        "-vf", `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,format=yuv420p`,
        "-r", String(FPS), "-c:v", "libx264", "-preset", "fast", "-an", clipPath],
       label,
     );
 
-    const finalDur = await videoDuration(clipPath).catch(() => 0);
     ledger.claim(c.assetId);
     plan.claim(r);
     await recordScene({
       ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
-      assetDescription: c.description,
-      localPath: clipPath, width: c.width, height: c.height, durationS: finalDur,
-      cropMethod: "scale-increase+centre-crop",
-      relevanceScore: r.score, relevanceVerdict: r.verdict, relevanceReasons: r.reasons,
+      assetDescription: c.description, localPath: clipPath,
+      width: c.width, height: c.height, durationS: beat.durationS,
+      cropMethod: "scale-increase+centre-crop; cut (never looped)",
+      relevanceScore: r.score, relevanceVerdict: r.verdict,
+      relevanceReasons: [...r.reasons, `brand:${brand.brandDecision}`],
       validation: "PASS", renderStatus: "RENDERED",
     });
     console.log(
-      `[${label}] scene ${sceneNumber}: ${c.provider}:${c.assetId} "${c.description}" ` +
-        `${c.width}x${c.height} → ${finalDur.toFixed(2)}s [${r.verdict} ${r.score.toFixed(2)} ${r.concept}]`,
+      `[${label}] beat ${beat.index} (${beat.durationS.toFixed(1)}s): ${c.assetId} "${c.description}" [${r.verdict} ${r.score.toFixed(2)} ${r.concept}]${isHighBrandRiskFootage(c.description ?? "") ? " ⚠ brand-risk: inspect frame" : ""}`,
     );
-    return;
+    return {
+      index: beat.index, startS: beat.startS, endS: beat.endS, durationS: beat.durationS,
+      narration: beat.narration, assetId: c.assetId, assetDescription: c.description ?? null,
+      assetUrl: c.pageUrl ?? c.url, sourceStartS: 0, sourceEndS: beat.durationS,
+      looped: false, reused: false, relevanceScore: r.score, concept: r.concept,
+      brand, decision: "RENDERED", clipPath,
+    };
   }
 
-  // ── Fallback card ───────────────────────────────────────────────────
-  const titleFile = join(tmpDir, `card-${sceneNumber}.txt`);
+  // ── Branded, topic-specific card — preferred over repeated or unrelated footage ──
+  const titleFile = join(tmpDir, `card-${beat.index}.txt`);
   await writeCardTextFile(titleFile, seg.title);
   await ff(
-    ["-f", "lavfi", "-i", `color=c=#2d2d44:s=${WIDTH}x${HEIGHT}:d=${segDuration}:r=${FPS}`,
-     "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=40:fontcolor=white:x=(w-tw)/2:y=(h-th)/2`,
-     "-c:v", "libx264", "-preset", "fast", "-t", String(segDuration), clipPath],
+    ["-f", "lavfi", "-i", `color=c=#141428:s=${WIDTH}x${HEIGHT}:d=${beat.durationS}:r=${FPS}`,
+     "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=64:fontcolor=white:x=(w-tw)/2:y=(h-th)/2-40:line_spacing=14,`
+       + `drawtext=text='${deps.channel === "wet-circuit" ? "WET CIRCUIT" : "AI DOOM SCROLL"}':fontsize=30:fontcolor=0x8899ff:x=(w-tw)/2:y=h-140`,
+     "-c:v", "libx264", "-preset", "fast", "-t", String(beat.durationS), clipPath],
     label,
   );
   await recordScene({
-    ...base, assetSource: "fallback-card", localPath: clipPath,
-    width: WIDTH, height: HEIGHT, durationS: segDuration,
-    cropMethod: "n/a",
-    validation: "PASS",
-    rejectionReason: `no candidate passed validation (${candidates.length} tried)`,
+    ...base, assetSource: "branded-card", localPath: clipPath,
+    width: WIDTH, height: HEIGHT, durationS: beat.durationS,
+    validation: "PASS", rejectionReason: "no relevant unbranded clip long enough for this beat",
     renderStatus: "RENDERED_FALLBACK",
   });
-  console.warn(`[${label}] scene ${sceneNumber}: FELL BACK to card (${candidates.length} candidates rejected)`);
+  console.warn(`[${label}] beat ${beat.index}: branded card (no suitable clip)`);
+  return {
+    index: beat.index, startS: beat.startS, endS: beat.endS, durationS: beat.durationS,
+    narration: beat.narration, assetId: null, assetDescription: "branded card",
+    assetUrl: null, sourceStartS: 0, sourceEndS: beat.durationS,
+    looped: false, reused: false, relevanceScore: null, concept: "card",
+    brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
+    decision: "FALLBACK_CARD", clipPath,
+  };
 }
 
 /**
@@ -332,52 +379,80 @@ export async function runAssembly(
       `first ${captions.firstCueStart.toFixed(2)}s, last ends ${captions.lastCueEnd.toFixed(2)}s`,
   );
 
-  // ── 3. Per-segment clips, cut to exact audio durations ───────────────
+  // ── 3. Visual beats ──────────────────────────────────────────────────
+  //
+  // One clip per SEGMENT meant a 120s segment looped a 20s clip six times.
+  // Segments are split into 15-25s beats at real sentence boundaries, each
+  // taking its own unique asset, cut (never looped) to the beat length.
+  const segmentWords = alignments.map((a, i) =>
+    wordsFromAlignment(a, manifest!.segments[i].offsetS),
+  );
+  const beats = planVisualBeats(segmentWords);
+  const planSummary = summarizeBeats(beats);
+  const minBeats = minimumBeatsFor(narrationDurationS);
+  console.log(
+    `[${label}] visual plan: ${planSummary.count} beats, avg ${planSummary.averageS.toFixed(1)}s, ` +
+      `max ${planSummary.maxS.toFixed(1)}s, min ${planSummary.minS.toFixed(1)}s (floor for this runtime: ${minBeats})`,
+  );
+  if (planSummary.overCap.length > 0) {
+    return {
+      success: false,
+      error: `${planSummary.overCap.length} beat(s) exceed the ${BEAT_MAX_S}s cap`,
+      durationMs: Date.now() - start,
+    };
+  }
+
   const ledger = new AssetLedger(1);
   const plan = new VisualPlan();
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const m = manifest.segments[i];
-    const clipPath = join(tmpDir, `clip-${seg.segmentIndex}.mp4`);
-    try {
-      await prepareSegmentClip(
-        seg, i + 1, TITLE_CARD_DURATION + m.offsetS, m.durationS,
-        ledger, plan, tmpDir, clipPath, deps, ctx.video.id, config.PEXELS_API_KEY,
-      );
-    } catch (err) {
-      console.warn(`[${label}] scene ${i + 1}: ${err instanceof Error ? err.message : err}`);
-      const titleFile = join(tmpDir, `card-${i + 1}.txt`);
-      await writeCardTextFile(titleFile, seg.title);
-      await ff(
-        ["-f", "lavfi", "-i", `color=c=#2d2d44:s=${WIDTH}x${HEIGHT}:d=${m.durationS}:r=${FPS}`,
-         "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=40:fontcolor=white:x=(w-tw)/2:y=(h-th)/2`,
-         "-c:v", "libx264", "-preset", "fast", "-t", String(m.durationS), clipPath],
-        label,
-      );
-      await recordScene({
-        channel: deps.channel, videoId: ctx.video.id, sceneNumber: i + 1,
-        narration: seg.narration, startTimeS: TITLE_CARD_DURATION + m.offsetS,
-        endTimeS: TITLE_CARD_DURATION + m.offsetS + m.durationS,
-        prompt: seg.visual_prompt, assetSource: "fallback-card",
-        localPath: clipPath, validation: "PASS",
-        rejectionReason: `error: ${err instanceof Error ? err.message : err}`,
-        renderStatus: "RENDERED_FALLBACK",
-      });
-    }
-  }
-  if (ledger.duplicateCount > 0) {
-    console.warn(`[${label}] ${ledger.duplicateCount} duplicate visual asset(s) used`);
-  }
-  const composition = plan.summary();
-  console.log(
-    `[${label}] visual composition: ${composition.strongCount} strong, ` +
-      `${composition.genericCount} generic, concepts=[${composition.concepts.join(", ")}]`,
-  );
-  if (!composition.meetsMinimum) {
-    console.warn(
-      `[${label}] WARNING: only ${composition.strongCount} strongly on-topic visual(s) — minimum is 2`,
+  const rendered: RenderedBeat[] = [];
+
+  // Pool candidates once per segment; beats draw unique assets from it.
+  const pools = new Map<number, Candidate[]>();
+  for (const seg of segments) {
+    pools.set(
+      seg.segmentIndex,
+      await gatherCandidates(seg, deps.channel as "ai-doom-scroll" | "wet-circuit", config.PEXELS_API_KEY, label),
     );
   }
+
+  for (const beat of beats) {
+    const seg = segments[beat.segmentIndex] ?? segments[segments.length - 1];
+    let pool = pools.get(seg.segmentIndex) ?? [];
+    // Top up from other segments' pools if this one is exhausted.
+    if (pool.filter((c) => ledger.isAvailable(c.assetId)).length < 3) {
+      pool = [...pool, ...[...pools.values()].flat()];
+    }
+    rendered.push(
+      await renderBeat(beat, seg, pool, ledger, plan, tmpDir, deps, ctx.video.id),
+    );
+  }
+
+  // ── Pacing invariants ────────────────────────────────────────────────
+  const assetIds = rendered.map((b) => b.assetId).filter(Boolean) as string[];
+  const duplicates = assetIds.length - new Set(assetIds).size;
+  const overLong = rendered.filter((b) => b.durationS > BEAT_MAX_S + 0.5);
+  const looped = rendered.filter((b) => b.looped);
+  if (duplicates > 0 || overLong.length > 0 || looped.length > 0) {
+    return {
+      success: false,
+      error: `visual pacing violation: ${duplicates} duplicate asset(s), ${overLong.length} over ${BEAT_MAX_S}s, ${looped.length} looped`,
+      durationMs: Date.now() - start,
+    };
+  }
+  if (rendered.length < minBeats) {
+    return {
+      success: false,
+      error: `only ${rendered.length} visual beats for ${narrationDurationS.toFixed(0)}s narration (minimum ${minBeats})`,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  const composition = plan.summary();
+  const cards = rendered.filter((b) => b.decision === "FALLBACK_CARD").length;
+  console.log(
+    `[${label}] visuals: ${rendered.length} beats, ${assetIds.length} unique assets, ${cards} card(s), ` +
+      `${composition.strongCount} strong, ${composition.genericCount} generic, 0 looped, 0 reused`,
+  );
 
   // ── 4. Title card ────────────────────────────────────────────────────
   const titleTextFile = join(tmpDir, "title.txt");
@@ -394,7 +469,7 @@ export async function runAssembly(
   const concatFile = join(tmpDir, "concat.txt");
   await writeFile(
     concatFile,
-    [titlePath, ...segments.map((s) => join(tmpDir, `clip-${s.segmentIndex}.mp4`))]
+    [titlePath, ...rendered.map((b) => b.clipPath)]
       .map((p) => `file '${p}'`).join("\n"),
   );
   const concatPath = join(tmpDir, "concat.mp4");
@@ -461,6 +536,7 @@ export async function runAssembly(
       narrationDurationS,
       captions,
       manifest,
+      beats: rendered,
     },
     durationMs: Date.now() - start,
   };
@@ -476,3 +552,4 @@ export async function cleanupAssemblyTmp(videoId: string): Promise<void> {
 }
 
 export { mediaInfo, decodedDuration };
+export type { RenderedBeat as AssemblyBeat };
