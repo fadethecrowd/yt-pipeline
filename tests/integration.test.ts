@@ -21,7 +21,18 @@ import { breakerStatus } from "../packages/pipeline-core/src/lib/circuitBreaker"
 const QUARANTINED = ["cmn6fm5du0001oe0e5wsaiboi", "cmnc34ck1000hr20e3gduhwpv"];
 const hasYouTube = Boolean(process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_REFRESH_TOKEN);
 
-after(async () => { await disconnect(); });
+/**
+ * Budget mechanics are exercised against a channel that does not exist, never
+ * against a real one. These tests previously raised ai-doom-scroll/RETEST to
+ * 1,000 and left it there, so merely running the suite reopened a generation
+ * budget on a production channel.
+ */
+const SCRATCH = "__budget-test__";
+
+after(async () => {
+  await prisma.creditBudget.deleteMany({ where: { channel: SCRATCH } });
+  await disconnect();
+});
 
 describe("credit budget — production stays locked at zero", () => {
   test("PRODUCTION budget limit is zero on both channels", async () => {
@@ -44,23 +55,38 @@ describe("credit budget — production stays locked at zero", () => {
   });
 
   test("a reservation beyond a stage limit is refused", async () => {
-    await setBudgetLimit("ai-doom-scroll", "RETEST", 100);
+    await setBudgetLimit(SCRATCH, "RETEST", 100);
     await assert.rejects(
-      () => reserveCredits("ai-doom-scroll", "RETEST", 1_000_000),
+      () => reserveCredits(SCRATCH, "RETEST", 1_000_000),
       (e: unknown) => e instanceof BudgetExceededError,
     );
   });
 
   test("reserve then settle leaves the ledger balanced", async () => {
-    await setBudgetLimit("ai-doom-scroll", "RETEST", 1000);
+    await setBudgetLimit(SCRATCH, "RETEST", 1000);
     const before = await budgetReport();
-    const b0 = before.rows.find((r) => r.channel === "ai-doom-scroll" && r.stage === "RETEST")!;
-    await reserveCredits("ai-doom-scroll", "RETEST", 50);
-    await settleCredits("ai-doom-scroll", "RETEST", 50, 0); // released, nothing charged
+    const b0 = before.rows.find((r) => r.channel === SCRATCH && r.stage === "RETEST")!;
+    await reserveCredits(SCRATCH, "RETEST", 50);
+    await settleCredits(SCRATCH, "RETEST", 50, 0); // released, nothing charged
     const after = await budgetReport();
-    const b1 = after.rows.find((r) => r.channel === "ai-doom-scroll" && r.stage === "RETEST")!;
+    const b1 = after.rows.find((r) => r.channel === SCRATCH && r.stage === "RETEST")!;
     assert.equal(b1.reserved, b0.reserved, "reservation must be released");
     assert.equal(b1.charged, b0.charged, "nothing should have been charged");
+  });
+
+  test("no real channel budget has spendable headroom", async () => {
+    // The two tests above used to raise ai-doom-scroll/RETEST to 1,000 and
+    // leave it there, so running the suite silently reopened a generation
+    // budget on a production channel. They now use SCRATCH; this asserts the
+    // real ones stayed shut.
+    const rep = await budgetReport();
+    const open = rep.rows.filter(
+      (r) => r.channel !== SCRATCH && r.remaining > 0,
+    );
+    assert.deepEqual(
+      open.map((r) => `${r.channel}/${r.stage}=${r.remaining}`), [],
+      "running the test suite must never open a real channel's budget",
+    );
   });
 
   test("global target is 297,000", async () => {
