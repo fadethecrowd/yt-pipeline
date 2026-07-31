@@ -121,24 +121,35 @@ async function prepareSegmentClip(
   }));
   scored.sort((a, b) => b.r.score - a.r.score);
 
-  for (const { c, r } of scored.slice(0, MAX_CANDIDATES)) {
-    if (!ledger.isAvailable(c.assetId)) {
-      console.log(`[${label}] scene ${sceneNumber}: skip ${c.assetId} — already used`);
-      continue;
-    }
+  // Ordered selection: relevance threshold first, then ranking, then the
+  // composition rules — which are relaxed rather than allowed to force a
+  // less relevant asset onto the timeline.
+  const ranked = scored.map((x) => ({ candidate: x.c, relevance: x.r }));
 
-    const admitted = plan.admits(r);
-    if (!admitted.ok) {
+  for (const x of scored) {
+    if (x.r.verdict === "REJECT") {
       console.log(
-        `[${label}] scene ${sceneNumber}: reject ${c.assetId} "${c.description}" — ${admitted.reason}`,
+        `[${label}] scene ${sceneNumber}: reject ${x.c.assetId} "${x.c.description}" — ${x.r.reasons.join("; ")}`,
       );
-      await recordScene({
-        ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
-        assetDescription: c.description, width: c.width, height: c.height,
-        relevanceScore: r.score, relevanceVerdict: r.verdict, relevanceReasons: r.reasons,
-        validation: "REJECT", rejectionReason: admitted.reason, renderStatus: "REJECTED",
-      });
-      continue;
+    }
+  }
+
+  // Try candidates in selection order, validating each technically before use.
+  const tried = new Set<string>();
+  for (let attempt = 0; attempt < MAX_CANDIDATES; attempt++) {
+    const pick = plan.selectCandidate(
+      ranked.filter((x) => !tried.has(x.candidate.assetId)),
+      (c) => ledger.isAvailable(c.assetId),
+    );
+    if (!pick) break;
+    const c = pick.candidate;
+    const r = pick.relevance;
+    tried.add(c.assetId);
+
+    if (pick.relaxed) {
+      console.log(
+        `[${label}] scene ${sceneNumber}: diversity relaxed to keep relevance — ${c.assetId} "${c.description}" [${r.verdict} ${r.score.toFixed(2)}]`,
+      );
     }
 
     const meta = validateCandidateMeta(c, segDuration);
@@ -159,14 +170,14 @@ async function prepareSegmentClip(
     if (!content.ok) {
       console.log(`[${label}] scene ${sceneNumber}: reject ${c.assetId} — ${content.reason}`);
       await recordScene({
-        ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.url,
-        width: c.width, height: c.height, durationS: c.durationS,
+        ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
+        assetDescription: c.description, width: c.width, height: c.height, durationS: c.durationS,
+        relevanceScore: r.score, relevanceVerdict: r.verdict, relevanceReasons: r.reasons,
         validation: "REJECT", rejectionReason: content.reason, renderStatus: "REJECTED",
       });
       continue;
     }
 
-    // Loop if the source is shorter than the segment, then fit exactly.
     const srcDur = await videoDuration(rawPath).catch(() => 0);
     let input = rawPath;
     if (srcDur > 0 && srcDur < segDuration) {
@@ -189,12 +200,6 @@ async function prepareSegmentClip(
     );
 
     const finalDur = await videoDuration(clipPath).catch(() => 0);
-    if (Math.abs(finalDur - segDuration) > 0.5) {
-      console.warn(
-        `[${label}] scene ${sceneNumber}: fitted clip ${finalDur.toFixed(2)}s vs needed ${segDuration.toFixed(2)}s`,
-      );
-    }
-
     ledger.claim(c.assetId);
     plan.claim(r);
     await recordScene({

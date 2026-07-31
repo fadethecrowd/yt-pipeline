@@ -209,14 +209,23 @@ export function scoreRelevance(input: RelevanceInput): RelevanceResult {
   if (generic.length > 0) score -= 0.2 * Math.min(generic.length, 2);
   score = Math.max(0, Math.min(1, score));
 
+  // The hard relevance threshold is applied FIRST, before any generic
+  // classification. Previously the GENERIC branch was evaluated first, so
+  // "glowing electric sphere with energy pulses" scored 0.10 — far below the
+  // threshold — yet was labelled GENERIC rather than REJECT. GENERIC is
+  // admissible, so it took the single generic-asset slot and then blocked
+  // "futuristic circuit board with glowing microchip" (STRONG 0.66) from a
+  // later scene. Sub-threshold assets can no longer consume the allowance.
   let verdict: Verdict;
-  if (score >= 0.6) verdict = "STRONG";
-  else if (generic.length > 0 && score < 0.6) verdict = "GENERIC";
-  else if (score >= REJECT_THRESHOLD) verdict = "ACCEPTABLE";
-  else verdict = "REJECT";
-
-  if (verdict === "REJECT") {
+  if (score < REJECT_THRESHOLD) {
+    verdict = "REJECT";
     reasons.push(`relevance ${score.toFixed(2)} below ${REJECT_THRESHOLD} threshold`);
+  } else if (score >= 0.6) {
+    verdict = "STRONG";
+  } else if (generic.length > 0) {
+    verdict = "GENERIC";
+  } else {
+    verdict = "ACCEPTABLE";
   }
 
   // Terms like "code" and "data" appear in genuinely generic stock footage
@@ -240,6 +249,20 @@ const STYLE_WORDS = new Set([
   "modern", "high", "density", "detail", "while", "with", "and", "the", "a",
   "an", "of", "in", "on", "at", "to", "inside", "beside", "their", "its",
   "no", "text", "showing", "clearly", "rather", "than", "quiet", "still",
+]);
+
+/**
+ * Motion-graphics vocabulary. A scriptwriter uses these to describe an
+ * animation they picture; a stock-footage search treats them as the subject
+ * and returns design templates or nothing relevant at all.
+ */
+const GRAPHIC_WORDS = new Set([
+  "animated", "animation", "diagram", "infographic", "graphic", "graphics",
+  "chart", "bar", "pie", "graph", "timeline", "overlay", "split-screen",
+  "splitscreen", "split", "screen-recording", "screenrecording", "label",
+  "labels", "callout", "callouts", "title", "card", "render", "3d",
+  "cross-section", "crosssection", "map", "logos", "logo", "percentages",
+  "text", "showing", "shows", "cut", "then", "side", "left", "right",
 ]);
 
 /** Canonical stock-library queries for each subject concept. */
@@ -278,15 +301,34 @@ export function buildSearchQueries(
   title: string,
   channel: Channel,
 ): string[] {
-  const content = prompt
+  const queries: string[] = [];
+
+  // Scriptwriters describe motion graphics they imagine ("Animated diagram
+  // showing…", "Split-screen graphic:", "Infographic showing three logos",
+  // "Bar chart showing…"). Searching a stock library for those returns design
+  // templates and, worse, unrelated footage — this is how a drum player and a
+  // cultural parade became candidates for a memory-shortage video. Prefer the
+  // filmable B-roll the prompt names, and drop the graphic-design framing.
+  const broll = [...prompt.matchAll(/b-?roll of ([^.;]+)/gi)].map((m) => m[1]);
+  for (const b of broll) {
+    const cleaned = b
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !STYLE_WORDS.has(w) && !GRAPHIC_WORDS.has(w));
+    if (cleaned.length) queries.push(cleaned.slice(0, 4).join(" "));
+  }
+
+  // Strip any "Text overlay: '…'" instruction — the renderer burns no such text.
+  const withoutOverlay = prompt.replace(/text overlay:\s*'[^']*'/gi, " ");
+
+  const content = withoutOverlay
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 2 && !STYLE_WORDS.has(w));
+    .filter((w) => w.length > 2 && !STYLE_WORDS.has(w) && !GRAPHIC_WORDS.has(w));
 
-  const queries: string[] = [];
-
-  // Leading concrete subject — the first few content words.
+  // Leading concrete subject, once graphic-design vocabulary is removed.
   if (content.length) queries.push(content.slice(0, 4).join(" "));
   if (content.length > 2) queries.push(content.slice(0, 2).join(" "));
 
@@ -331,11 +373,21 @@ export class VisualPlan {
     return this.used.filter((u) => u.verdict === "STRONG").length;
   }
 
-  /** Whether this candidate may be used for the next scene. */
-  admits(r: RelevanceResult): { ok: boolean; reason?: string } {
+  /**
+   * Whether this candidate may be used for the next scene.
+   *
+   * `strict` applies the composition rules (generic cap, consecutive-concept
+   * diversity). Those are preferences, not correctness requirements — see
+   * `selectCandidate`, which retries without them rather than letting a
+   * diversity rule push the pipeline onto a less relevant asset.
+   */
+  admits(r: RelevanceResult, strict = true): { ok: boolean; reason?: string } {
+    // Relevance is never negotiable, in either pass.
     if (r.verdict === "REJECT") {
       return { ok: false, reason: r.reasons.join("; ") };
     }
+    if (!strict) return { ok: true };
+
     if (r.concept === "generic-abstract" && this.genericCount >= this.maxGeneric) {
       return { ok: false, reason: `already used ${this.genericCount} generic asset(s); cap is ${this.maxGeneric}` };
     }
@@ -348,6 +400,45 @@ export class VisualPlan {
 
   claim(r: RelevanceResult): void {
     this.used.push({ concept: r.concept, verdict: r.verdict });
+  }
+
+  /**
+   * Pick the best candidate for the next scene, in the required order:
+   *
+   *   1. sub-threshold candidates are already REJECT and cannot compete
+   *   2. remaining candidates are ranked by relevance (caller sorts)
+   *   3. STRICT pass — honour generic cap and consecutive-concept diversity
+   *   4. RELAXED pass — drop the diversity rules, keep the relevance
+   *      threshold, and prefer non-generic assets over generic ones
+   *   5. nothing relevant → null, so the caller renders a branded,
+   *      topic-specific fallback card rather than unrelated stock footage
+   *
+   * Diversity therefore shapes the result when it can, but never forces a
+   * less relevant or unrelated asset onto the timeline.
+   */
+  selectCandidate<T>(
+    ranked: { candidate: T; relevance: RelevanceResult }[],
+    isAvailable: (c: T) => boolean,
+  ): { candidate: T; relevance: RelevanceResult; relaxed: boolean } | null {
+    const usable = ranked.filter(
+      (x) => isAvailable(x.candidate) && x.relevance.verdict !== "REJECT",
+    );
+
+    for (const x of usable) {
+      if (this.admits(x.relevance, true).ok) {
+        return { candidate: x.candidate, relevance: x.relevance, relaxed: false };
+      }
+    }
+
+    // Relaxed: prefer any non-generic asset before falling back to generic.
+    const nonGeneric = usable.filter((x) => x.relevance.concept !== "generic-abstract");
+    for (const x of [...nonGeneric, ...usable]) {
+      if (this.admits(x.relevance, false).ok) {
+        return { candidate: x.candidate, relevance: x.relevance, relaxed: true };
+      }
+    }
+
+    return null;
   }
 
   /** Composition check for the finished video. */

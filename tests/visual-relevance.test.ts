@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   scoreRelevance, describeFromPexelsUrl, narrationIsAboutVoiceAI, VisualPlan,
+  buildSearchQueries,
 } from "../packages/pipeline-core/src/lib/visualRelevance";
 import {
   findDiagnosticMarkers, containsDiagnosticMarkers, extractSyncAnchors, locatePhrase,
@@ -197,10 +198,15 @@ describe("visual semantic relevance — AI Doom Scroll", () => {
     }
   });
 
-  test("generic abstract footage is marked GENERIC, not STRONG", () => {
+  test("generic abstract footage is never STRONG, and is rejected outright when weak", () => {
+    // Behaviour tightened after the Phase 6 ai1 failure: the relevance
+    // threshold is now applied BEFORE generic classification, so weak filler
+    // is REJECT rather than an admissible GENERIC that consumes the single
+    // generic slot. Anything still labelled GENERIC has cleared the threshold.
     const r = scoreRelevance({ ...base, description: "dynamic binary code flow in digital space" });
     assert.ok(["GENERIC", "REJECT"].includes(r.verdict), `got ${r.verdict}`);
-    assert.equal(r.concept, "generic-abstract");
+    assert.ok(r.score < 0.6, "generic filler must never reach STRONG");
+    if (r.verdict === "GENERIC") assert.equal(r.concept, "generic-abstract");
   });
 
   test("an asset with no description is rejected", () => {
@@ -251,5 +257,98 @@ describe("visual composition rules", () => {
     plan.claim(strong2);
     assert.equal(plan.summary().meetsMinimum, true);
     assert.equal(plan.summary().strongCount, 2);
+  });
+});
+
+// ── Selection-ordering regression (Phase 6 ai1 failure) ───────────────────
+
+describe("selection ordering — relevance threshold precedes composition rules", () => {
+  const narration =
+    "High bandwidth memory sits on the same package as the accelerator die. " +
+    "HBM stacks are the circulatory system of modern AI compute.";
+  const prompt = "3D render of HBM stacks bonded onto an accelerator die. B-roll of cleanroom wafer inspection.";
+  const score = (description: string) =>
+    scoreRelevance({ channel: "ai-doom-scroll", narration, prompt, description });
+
+  test("a sub-threshold generic asset is REJECT, not GENERIC", () => {
+    // Regression: this scored 0.10 and was labelled GENERIC, which is
+    // admissible, so it consumed the single generic slot and locked out a
+    // STRONG microchip clip in a later scene.
+    const r = score("glowing electric sphere with energy pulses");
+    assert.equal(r.verdict, "REJECT", `got ${r.verdict} ${r.score}`);
+    assert.ok(r.score < 0.25);
+  });
+
+  test("sub-threshold assets cannot consume the generic allowance", () => {
+    const plan = new VisualPlan(1, 2);
+    const junk = score("glowing electric sphere with energy pulses");
+    assert.equal(plan.admits(junk).ok, false);
+    assert.equal(plan.genericCount, 0, "a rejected asset must not occupy the generic slot");
+  });
+
+  test("an on-topic microchip clip outranks generic filler", () => {
+    const chip = score("futuristic circuit board with glowing microchip");
+    const junk = score("glowing electric sphere with energy pulses");
+    assert.ok(chip.score > junk.score);
+    assert.notEqual(chip.verdict, "REJECT");
+  });
+
+  test("diversity is relaxed rather than forcing a less relevant asset", () => {
+    const plan = new VisualPlan();
+    const strong = { score: 0.8, verdict: "STRONG" as const, reasons: [], concept: "compute" };
+    plan.claim(strong);
+    // Only a same-concept STRONG candidate remains; strict would refuse it.
+    const pick = plan.selectCandidate(
+      [{ candidate: "same-concept-strong", relevance: strong }],
+      () => true,
+    );
+    assert.ok(pick, "must still select rather than drop to unrelated footage");
+    assert.equal(pick!.relaxed, true, "should be flagged as a relaxed selection");
+  });
+
+  test("returns null when nothing clears the threshold, so a card is used", () => {
+    const plan = new VisualPlan();
+    const reject = { score: 0.05, verdict: "REJECT" as const, reasons: ["below"], concept: "none" };
+    assert.equal(plan.selectCandidate([{ candidate: "junk", relevance: reject }], () => true), null);
+  });
+
+  test("relevance ordering beats arrival order", () => {
+    const plan = new VisualPlan();
+    const weak = { score: 0.3, verdict: "ACCEPTABLE" as const, reasons: [], concept: "network" };
+    const strong = { score: 0.9, verdict: "STRONG" as const, reasons: [], concept: "compute" };
+    // Caller sorts by score; selectCandidate must honour that order.
+    const pick = plan.selectCandidate(
+      [{ candidate: "strong", relevance: strong }, { candidate: "weak", relevance: weak }],
+      () => true,
+    );
+    assert.equal(pick!.candidate, "strong");
+  });
+});
+
+describe("search queries — filmable B-roll, not motion-graphics framing", () => {
+  test("B-roll phrase is the leading query", () => {
+    const q = buildSearchQueries(
+      "Animated diagram showing a DRAM chip far from a GPU. Text overlay: 'HBM = Speed'. B-roll of cleanroom wafer inspection.",
+      "What Is HBM?", "ai-doom-scroll",
+    );
+    assert.equal(q[0], "cleanroom wafer inspection");
+  });
+
+  test("graphic-design vocabulary never becomes a query", () => {
+    const q = buildSearchQueries(
+      "Infographic showing three logos with market share percentages. Animated world map.",
+      "Three Companies", "ai-doom-scroll",
+    );
+    for (const bad of ["infographic", "animated", "logos", "percentages"]) {
+      assert.ok(!q[0].includes(bad), `leading query "${q[0]}" still contains "${bad}"`);
+    }
+  });
+
+  test("text-overlay instructions are stripped", () => {
+    const q = buildSearchQueries(
+      "Server racks. Text overlay: 'Memory Vendors Capture Growing Value Share'.",
+      "Who Profits", "ai-doom-scroll",
+    );
+    assert.ok(!q.join(" ").includes("capture"), `overlay text leaked into queries: ${q.join(" | ")}`);
   });
 });
