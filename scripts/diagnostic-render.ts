@@ -1,12 +1,13 @@
 /**
  * Stage-1 diagnostic render.
  *
- * Produces a short (60–90 s) private render per channel whose script is built
- * to expose exactly the failures this pipeline had: pauses of differing
- * lengths, a fast section and a slow section, long caption phrases, heavy
- * punctuation, multiple visual changes, and spoken timing markers near the
- * beginning, middle and end so caption alignment can be measured at three
- * points rather than assumed.
+ * Produces a short (60–90 s) private render per channel whose script exercises
+ * the failures this pipeline had: pauses of differing lengths, varying pace,
+ * long caption phrases, heavy punctuation and multiple visual changes.
+ *
+ * Synchronisation is measured at three points using NATURAL anchor sentences
+ * (see ANCHORS) rather than spoken "marker one/two/three" artefacts, so the
+ * script reads as publishable content.
  *
  *   npx tsx scripts/diagnostic-render.ts <ai-doom-scroll|wet-circuit> [--no-upload]
  *
@@ -23,6 +24,8 @@ import {
   runQa, persistQa, formatQa,
   prepareUpload, confirmUploadState,
   CHANNELS, budgetReport, setBudgetLimit,
+  extractSyncAnchors, formatAnchors, findDiagnosticMarkers,
+  sceneRecordsFor,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
@@ -33,48 +36,57 @@ type ChannelKey = "ai-doom-scroll" | "wet-circuit";
 //
 // Real, on-brand copy — not filler — so the credits spent here still buy
 // something reviewable, per the "don't waste credits on meaningless test
-// scripts" rule. Markers are spoken so they can be located in the audio.
+// scripts" rule. Nothing unnatural is spoken.
 
 const SCRIPTS: Record<ChannelKey, Script> = {
+  // Topic: AI data-centre power demand. Concrete, visual, and genuinely
+  // publishable — no spoken markers of any kind. Synchronisation is measured
+  // against the natural anchor sentences declared in ANCHORS below.
   "ai-doom-scroll": {
-    hook: "Marker one. Three seconds in.",
+    hook: "A single AI data centre can now draw more electricity than a small city.",
     cta: "",
     estimatedTotalDuration: 80,
     segments: [
       {
         segmentIndex: 0,
-        title: "The Opening Claim",
+        title: "The Power Bill Nobody Budgeted For",
         narration:
-          "Marker one. Three seconds in. Here is the claim everyone keeps repeating: that larger models are automatically safer models. " +
-          "It sounds reasonable. It is also, on the current evidence, wrong. " +
-          "Scale improves capability far faster than it improves alignment, and those two curves have never been the same curve.",
-        visual_prompt: "server racks glowing in a dark data centre, slow camera push",
+          "A single AI data centre can now draw more electricity than a small city. " +
+          "That is not a projection. That is the grid connection request already sitting with utilities in Virginia, Ohio and Texas. " +
+          "Training a frontier model is a construction project before it is a software project.",
+        visual_prompt:
+          "close-up footage of high-density GPU server racks operating inside a modern data centre, "
+          + "cooling systems and status lights visible, cinematic documentary framing",
         duration_seconds: 26,
       },
       {
         segmentIndex: 1,
-        title: "The Fast Middle",
+        title: "Where The Electricity Actually Goes",
         narration:
-          "Marker two. Middle of the run. Now quickly — benchmarks, leaderboards, evaluations, red teams, refusals, jailbreaks, patches, and press releases. " +
-          "That is the whole cycle, and it repeats roughly every eleven weeks. " +
-          "But here is the part that matters, and it is worth slowing down for: none of those steps measure whether the system understood what you actually wanted.",
-        visual_prompt: "abstract flowing data streams and network visualisation, fast motion",
+          "Here is where it goes. The chips themselves take roughly half. Cooling takes most of the rest. " +
+          "Every watt that enters the building has to leave it as heat, which is why the new sites are being built beside rivers and power stations rather than beside cities. " +
+          "The constraint stopped being talent and started being transformers.",
+        visual_prompt:
+          "industrial cooling towers and electrical transformers at a power substation supplying a data centre, "
+          + "steam and high-voltage lines, daylight documentary footage",
         duration_seconds: 27,
       },
       {
         segmentIndex: 2,
-        title: "The Slow Close",
+        title: "What This Actually Changes",
         narration:
-          "Marker three. Near the end. So what should you watch instead? Watch the gap. " +
-          "The gap between what a model can do, and what it reliably refuses to do badly. " +
-          "That gap is the only number that has ever predicted a real incident.",
-        visual_prompt: "single researcher silhouetted against large monitors, quiet and still",
+          "So what changes for the rest of us? Two things. Electricity prices rise fastest in the regions that welcomed these campuses. " +
+          "And the companies training these systems are quietly becoming energy companies that happen to sell software. " +
+          "Watch the grid connection queue. It tells you more about the next model than any benchmark will.",
+        visual_prompt:
+          "engineer inspecting racks of computer hardware in a server room while checking a monitoring dashboard on screen, "
+          + "technical maintenance work, realistic lighting",
         duration_seconds: 24,
       },
     ],
   },
   "wet-circuit": {
-    hook: "Marker one. Three seconds in.",
+    hook: "Every season somebody asks the same question: will this transducer work on my hull?",
     cta: "",
     estimatedTotalDuration: 80,
     segments: [
@@ -82,7 +94,7 @@ const SCRIPTS: Record<ChannelKey, Script> = {
         segmentIndex: 0,
         title: "The Transducer Question",
         narration:
-          "Marker one. Three seconds in. Every season somebody asks the same question: will this transducer work on my hull? " +
+          "Every season somebody asks the same question: will this transducer work on my hull? " +
           "The honest answer is that it depends on three things, and only one of them is the transducer. " +
           "Deadrise angle, mounting height, and where the water actually separates from the hull at speed.",
         visual_prompt: "boat hull cutting through open water, transducer and wake detail",
@@ -92,7 +104,7 @@ const SCRIPTS: Record<ChannelKey, Script> = {
         segmentIndex: 1,
         title: "The Fast Middle",
         narration:
-          "Marker two. Middle of the run. Quickly, the failure modes — cavitation, turbulence, aeration, bad grounding, loose fittings, and interference. " +
+          "Now the failure modes — cavitation, turbulence, aeration, bad grounding, loose fittings, and interference. " +
           "Six problems, and five of them look identical on the screen. " +
           "But here is the one that catches almost everybody, and it is worth taking slowly: your transducer is probably mounted too high.",
         visual_prompt: "marine electronics display showing sonar readout, close detail",
@@ -102,13 +114,32 @@ const SCRIPTS: Record<ChannelKey, Script> = {
         segmentIndex: 2,
         title: "The Slow Close",
         narration:
-          "Marker three. Near the end. So before you buy anything else, do this. " +
+          "So before you buy anything else, do this. " +
           "Run the boat at cruising speed, look at the screen, and note the exact speed where the bottom reading breaks up. " +
           "That number tells you more than any spec sheet will.",
         visual_prompt: "calm marina at golden hour, boats moored, slow drift",
         duration_seconds: 24,
       },
     ],
+  },
+};
+
+/**
+ * Natural synchronisation anchors — ordinary sentences from the script, one
+ * near the beginning, middle and end. These replace the spoken "marker one/
+ * two/three" artefacts: alignment is still measurable at three points, but
+ * nothing unnatural is said aloud.
+ */
+const ANCHORS: Record<ChannelKey, { beginning: string; middle: string; end: string }> = {
+  "ai-doom-scroll": {
+    beginning: "A single AI data",
+    middle: "Cooling takes most of",
+    end: "Watch the grid connection",
+  },
+  "wet-circuit": {
+    beginning: "Every season somebody asks",
+    middle: "Now the failure modes",
+    end: "So before you buy",
   },
 };
 
@@ -122,8 +153,8 @@ async function ensureDiagnosticTopic(channel: ChannelKey, runTag: string) {
   const url = `https://diagnostic.local/${channel}/${runTag}`;
   const title =
     channel === "ai-doom-scroll"
-      ? "Diagnostic: Does Scale Actually Make Models Safer?"
-      : "Diagnostic: Will This Transducer Work On My Hull?";
+      ? "AI Data Centres Are Becoming Power Plants"
+      : "Will This Transducer Work On My Hull?";
 
   if (channel === "wet-circuit") {
     return prisma.wcTopic.create({
@@ -218,7 +249,30 @@ async function main() {
   const qa = await runQa(qaInput);
   console.log(formatQa(qa));
 
-  // ── 4. Caption offset report (head / middle / end) ───────────────────
+  // ── 4a. Refuse to ship diagnostic marker artefacts ───────────────────
+  const markerHits = script.segments.flatMap((sg) => findDiagnosticMarkers(sg.narration));
+  if (markerHits.length > 0) {
+    throw new Error(
+      `Diagnostic marker phrases present in narration: ${markerHits.join(", ")}. ` +
+        `These must never be spoken — use natural anchors instead.`,
+    );
+  }
+
+  // ── 4b. Natural synchronisation anchors ──────────────────────────────
+  const anchors = extractSyncAnchors(out.captions.words, out.captions.cues, ANCHORS[channel]);
+  console.log("\n── natural synchronisation anchors ──");
+  console.log(formatAnchors(anchors));
+
+  // ── 4c. Visual relevance summary ─────────────────────────────────────
+  const scenes = await sceneRecordsFor(video.id);
+  console.log("\n── visual relevance ──");
+  for (const sc of scenes) {
+    console.log(
+      `  scene ${sc.sceneNumber}: [${sc.relevanceVerdict ?? "n/a"} ${sc.relevanceScore?.toFixed(2) ?? "-"}] ` +
+        `"${sc.assetDescription ?? sc.assetSource}"`,
+    );
+  }
+
   console.log("\n── caption alignment vs spoken audio ──");
   const off = qa.metrics;
   const ms = (v?: number) => (v === undefined || !Number.isFinite(v) ? "n/a" : `${(v * 1000).toFixed(0)}ms`);
@@ -274,9 +328,23 @@ async function main() {
     console.log("\n── upload SKIPPED: automated QA did not pass ──");
   }
 
+  const qaWithAnchors = {
+    ...qa,
+    checks: [
+      ...qa.checks,
+      ...anchors.map((a) => ({
+        name: `sync_anchor_${a.position}`,
+        passed: Math.abs(a.offsetS) <= 0.25,
+        severity: "FATAL" as const,
+        detail: `"${a.phrase}" spoken ${a.audioStartS.toFixed(2)}s, caption ${a.captionStartS.toFixed(2)}s, offset ${(a.offsetS * 1000).toFixed(0)}ms`,
+        value: a.offsetS,
+        expected: "±250ms",
+      })),
+    ],
+  };
   const qaId = await persistQa(
     { ...qaInput, youtubeId, privacyStatus, verifiedChannelId: CHANNELS[channel].id },
-    qa,
+    qaWithAnchors,
     { reviewer: "automated" },
   );
 

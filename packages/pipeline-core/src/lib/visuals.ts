@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { prisma } from "./db";
 import { blackFrameStats, frozenRunSeconds, mediaInfo, videoDuration } from "./ffmpeg";
+import { describeFromPexelsUrl } from "./visualRelevance";
 
 /**
  * Stock-visual retrieval, validation and de-duplication.
@@ -29,6 +30,10 @@ export interface Candidate {
   height: number;
   durationS: number;
   provider: string;
+  /** Provider page URL — carries the human-written slug. */
+  pageUrl?: string;
+  /** Human-readable description of what the asset shows. */
+  description?: string;
 }
 
 export interface ValidationOutcome {
@@ -79,6 +84,7 @@ export async function searchPexelsCandidates(
       .sort((a, b) => Math.abs(a.height - 1080) - Math.abs(b.height - 1080));
     const best = usable[0];
     if (!best?.link) continue;
+    const pageUrl = String(video.url ?? "");
     out.push({
       assetId: String(video.id),
       url: best.link,
@@ -86,6 +92,10 @@ export async function searchPexelsCandidates(
       height: best.height,
       durationS: Number(video.duration ?? 0),
       provider: "pexels",
+      pageUrl,
+      // The page slug is the only human-written description Pexels exposes,
+      // and it is what makes semantic relevance checking possible at all.
+      description: describeFromPexelsUrl(pageUrl),
     });
   }
   return out;
@@ -209,6 +219,10 @@ export interface SceneRecordInput {
   validation: "PASS" | "REJECT";
   rejectionReason?: string | null;
   renderStatus: string;
+  relevanceScore?: number | null;
+  relevanceVerdict?: string | null;
+  assetDescription?: string | null;
+  relevanceReasons?: string[];
 }
 
 export async function recordScene(input: SceneRecordInput): Promise<void> {
@@ -218,11 +232,13 @@ export async function recordScene(input: SceneRecordInput): Promise<void> {
     },
     create: {
       ...input,
+      relevanceReasons: input.relevanceReasons ?? [],
       narration: input.narration.slice(0, 4000),
       prompt: input.prompt.slice(0, 2000),
     },
     update: {
       ...input,
+      relevanceReasons: input.relevanceReasons ?? [],
       narration: input.narration.slice(0, 4000),
       prompt: input.prompt.slice(0, 2000),
     },

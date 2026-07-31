@@ -12,6 +12,7 @@ import {
   AssetLedger, recordScene, searchPexelsCandidates,
   validateCandidateMeta, validateDownloadedClip, writeCardTextFile,
 } from "../lib/visuals";
+import { scoreRelevance, VisualPlan } from "../lib/visualRelevance";
 import { readAlignments, readManifest } from "./voiceoverShared";
 import type { NarrationManifest } from "./voiceoverShared";
 import type { PipelineContext, ScriptSegment, StageResult } from "../types";
@@ -29,6 +30,9 @@ const HEIGHT = 1080;
  * out of sync.
  */
 export const DURATION_TOLERANCE = 0.75;
+
+/** Bounded retrieval — never loop indefinitely looking for a usable clip. */
+const MAX_CANDIDATES = 12;
 
 function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "'\\''");
@@ -73,6 +77,7 @@ async function prepareSegmentClip(
   segStart: number,
   segDuration: number,
   ledger: AssetLedger,
+  plan: VisualPlan,
   tmpDir: string,
   clipPath: string,
   deps: AssemblyDeps,
@@ -88,17 +93,51 @@ async function prepareSegmentClip(
     prompt: seg.visual_prompt,
   };
 
-  let candidates = await searchPexelsCandidates(seg.visual_prompt, pexelsKey);
-  if (candidates.length === 0) {
-    // Second attempt with the segment title — a shorter, more generic query.
-    candidates = await searchPexelsCandidates(seg.title, pexelsKey);
+  // Bounded retrieval: a few distinct queries, then give up cleanly. Never an
+  // unbounded loop.
+  const queries = [seg.visual_prompt, seg.title].filter(Boolean);
+  const seen = new Set<string>();
+  let candidates: typeof queries extends never ? never : Awaited<ReturnType<typeof searchPexelsCandidates>> = [];
+  for (const q of queries) {
+    for (const c of await searchPexelsCandidates(q, pexelsKey)) {
+      if (!seen.has(c.assetId)) { seen.add(c.assetId); candidates.push(c); }
+    }
+    if (candidates.length >= MAX_CANDIDATES) break;
   }
 
-  for (const c of candidates) {
+  // Rank by semantic relevance to the narration before anything is downloaded,
+  // so the first technically-valid clip is no longer automatically the winner.
+  const scored = candidates.map((c) => ({
+    c,
+    r: scoreRelevance({
+      channel: deps.channel as "ai-doom-scroll" | "wet-circuit",
+      narration: seg.narration,
+      prompt: seg.visual_prompt,
+      description: c.description ?? "",
+    }),
+  }));
+  scored.sort((a, b) => b.r.score - a.r.score);
+
+  for (const { c, r } of scored.slice(0, MAX_CANDIDATES)) {
     if (!ledger.isAvailable(c.assetId)) {
-      console.log(`[${label}] scene ${sceneNumber}: skip asset ${c.assetId} — already used`);
+      console.log(`[${label}] scene ${sceneNumber}: skip ${c.assetId} — already used`);
       continue;
     }
+
+    const admitted = plan.admits(r);
+    if (!admitted.ok) {
+      console.log(
+        `[${label}] scene ${sceneNumber}: reject ${c.assetId} "${c.description}" — ${admitted.reason}`,
+      );
+      await recordScene({
+        ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
+        assetDescription: c.description, width: c.width, height: c.height,
+        relevanceScore: r.score, relevanceVerdict: r.verdict, relevanceReasons: r.reasons,
+        validation: "REJECT", rejectionReason: admitted.reason, renderStatus: "REJECTED",
+      });
+      continue;
+    }
+
     const meta = validateCandidateMeta(c, segDuration);
     if (!meta.ok) {
       console.log(`[${label}] scene ${sceneNumber}: reject ${c.assetId} — ${meta.reason}`);
@@ -154,14 +193,18 @@ async function prepareSegmentClip(
     }
 
     ledger.claim(c.assetId);
+    plan.claim(r);
     await recordScene({
-      ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.url,
+      ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
+      assetDescription: c.description,
       localPath: clipPath, width: c.width, height: c.height, durationS: finalDur,
       cropMethod: "scale-increase+centre-crop",
+      relevanceScore: r.score, relevanceVerdict: r.verdict, relevanceReasons: r.reasons,
       validation: "PASS", renderStatus: "RENDERED",
     });
     console.log(
-      `[${label}] scene ${sceneNumber}: ${c.provider}:${c.assetId} ${c.width}x${c.height} → ${finalDur.toFixed(2)}s`,
+      `[${label}] scene ${sceneNumber}: ${c.provider}:${c.assetId} "${c.description}" ` +
+        `${c.width}x${c.height} → ${finalDur.toFixed(2)}s [${r.verdict} ${r.score.toFixed(2)} ${r.concept}]`,
     );
     return;
   }
@@ -283,6 +326,7 @@ export async function runAssembly(
 
   // ── 3. Per-segment clips, cut to exact audio durations ───────────────
   const ledger = new AssetLedger(1);
+  const plan = new VisualPlan();
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     const m = manifest.segments[i];
@@ -290,7 +334,7 @@ export async function runAssembly(
     try {
       await prepareSegmentClip(
         seg, i + 1, TITLE_CARD_DURATION + m.offsetS, m.durationS,
-        ledger, tmpDir, clipPath, deps, ctx.video.id, config.PEXELS_API_KEY,
+        ledger, plan, tmpDir, clipPath, deps, ctx.video.id, config.PEXELS_API_KEY,
       );
     } catch (err) {
       console.warn(`[${label}] scene ${i + 1}: ${err instanceof Error ? err.message : err}`);
@@ -315,6 +359,16 @@ export async function runAssembly(
   }
   if (ledger.duplicateCount > 0) {
     console.warn(`[${label}] ${ledger.duplicateCount} duplicate visual asset(s) used`);
+  }
+  const composition = plan.summary();
+  console.log(
+    `[${label}] visual composition: ${composition.strongCount} strong, ` +
+      `${composition.genericCount} generic, concepts=[${composition.concepts.join(", ")}]`,
+  );
+  if (!composition.meetsMinimum) {
+    console.warn(
+      `[${label}] WARNING: only ${composition.strongCount} strongly on-topic visual(s) — minimum is 2`,
+    );
   }
 
   // ── 4. Title card ────────────────────────────────────────────────────

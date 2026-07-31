@@ -101,6 +101,20 @@ export {
 } from "./lib/visuals";
 export type { Candidate, ValidationOutcome, SceneRecordInput } from "./lib/visuals";
 
+// ── Visual semantic relevance ─────────────────────────────────────────────
+export {
+  scoreRelevance, describeFromPexelsUrl, narrationIsAboutVoiceAI,
+  VisualPlan, REJECT_THRESHOLD,
+} from "./lib/visualRelevance";
+export type { RelevanceInput, RelevanceResult, Verdict } from "./lib/visualRelevance";
+
+// ── Synchronisation anchors ───────────────────────────────────────────────
+export {
+  extractSyncAnchors, formatAnchors, locatePhrase,
+  findDiagnosticMarkers, containsDiagnosticMarkers, DIAGNOSTIC_MARKER_PATTERNS,
+} from "./lib/syncAnchors";
+export type { SyncAnchor } from "./lib/syncAnchors";
+
 // ── QA ────────────────────────────────────────────────────────────────────
 export {
   runQa, persistQa, formatQa, measureCaptionOffsets,

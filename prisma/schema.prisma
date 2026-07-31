@@ -302,26 +302,30 @@ model ElevenLabsUsage {
 /// video, so every frame on screen is traceable to a source and a validation
 /// verdict.
 model SceneRecord {
-  id              String   @id @default(cuid())
-  channel         String
-  videoId         String
-  sceneNumber     Int
-  narration       String
-  startTimeS      Float
-  endTimeS        Float
-  prompt          String
-  assetSource     String
-  assetId         String?
-  assetUrl        String?
-  localPath       String?
-  width           Int?
-  height          Int?
-  durationS       Float?
-  cropMethod      String?
-  validation      String
-  rejectionReason String?
-  renderStatus    String
-  createdAt       DateTime @default(now())
+  id               String   @id @default(cuid())
+  channel          String
+  videoId          String
+  sceneNumber      Int
+  narration        String
+  startTimeS       Float
+  endTimeS         Float
+  prompt           String
+  assetSource      String
+  assetId          String?
+  assetUrl         String?
+  localPath        String?
+  width            Int?
+  height           Int?
+  durationS        Float?
+  cropMethod       String?
+  validation       String
+  rejectionReason  String?
+  relevanceScore   Float?
+  relevanceVerdict String?
+  assetDescription String?
+  relevanceReasons String[]
+  renderStatus     String
+  createdAt        DateTime @default(now())
 
   @@unique([videoId, sceneNumber])
   @@index([channel, createdAt])
