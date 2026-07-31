@@ -12,7 +12,7 @@ import {
   AssetLedger, recordScene, searchPexelsCandidates,
   validateCandidateMeta, validateDownloadedClip, writeCardTextFile,
 } from "../lib/visuals";
-import { scoreRelevance, VisualPlan } from "../lib/visualRelevance";
+import { scoreRelevance, VisualPlan, buildSearchQueries } from "../lib/visualRelevance";
 import { readAlignments, readManifest } from "./voiceoverShared";
 import type { NarrationManifest } from "./voiceoverShared";
 import type { PipelineContext, ScriptSegment, StageResult } from "../types";
@@ -95,7 +95,10 @@ async function prepareSegmentClip(
 
   // Bounded retrieval: a few distinct queries, then give up cleanly. Never an
   // unbounded loop.
-  const queries = [seg.visual_prompt, seg.title].filter(Boolean);
+  const queries = buildSearchQueries(
+    seg.visual_prompt, seg.title, deps.channel as "ai-doom-scroll" | "wet-circuit",
+  );
+  console.log(`[${label}] scene ${sceneNumber}: queries ${queries.map((q) => `"${q}"`).join(", ")}`);
   const seen = new Set<string>();
   let candidates: typeof queries extends never ? never : Awaited<ReturnType<typeof searchPexelsCandidates>> = [];
   for (const q of queries) {

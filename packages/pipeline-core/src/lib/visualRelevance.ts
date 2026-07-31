@@ -227,6 +227,87 @@ export function scoreRelevance(input: RelevanceInput): RelevanceResult {
   return { score, verdict, reasons, concept };
 }
 
+// ── Search-query construction ─────────────────────────────────────────────
+
+/**
+ * Words that describe how a shot looks rather than what it contains. Useful in
+ * a generation prompt, actively harmful in a stock-library keyword search.
+ */
+const STYLE_WORDS = new Set([
+  "footage", "shot", "shots", "close", "closeup", "close-up", "cinematic",
+  "documentary", "framing", "angle", "lighting", "realistic", "daylight",
+  "slow", "fast", "motion", "camera", "push", "pan", "aerial", "visible",
+  "modern", "high", "density", "detail", "while", "with", "and", "the", "a",
+  "an", "of", "in", "on", "at", "to", "inside", "beside", "their", "its",
+  "no", "text", "showing", "clearly", "rather", "than", "quiet", "still",
+]);
+
+/** Canonical stock-library queries for each subject concept. */
+const CONCEPT_QUERIES: Record<string, string> = {
+  compute: "computer chip processor macro",
+  datacenter: "data center server room",
+  robotics: "industrial robot arm",
+  factory: "automated factory assembly line",
+  vision: "computer vision camera sensor",
+  research: "engineer laboratory computer",
+  software: "programmer code screen",
+  network: "network server cables",
+  voiceai: "audio waveform studio monitor",
+  surveillance: "security camera surveillance",
+  autonomy: "autonomous vehicle sensor",
+  energy: "power plant electricity substation",
+  vessel: "boat on water",
+  electronics: "marine electronics display",
+  water: "ocean water boat",
+  fishing: "fishing boat angler",
+  install: "boat wiring installation",
+};
+
+/**
+ * Turn a descriptive scene prompt into short keyword queries a stock library
+ * can actually match.
+ *
+ * A 20-word cinematic prompt is precise for a human and useless for Pexels,
+ * whose search is keyword-based — "close-up footage of high-density GPU server
+ * racks operating inside a modern data centre, cooling systems and status
+ * lights visible, cinematic documentary framing" returned a motion-blurred
+ * conveyor belt. Queries are ordered most-specific first.
+ */
+export function buildSearchQueries(
+  prompt: string,
+  title: string,
+  channel: Channel,
+): string[] {
+  const content = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STYLE_WORDS.has(w));
+
+  const queries: string[] = [];
+
+  // Leading concrete subject — the first few content words.
+  if (content.length) queries.push(content.slice(0, 4).join(" "));
+  if (content.length > 2) queries.push(content.slice(0, 2).join(" "));
+
+  // Canonical query for the concept the prompt is closest to.
+  const taxonomy = channel === "wet-circuit" ? MARINE_SUBJECTS : AI_SUBJECTS;
+  const p = norm(prompt);
+  let best = { concept: "", n: 0 };
+  for (const [concept, terms] of Object.entries(taxonomy)) {
+    const n = hits(p, terms).length;
+    if (n > best.n) best = { concept, n };
+  }
+  if (best.concept && CONCEPT_QUERIES[best.concept]) {
+    queries.push(CONCEPT_QUERIES[best.concept]);
+  }
+
+  if (title) queries.push(title.toLowerCase());
+
+  // De-duplicate while preserving order.
+  return [...new Set(queries.filter((q) => q.trim().length > 2))];
+}
+
 // ── Per-video composition rules ───────────────────────────────────────────
 
 /**

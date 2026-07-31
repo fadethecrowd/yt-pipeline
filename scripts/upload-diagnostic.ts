@@ -25,6 +25,11 @@ const TITLES: Record<ChannelKey, string> = {
   "wet-circuit": "[PRIVATE DIAGNOSTIC] Wet Circuit Sync and Visual QA",
 };
 
+/** Allows a corrected re-run to be labelled distinctly (e.g. V2). */
+function titleFor(channel: ChannelKey): string {
+  return process.env.DIAGNOSTIC_TITLE?.trim() || TITLES[channel];
+}
+
 const DESCRIPTION = [
   "PRIVATE DIAGNOSTIC RENDER — not for publication.",
   "",
@@ -135,12 +140,12 @@ async function main() {
   auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
   const yt = google.youtube({ version: "v3", auth });
 
-  console.log(`\n  uploading "${TITLES[channel]}" …`);
+  console.log(`\n  uploading "${titleFor(channel)}" …`);
   const res = await yt.videos.insert({
     part: ["snippet", "status"],
     requestBody: {
       snippet: {
-        title: TITLES[channel],
+        title: titleFor(channel),
         description: DESCRIPTION,
         categoryId: "28",
         tags: ["diagnostic", "internal", "qa"],

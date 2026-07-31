@@ -104,7 +104,7 @@ export type { Candidate, ValidationOutcome, SceneRecordInput } from "./lib/visua
 // ── Visual semantic relevance ─────────────────────────────────────────────
 export {
   scoreRelevance, describeFromPexelsUrl, narrationIsAboutVoiceAI,
-  VisualPlan, REJECT_THRESHOLD,
+  VisualPlan, REJECT_THRESHOLD, buildSearchQueries,
 } from "./lib/visualRelevance";
 export type { RelevanceInput, RelevanceResult, Verdict } from "./lib/visualRelevance";
 
