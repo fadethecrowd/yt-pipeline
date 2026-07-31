@@ -9,6 +9,8 @@ import {
 import type { Cue, Word } from "./captions";
 import { creditsChargedFor, generationIdsFor } from "./elevenlabs";
 import { sceneRecordsFor } from "./visuals";
+import { checkRuntime } from "./runtimeTargets";
+import type { ChannelKey } from "./runtimeTargets";
 
 /**
  * Automated pre-upload quality gate.
@@ -199,6 +201,16 @@ export async function runQa(input: QaInput): Promise<QaResult> {
     `video=${vDur.toFixed(2)}s vs narrationStart+audio=${expectedVideo.toFixed(2)}s (Δ=${(vDur - expectedVideo).toFixed(2)}s)`,
     vDur - expectedVideo,
     `±${AV_DURATION_TOLERANCE_S}s`,
+  );
+
+  // ── Runtime within the stage's target range ─────────────────────────
+  const rt = checkRuntime(
+    vDur, input.channel as ChannelKey,
+    input.assetKind, input.testStage,
+  );
+  add(
+    "runtime_in_target_range", rt.ok, "FATAL", rt.detail, vDur,
+    `${rt.range.minS}-${rt.range.maxS}s`,
   );
 
   // ── Audio content ───────────────────────────────────────────────────

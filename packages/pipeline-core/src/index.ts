@@ -115,6 +115,14 @@ export {
 } from "./lib/syncAnchors";
 export type { SyncAnchor } from "./lib/syncAnchors";
 
+// ── Runtime targets ───────────────────────────────────────────────────────
+export {
+  runtimeRange, checkRuntime, charsForRuntime, fmt as fmtRuntime,
+  CONFIGURED_RANGE, OBSERVED_RANGE, CHARS_PER_SECOND, TITLE_CARD_S,
+  RuntimeTargetError,
+} from "./lib/runtimeTargets";
+export type { RuntimeRange, RuntimeCheck, Format } from "./lib/runtimeTargets";
+
 // ── QA ────────────────────────────────────────────────────────────────────
 export {
   runQa, persistQa, formatQa, measureCaptionOffsets,
