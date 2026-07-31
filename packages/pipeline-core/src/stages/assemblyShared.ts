@@ -136,6 +136,22 @@ async function gatherCandidates(
  * reversing, ping-ponging, replaying, speed-changing or frame-freezing is used
  * to stretch footage.
  */
+/** Shortest usable fragment — below this a cut reads as a flash. */
+const MIN_FRAGMENT_S = 6;
+
+/**
+ * Fill one visual beat with one or more consecutive UNIQUE clips.
+ *
+ * Requiring a single clip to cover a whole beat discarded most of the library:
+ * of 40 candidates for "printed circuit board", only 22 run 15 s or longer,
+ * while 39 run 8 s or longer. With no reuse permitted across 24 beats the pool
+ * ran dry and half the timeline fell back to cards.
+ *
+ * A beat is therefore covered by consecutive fragments, each from a different
+ * asset and each cut (never looped) from the start of its source. This is the
+ * documented "split the narration section into smaller visual beats" fallback,
+ * preferred over looping, reuse, or a card.
+ */
 async function renderBeat(
   beat: VisualBeat,
   seg: ScriptSegment,
@@ -145,19 +161,14 @@ async function renderBeat(
   tmpDir: string,
   deps: AssemblyDeps,
   videoId: string,
-): Promise<RenderedBeat> {
+): Promise<RenderedBeat[]> {
   const { label, channel } = deps;
-  const clipPath = join(tmpDir, `beat-${beat.index}.mp4`);
-  const base = {
-    channel, videoId, sceneNumber: beat.index,
-    narration: beat.narration,
-    startTimeS: TITLE_CARD_DURATION + beat.startS,
-    endTimeS: TITLE_CARD_DURATION + beat.endS,
-    prompt: seg.visual_prompt,
-  };
+  const out: RenderedBeat[] = [];
+  let remaining = beat.durationS;
+  let cursor = beat.startS;
+  let fragment = 0;
 
   const scored = pool
-    .filter((c) => ledger.isAvailable(c.assetId))
     .map((c) => ({
       c,
       r: scoreRelevance({
@@ -169,66 +180,58 @@ async function renderBeat(
     }))
     .sort((a, b) => b.r.score - a.r.score);
 
-  const ranked = scored.map((x) => ({ candidate: x.c, relevance: x.r }));
   const tried = new Set<string>();
 
-  for (let attempt = 0; attempt < MAX_CANDIDATES; attempt++) {
-    const pick = plan.selectCandidate(
-      ranked.filter((x) => !tried.has(x.candidate.assetId)),
-      (c) => ledger.isAvailable(c.assetId),
-    );
+  while (remaining >= MIN_FRAGMENT_S) {
+    const ranked = scored
+      .filter((x) => !tried.has(x.c.assetId) && ledger.isAvailable(x.c.assetId))
+      .map((x) => ({ candidate: x.c, relevance: x.r }));
+    const pick = plan.selectCandidate(ranked, (c) => ledger.isAvailable(c.assetId));
     if (!pick) break;
+
     const c = pick.candidate;
     const r = pick.relevance;
     tried.add(c.assetId);
+    fragment += 1;
 
-    // ── Visible-brand relevance, before download ──────────────────────
+    const sceneNumber = beat.index * 100 + fragment;
+    const base = {
+      channel, videoId, sceneNumber,
+      narration: beat.narration,
+      startTimeS: TITLE_CARD_DURATION + cursor,
+      endTimeS: TITLE_CARD_DURATION + cursor + Math.min(remaining, c.durationS || remaining),
+      prompt: seg.visual_prompt,
+    };
+
     const brand = checkBrandFromMetadata(
-      `${c.description ?? ""} ${c.pageUrl ?? ""}`,
-      seg.visual_prompt,
-      beat.narration,
+      `${c.description ?? ""} ${c.pageUrl ?? ""}`, seg.visual_prompt, beat.narration,
     );
     if (!brandAdmits(brand)) {
-      console.log(`[${label}] beat ${beat.index}: reject ${c.assetId} — ${brand.rejectionReason}`);
-      await recordScene({
-        ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
-        assetDescription: c.description, relevanceScore: r.score, relevanceVerdict: r.verdict,
-        relevanceReasons: [...r.reasons, brand.rejectionReason ?? ""],
-        validation: "REJECT", rejectionReason: brand.rejectionReason, renderStatus: "REJECTED",
-      });
+      console.log(`[${label}] beat ${beat.index}.${fragment}: reject ${c.assetId} — ${brand.rejectionReason}`);
       continue;
     }
+    if (!validateCandidateMeta(c, MIN_FRAGMENT_S).ok) continue;
+    if (c.durationS > 0 && c.durationS < MIN_FRAGMENT_S) continue;
 
-    if (!validateCandidateMeta(c, beat.durationS).ok) continue;
-
-    // ── Source must COVER the beat — no looping to fill ───────────────
-    if (c.durationS > 0 && c.durationS < beat.durationS) {
-      console.log(
-        `[${label}] beat ${beat.index}: skip ${c.assetId} — source ${c.durationS}s shorter than beat ${beat.durationS.toFixed(1)}s (looping is forbidden)`,
-      );
-      continue;
-    }
-
-    const rawPath = join(tmpDir, `raw-${beat.index}.mp4`);
-    try {
-      await downloadTo(c.url, rawPath);
-    } catch { continue; }
-
-    const content = await validateDownloadedClip(rawPath, beat.durationS);
-    if (!content.ok) {
-      console.log(`[${label}] beat ${beat.index}: reject ${c.assetId} — ${content.reason}`);
-      continue;
-    }
+    const rawPath = join(tmpDir, `raw-${sceneNumber}.mp4`);
+    try { await downloadTo(c.url, rawPath); } catch { continue; }
+    if (!(await validateDownloadedClip(rawPath, MIN_FRAGMENT_S)).ok) continue;
 
     const srcDur = await videoDuration(rawPath).catch(() => 0);
-    if (srcDur > 0 && srcDur < beat.durationS - 0.25) {
-      console.log(`[${label}] beat ${beat.index}: skip ${c.assetId} — decoded ${srcDur.toFixed(1)}s < beat`);
-      continue;
-    }
+    if (srcDur < MIN_FRAGMENT_S) continue;
 
-    // Cut from the start of the source, trimmed to exactly the beat length.
+    // Use as much of this clip as the beat still needs, capped by the source.
+    let useDur = Math.min(remaining, srcDur, BEAT_MAX_S);
+    // Never leave an unusable sliver behind.
+    if (remaining - useDur > 0 && remaining - useDur < MIN_FRAGMENT_S) {
+      useDur = Math.min(remaining, srcDur);
+      if (remaining - useDur > 0 && remaining - useDur < MIN_FRAGMENT_S) useDur = remaining;
+    }
+    if (useDur > srcDur) useDur = srcDur;
+
+    const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
     await ff(
-      ["-i", rawPath, "-t", String(beat.durationS),
+      ["-i", rawPath, "-t", String(useDur),
        "-vf", `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,format=yuv420p`,
        "-r", String(FPS), "-c:v", "libx264", "-preset", "fast", "-an", clipPath],
       label,
@@ -237,54 +240,64 @@ async function renderBeat(
     ledger.claim(c.assetId);
     plan.claim(r);
     await recordScene({
-      ...base, assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
+      ...base, endTimeS: TITLE_CARD_DURATION + cursor + useDur,
+      assetSource: c.provider, assetId: c.assetId, assetUrl: c.pageUrl ?? c.url,
       assetDescription: c.description, localPath: clipPath,
-      width: c.width, height: c.height, durationS: beat.durationS,
+      width: c.width, height: c.height, durationS: useDur,
       cropMethod: "scale-increase+centre-crop; cut (never looped)",
       relevanceScore: r.score, relevanceVerdict: r.verdict,
       relevanceReasons: [...r.reasons, `brand:${brand.brandDecision}`],
       validation: "PASS", renderStatus: "RENDERED",
     });
     console.log(
-      `[${label}] beat ${beat.index} (${beat.durationS.toFixed(1)}s): ${c.assetId} "${c.description}" [${r.verdict} ${r.score.toFixed(2)} ${r.concept}]${isHighBrandRiskFootage(c.description ?? "") ? " ⚠ brand-risk: inspect frame" : ""}`,
+      `[${label}] beat ${beat.index}.${fragment} (${useDur.toFixed(1)}s): ${c.assetId} "${c.description}" ` +
+      `[${r.verdict} ${r.score.toFixed(2)} ${r.concept}]${isHighBrandRiskFootage(c.description ?? "") ? " ⚠ brand-risk" : ""}`,
     );
-    return {
-      index: beat.index, startS: beat.startS, endS: beat.endS, durationS: beat.durationS,
+
+    out.push({
+      index: beat.index, startS: cursor, endS: cursor + useDur, durationS: useDur,
       narration: beat.narration, assetId: c.assetId, assetDescription: c.description ?? null,
-      assetUrl: c.pageUrl ?? c.url, sourceStartS: 0, sourceEndS: beat.durationS,
+      assetUrl: c.pageUrl ?? c.url, sourceStartS: 0, sourceEndS: useDur,
       looped: false, reused: false, relevanceScore: r.score, concept: r.concept,
       brand, decision: "RENDERED", clipPath,
-    };
+    });
+    cursor += useDur;
+    remaining -= useDur;
   }
 
-  // ── Branded, topic-specific card ─────────────────────────────────────
-  // Preferred over repeated or unrelated footage, but consecutive cards read
-  // as dead air, so the caller tracks and reports them.
+  // Remainder (or the whole beat) with no usable footage → branded card.
+  if (remaining > 0.5) {
+    const sceneNumber = beat.index * 100 + fragment + 1;
+    const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
+    const titleFile = join(tmpDir, `card-${sceneNumber}.txt`);
+    await writeCardTextFile(titleFile, seg.title);
+    await ff(
+      ["-f", "lavfi", "-i", `color=c=#243257:s=${WIDTH}x${HEIGHT}:d=${remaining}:r=${FPS}`,
+       "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=64:fontcolor=white:x=(w-tw)/2:y=(h-th)/2-40:line_spacing=14,`
+         + `drawtext=text='${deps.channel === "wet-circuit" ? "WET CIRCUIT" : "AI DOOM SCROLL"}':fontsize=30:fontcolor=0x8899ff:x=(w-tw)/2:y=h-140`,
+       "-c:v", "libx264", "-preset", "fast", "-t", String(remaining), clipPath],
+      label,
+    );
+    await recordScene({
+      channel, videoId, sceneNumber, narration: beat.narration,
+      startTimeS: TITLE_CARD_DURATION + cursor, endTimeS: TITLE_CARD_DURATION + cursor + remaining,
+      prompt: seg.visual_prompt, assetSource: "branded-card", localPath: clipPath,
+      width: WIDTH, height: HEIGHT, durationS: remaining,
+      validation: "PASS", rejectionReason: "no unused relevant clip available for this fragment",
+      renderStatus: "RENDERED_FALLBACK",
+    });
+    console.warn(`[${label}] beat ${beat.index}.${fragment + 1}: branded card (${remaining.toFixed(1)}s)`);
+    out.push({
+      index: beat.index, startS: cursor, endS: cursor + remaining, durationS: remaining,
+      narration: beat.narration, assetId: null, assetDescription: "branded card",
+      assetUrl: null, sourceStartS: 0, sourceEndS: remaining,
+      looped: false, reused: false, relevanceScore: null, concept: "card",
+      brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
+      decision: "FALLBACK_CARD", clipPath,
+    });
+  }
 
-  const titleFile = join(tmpDir, `card-${beat.index}.txt`);
-  await writeCardTextFile(titleFile, seg.title);
-  await ff(
-    ["-f", "lavfi", "-i", `color=c=#243257:s=${WIDTH}x${HEIGHT}:d=${beat.durationS}:r=${FPS}`,
-     "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=64:fontcolor=white:x=(w-tw)/2:y=(h-th)/2-40:line_spacing=14,`
-       + `drawtext=text='${deps.channel === "wet-circuit" ? "WET CIRCUIT" : "AI DOOM SCROLL"}':fontsize=30:fontcolor=0x8899ff:x=(w-tw)/2:y=h-140`,
-     "-c:v", "libx264", "-preset", "fast", "-t", String(beat.durationS), clipPath],
-    label,
-  );
-  await recordScene({
-    ...base, assetSource: "branded-card", localPath: clipPath,
-    width: WIDTH, height: HEIGHT, durationS: beat.durationS,
-    validation: "PASS", rejectionReason: "no relevant unbranded clip long enough for this beat",
-    renderStatus: "RENDERED_FALLBACK",
-  });
-  console.warn(`[${label}] beat ${beat.index}: branded card (no suitable clip)`);
-  return {
-    index: beat.index, startS: beat.startS, endS: beat.endS, durationS: beat.durationS,
-    narration: beat.narration, assetId: null, assetDescription: "branded card",
-    assetUrl: null, sourceStartS: 0, sourceEndS: beat.durationS,
-    looped: false, reused: false, relevanceScore: null, concept: "card",
-    brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
-    decision: "FALLBACK_CARD", clipPath,
-  };
+  return out;
 }
 
 /**
@@ -433,7 +446,7 @@ export async function runAssembly(
     const seg = segments[beat.segmentIndex] ?? segments[segments.length - 1];
     const pool = globalPool;
     rendered.push(
-      await renderBeat(beat, seg, pool, ledger, plan, tmpDir, deps, ctx.video.id),
+      ...(await renderBeat(beat, seg, pool, ledger, plan, tmpDir, deps, ctx.video.id)),
     );
   }
 
