@@ -294,6 +294,31 @@ export async function runQa(input: QaInput): Promise<QaResult> {
       dupes,
       "0",
     );
+    // Fallback cards are legitimate but must stay rare — five consecutive
+    // cards read as dead air and tripped black-frame detection on ai1 V2.
+    const cards = scenes.filter((s) => s.renderStatus === "RENDERED_FALLBACK");
+    add(
+      "fallback_cards_bounded",
+      cards.length <= Math.max(1, Math.floor(scenes.length * 0.15)),
+      "FATAL",
+      `${cards.length}/${scenes.length} scenes are fallback cards`,
+      cards.length,
+      `≤ ${Math.max(1, Math.floor(scenes.length * 0.15))}`,
+    );
+    let runCards = 0;
+    let longestCardRun = 0;
+    for (const sc of scenes) {
+      runCards = sc.renderStatus === "RENDERED_FALLBACK" ? runCards + 1 : 0;
+      longestCardRun = Math.max(longestCardRun, runCards);
+    }
+    add(
+      "no_consecutive_fallback_cards",
+      longestCardRun <= 1,
+      "FATAL",
+      `longest run of consecutive cards: ${longestCardRun}`,
+      longestCardRun,
+      "≤ 1",
+    );
     add(
       "scene_validation_recorded",
       true,

@@ -41,7 +41,7 @@ export const DURATION_TOLERANCE = 0.75;
 const MAX_CANDIDATES = 12;
 
 /** Candidates pooled per segment; beats draw unique assets from this pool. */
-const CANDIDATE_POOL = 40;
+const CANDIDATE_POOL = 120;
 
 function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "'\\''");
@@ -118,7 +118,7 @@ async function gatherCandidates(
   const seen = new Set<string>();
   const pool: Candidate[] = [];
   for (const q of queries) {
-    for (const c of await searchPexelsCandidates(q, pexelsKey, { perPage: 20 })) {
+    for (const c of await searchPexelsCandidates(q, pexelsKey, { perPage: 40 })) {
       if (!seen.has(c.assetId)) { seen.add(c.assetId); pool.push(c); }
     }
     if (pool.length >= CANDIDATE_POOL) break;
@@ -257,11 +257,14 @@ async function renderBeat(
     };
   }
 
-  // ── Branded, topic-specific card — preferred over repeated or unrelated footage ──
+  // ── Branded, topic-specific card ─────────────────────────────────────
+  // Preferred over repeated or unrelated footage, but consecutive cards read
+  // as dead air, so the caller tracks and reports them.
+
   const titleFile = join(tmpDir, `card-${beat.index}.txt`);
   await writeCardTextFile(titleFile, seg.title);
   await ff(
-    ["-f", "lavfi", "-i", `color=c=#141428:s=${WIDTH}x${HEIGHT}:d=${beat.durationS}:r=${FPS}`,
+    ["-f", "lavfi", "-i", `color=c=#243257:s=${WIDTH}x${HEIGHT}:d=${beat.durationS}:r=${FPS}`,
      "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=64:fontcolor=white:x=(w-tw)/2:y=(h-th)/2-40:line_spacing=14,`
        + `drawtext=text='${deps.channel === "wet-circuit" ? "WET CIRCUIT" : "AI DOOM SCROLL"}':fontsize=30:fontcolor=0x8899ff:x=(w-tw)/2:y=h-140`,
      "-c:v", "libx264", "-preset", "fast", "-t", String(beat.durationS), clipPath],
@@ -415,13 +418,20 @@ export async function runAssembly(
     );
   }
 
+  // A 7-minute video needs ~24 unique assets, far more than one segment's
+  // search yields. Beats draw from the UNION of every segment's pool and are
+  // ranked against their own narration, so the best available match wins
+  // regardless of which query surfaced it.
+  const globalPool: Candidate[] = [];
+  const globalSeen = new Set<string>();
+  for (const c of [...pools.values()].flat()) {
+    if (!globalSeen.has(c.assetId)) { globalSeen.add(c.assetId); globalPool.push(c); }
+  }
+  console.log(`[${label}] global candidate pool: ${globalPool.length} unique assets for ${beats.length} beats`);
+
   for (const beat of beats) {
     const seg = segments[beat.segmentIndex] ?? segments[segments.length - 1];
-    let pool = pools.get(seg.segmentIndex) ?? [];
-    // Top up from other segments' pools if this one is exhausted.
-    if (pool.filter((c) => ledger.isAvailable(c.assetId)).length < 3) {
-      pool = [...pool, ...[...pools.values()].flat()];
-    }
+    const pool = globalPool;
     rendered.push(
       await renderBeat(beat, seg, pool, ledger, plan, tmpDir, deps, ctx.video.id),
     );
