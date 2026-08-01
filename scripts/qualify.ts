@@ -54,6 +54,15 @@ interface AssetSpec {
    * is refused; the record and every artifact are preserved.
    */
   withdrawn?: string;
+  /**
+   * Explicitly authorized by Max to run in the current Phase 6 window.
+   *
+   * The invariant suite derives its authorized-asset set from this flag, so an
+   * asset row appearing for anything NOT marked here is reported as
+   * unauthorized work. Authorizing the next asset is a one-line change here
+   * rather than an exception buried in the checker.
+   */
+  phase6Authorized?: boolean;
 }
 
 // ── The six Phase 6 assets ────────────────────────────────────────────────
@@ -92,6 +101,8 @@ export const ASSETS: AssetSpec[] = [
     key: "ai1r",
     channel: "ai-doom-scroll",
     format: "LONGFORM",
+    // Authorized as the single replacement for the withdrawn ai1.
+    phase6Authorized: true,
     targetS: 355, // 5:55 — inside the 5:30–6:15 target and the 5:00–8:00 range
     topicTitle: "The Camera Above the Aisle Is Now Watching You",
     topicUrl: "https://qualification.local/ai-doom/computer-vision-retail-surveillance",
@@ -591,8 +602,13 @@ async function upload(
   console.log(`  db rows  : ${dupA + dupW} ${dupA + dupW === 1 ? "✓" : "✗"}`);
 }
 
-main().catch(async (e) => {
-  console.error("\nQUALIFICATION RUN FAILED:", e);
-  await disconnect();
-  process.exit(1);
-});
+// Only run when invoked directly. scripts/verify-phase6-state.ts imports
+// ASSETS to derive the authorized-asset set, and importing must not start a
+// qualification run.
+if (require.main === module) {
+  main().catch(async (e) => {
+    console.error("\nQUALIFICATION RUN FAILED:", e);
+    await disconnect();
+    process.exit(1);
+  });
+}

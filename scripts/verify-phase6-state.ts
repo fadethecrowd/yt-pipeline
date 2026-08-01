@@ -17,7 +17,14 @@ import {
   isUnresolved, CHANNELS,
 } from "@yt-pipeline/pipeline-core";
 import type { RemoteVideo } from "@yt-pipeline/pipeline-core";
+import { ASSETS } from "./qualify";
 import "dotenv/config";
+
+/**
+ * Phase 6 assets Max has explicitly authorized, derived from the runner's own
+ * asset table. A withdrawn asset stays authorized — it exists legitimately.
+ */
+const AUTHORIZED_PHASE6_ASSETS = ASSETS.filter((a) => a.phase6Authorized);
 
 const HBM = "cms9970di0002mbti2m9avpui";
 
@@ -197,14 +204,52 @@ async function main() {
     where: { url: { startsWith: "https://qualification.local/" } },
     include: { videos: true },
   });
-  const started = qualTopics.flatMap((t) =>
-    t.videos.filter((v) => v.id !== HBM).map((v) => `${t.title} → ${v.id} (${v.status})`),
+  // Authorization, not absence.
+  //
+  // This previously asserted "no other Phase 6 asset started", which was
+  // written while Phase 6 was paused with only ai1 in existence. Once ai1r was
+  // explicitly authorized the assertion reported a violation for doing exactly
+  // what was approved. Deleting it would have removed the only guard against
+  // an unapproved asset appearing, so it now checks authorization instead.
+  //
+  // The authorized set is derived from the asset table in scripts/qualify.ts —
+  // the same durable configuration the runner itself uses — rather than from a
+  // hardcoded exception, so authorizing a future asset needs no edit here.
+  const authorized = new Set(AUTHORIZED_PHASE6_ASSETS.map((a) => a.topicUrl));
+  const unauthorized = qualTopics.flatMap((t) =>
+    t.videos
+      .filter((v) => v.id !== HBM && !authorized.has(t.url))
+      .map((v) => `${t.title} → ${v.id} (${v.status})`),
   );
   check(
-    started.length === 0,
-    "no other Phase 6 asset started",
-    started.length === 0 ? "only the withdrawn ai1 row exists" : started.join("; "),
+    unauthorized.length === 0,
+    "no unauthorized Phase 6 asset started",
+    unauthorized.length === 0
+      ? `only authorized assets exist (${AUTHORIZED_PHASE6_ASSETS.map((a) => a.key).join(", ")})`
+      : unauthorized.join("; "),
   );
+
+  // Report the state of each authorized attempt truthfully.
+  for (const spec of AUTHORIZED_PHASE6_ASSETS) {
+    const topic = qualTopics.find((t) => t.url === spec.topicUrl);
+    const row = topic?.videos.find((v) => v.id !== HBM);
+    if (!row) {
+      console.log(`      ${spec.key.padEnd(6)} authorized, not started`);
+      continue;
+    }
+    const [charges, intents, qa] = await Promise.all([
+      prisma.elevenLabsUsage.aggregate({ _sum: { chargedChars: true }, where: { videoId: row.id } }),
+      prisma.uploadIntent.count({ where: { videoId: row.id } }),
+      prisma.qaRecord.count({ where: { videoId: row.id } }),
+    ]);
+    const resumable = (await resumableJobs("ai-doom-scroll")).some((j) => j.id === row.id);
+    console.log(
+      `      ${spec.key.padEnd(6)} authorized | ${row.status} | ` +
+      `credits=${charges._sum.chargedChars ?? 0} | render=${row.videoPath ? "yes" : "none"} | ` +
+      `approvals=${qa} | intents=${intents} | youtubeId=${row.youtubeId ?? "none"} | ` +
+      `resumable=${resumable ? "YES" : "no"}`,
+    );
+  }
 
   const wcQual = await prisma.wcTopic.findMany({
     where: { url: { startsWith: "https://qualification.local/" } },
