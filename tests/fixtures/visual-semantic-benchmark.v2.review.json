@@ -1,0 +1,2223 @@
+{
+  "version": 2,
+  "kind": "review",
+  "createdAt": "2026-08-01",
+  "status": "AWAITING_INDEPENDENT_LABEL_REVIEW",
+  "warning": "Every label here is PROVISIONAL_CLAUDE_REVIEW and was authored by Claude Code. None of it is verified ground truth. No case may be used to certify a vision judge until independently approved. includeInMetrics is false throughout for that reason.",
+  "samplingVersion": "frames-v1",
+  "frameSampling": "five deterministic points: edge-nudged start, 25%, 50%, 75%, edge-nudged end; edge = min(0.6s, 4% of duration) to skip leader/end cards",
+  "contactSheet": {
+    "layout": "5 panels horizontal, labelled F1..F5 with timestamps",
+    "width": 1600,
+    "height": 180,
+    "note": "panel height is 180px; full-sheet target of 1600x900 was reduced to a single 1600x180 strip because five 320x180 panels tile horizontally"
+  },
+  "splitSeed": "split-seed-v2",
+  "splitMethod": "sha256('split-seed-v2:'+pexelsId), first hex char < '8' => calibration, else holdout; keyed on source id so duplicate clips cannot straddle the split",
+  "v1Note": "tests/fixtures/visual-semantic-benchmark.v1.json is retained as a logic/requirements fixture. Its asset references are SYNTHETIC_DESCRIPTION_REFERENCE and it is NOT frame-backed.",
+  "cases": [
+    {
+      "caseId": "sub-cctv",
+      "role": "subject-only",
+      "source": {
+        "provider": "pexels",
+        "id": "9795077",
+        "pageUrl": "https://www.pexels.com/video/a-person-getting-the-cctv-device-while-the-girl-is-holding-a-cellphone-9795077/",
+        "durationS": 12.2,
+        "width": 4096,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 338,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "Ron Lach",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "cctv security camera"
+      },
+      "mediaSha256": "2bf0e9f996dd59e69215354b5eb3d8d1727ccd1db402feccad11a62e5c11bf4a",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.488,
+          "sha256": "ead06f0e8e049e9f6ddecd1c4e80e2f1483bc1fe7d555decf01264a1a62a88a0"
+        },
+        {
+          "index": 1,
+          "timestampS": 3.05,
+          "sha256": "b25018ae7b4be3abc104011989285320f3cc01768c17b89120a68dcf5cd8564d"
+        },
+        {
+          "index": 2,
+          "timestampS": 6.1,
+          "sha256": "b111944f5672057a9feeba97ce004a58bead4168157abfd9e9ad95b63147d828"
+        },
+        {
+          "index": 3,
+          "timestampS": 9.15,
+          "sha256": "663030573f1408edc21e51587fbf89c839063005d7813b1dbfce4132c746a335"
+        },
+        {
+          "index": 4,
+          "timestampS": 11.712,
+          "sha256": "8cdfe10c6150c42aad4cc11bf27ff69943d8b3c8f73cc3d0e20bd524c53af840"
+        }
+      ],
+      "contactSheet": {
+        "file": "sub-cctv__9795077.jpg",
+        "sha256": "134b2a13884251561aa11fd417b78d185526526cfb05803bef15970242765795",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "security-camera"
+        ],
+        "settings": []
+      },
+      "narration": "The camera never blinks.",
+      "visualPrompt": "Close view of a security camera",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Should show camera hardware as the subject; no particular setting required.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "sub-industrial-robot",
+      "role": "subject-only",
+      "source": {
+        "provider": "pexels",
+        "id": "32386518",
+        "pageUrl": "https://www.pexels.com/video/industrial-robotics-in-action-in-modern-facility-32386518/",
+        "durationS": 12.98,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Usman AbdulrasheedGambo",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "industrial robot arm"
+      },
+      "mediaSha256": "13af524ba5184a5344ad7594dea21b8131a9b8261e0ef90049b785f40a8d36e9",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.519,
+          "sha256": "a13bde0d134ba12416befb06f4f914ea60f7785aa863e56efeb41d426c674336"
+        },
+        {
+          "index": 1,
+          "timestampS": 3.245,
+          "sha256": "7b0adc5d8b88852004cc8c9fdd59ad5ce2bc29d36853ed203f7cb7d554a8ea80"
+        },
+        {
+          "index": 2,
+          "timestampS": 6.49,
+          "sha256": "eb1f067c2fa70bf4bc734bac529d19edb9689b2c9a7104e8693882d429e8b42c"
+        },
+        {
+          "index": 3,
+          "timestampS": 9.735,
+          "sha256": "1428ed9c2c83fbd0786e51aeb3e35106857f76f4da20848cc9c0a0c695574495"
+        },
+        {
+          "index": 4,
+          "timestampS": 12.461,
+          "sha256": "debd9c2d9e46cd124f54e8998dc36224772a40017a1d81d98f9e50e01f6be1b6"
+        }
+      ],
+      "contactSheet": {
+        "file": "sub-industrial-robot__32386518.jpg",
+        "sha256": "39a82688c95afa9393cd9b5579700b6bf3877227cdf390cfdbb394325a719387",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "robot"
+        ],
+        "settings": []
+      },
+      "narration": "The arm repeats the same weld ten thousand times a day.",
+      "visualPrompt": "Industrial robot arm",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Robot as subject; cross-domain (outside FAMILIES).",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "sub-humanoid-robot",
+      "role": "subject-only",
+      "source": {
+        "provider": "pexels",
+        "id": "8084620",
+        "pageUrl": "https://www.pexels.com/video/robot-doing-movements-8084620/",
+        "durationS": 38.28,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "Pavel Danilyuk",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "humanoid robot"
+      },
+      "mediaSha256": "4ba9f6cc429473df2850dd6f597eb8fb5b611ef4402f1869dc1d257181a6b85b",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "72eb5c2592748404183fce55f35c50c5c871e0f60f2c037025947d0774a17d27"
+        },
+        {
+          "index": 1,
+          "timestampS": 9.57,
+          "sha256": "6ea071fe21e10abcdaf4f07d80118078a445adc00823e7edba318169e177c647"
+        },
+        {
+          "index": 2,
+          "timestampS": 19.14,
+          "sha256": "d30487d216c0562a0ffc2fd838794a3bfa20baa64caefbb9122135dcf3dd2b7d"
+        },
+        {
+          "index": 3,
+          "timestampS": 28.71,
+          "sha256": "3ed4831c535307d5215781d8299bb5610f36818e7dc618a0259d833e8ca7bbf5"
+        },
+        {
+          "index": 4,
+          "timestampS": 37.68,
+          "sha256": "f92d79980955a5cde597a79210982aa030d9d9a6c39a4316b0da11080d0edbef"
+        }
+      ],
+      "contactSheet": {
+        "file": "sub-humanoid-robot__8084620.jpg",
+        "sha256": "3cf224808b64751b2df0c8b619da821b78252991cebb16e48dc63fd5bb7be0f2",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "robot"
+        ],
+        "settings": []
+      },
+      "narration": "This machine has legs because the factory was built for people.",
+      "visualPrompt": "Humanoid robot",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Humanoid form as subject; cross-domain.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "sub-server-racks",
+      "role": "subject-only",
+      "source": {
+        "provider": "pexels",
+        "id": "7140928",
+        "pageUrl": "https://www.pexels.com/video/close-up-of-a-cpu-7140928/",
+        "durationS": 9.387,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "MrColo",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "server rack data center"
+      },
+      "mediaSha256": "985e6f5c676bb712b13e22ee66493ff19a9273ab5c2b47c2ab480085eea6a897",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.375,
+          "sha256": "2a1af05a13f71d7266561f1f7d19652329f94bde8e292e92b3546b17458a922b"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.347,
+          "sha256": "0d7faa643f4b160ff80d607bb6e9895dcf66ea59691986fc8737f271115b4104"
+        },
+        {
+          "index": 2,
+          "timestampS": 4.693,
+          "sha256": "eea53b3988f300ca2676154be31866e3f979f345ec306975a3abddf7419a383c"
+        },
+        {
+          "index": 3,
+          "timestampS": 7.04,
+          "sha256": "9c9380f120b3fe876967e26c87e12b7b400e8371a668f87c78e5a9645f477ad0"
+        },
+        {
+          "index": 4,
+          "timestampS": 9.011,
+          "sha256": "ccf947fbed7c3f2dc597d534b5cd519bbef8deb8750f7cc309d13f17c39eec9e"
+        }
+      ],
+      "contactSheet": {
+        "file": "sub-server-racks__7140928.jpg",
+        "sha256": "bd4369099970f6eec13f322ae8e8dd3a28c9eb081a5276abae28608c6775e83d",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "server-rack"
+        ],
+        "settings": []
+      },
+      "narration": "The racks run hot enough to need their own weather.",
+      "visualPrompt": "Server racks",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Server hardware as subject; cross-domain.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "sub-drone",
+      "role": "subject-only",
+      "source": {
+        "provider": "pexels",
+        "id": "8482189",
+        "pageUrl": "https://www.pexels.com/video/a-drone-camera-flying-in-the-sky-8482189/",
+        "durationS": 16.783,
+        "width": 1920,
+        "height": 1080,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 5,
+        "contributor": "Nino Souza",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "drone flying quadcopter"
+      },
+      "mediaSha256": "7a50a6b1124b5445d9a06a470e89ae7eea8a94ce6667383511eb38606baf043c",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "2a616f4034ca21be4e6ae18f2e80153a6bcac29a6424ff543589f39af1e4afbd"
+        },
+        {
+          "index": 1,
+          "timestampS": 4.196,
+          "sha256": "2038a41567f278d0cc42544c665e2a859d22f7ae74451e3548851ee11171622a"
+        },
+        {
+          "index": 2,
+          "timestampS": 8.392,
+          "sha256": "2d0049fe945f962b56150bb64fad351b70f435d58b97836023967bd02b272f24"
+        },
+        {
+          "index": 3,
+          "timestampS": 12.588,
+          "sha256": "ce3d2cd124646011aaa831776f5cc26c0977f9d26c1f70ddb52ba17927bbf910"
+        },
+        {
+          "index": 4,
+          "timestampS": 16.183,
+          "sha256": "1bdca252805d58ca6b487e80d918265a858b8fe7458c25e44ea879ae96255cb5"
+        }
+      ],
+      "contactSheet": {
+        "file": "sub-drone__8482189.jpg",
+        "sha256": "737cdd220a5249242d88593d2826421e107d684d252dd9d492d08a2dd9f096ce",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "drone"
+        ],
+        "settings": []
+      },
+      "narration": "A drone counts the shelves overnight.",
+      "visualPrompt": "Drone in flight",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Drone as subject; cross-domain.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "set-supermarket-aisle",
+      "role": "setting-only",
+      "source": {
+        "provider": "pexels",
+        "id": "29376327",
+        "pageUrl": "https://www.pexels.com/video/shopping-aisle-perspective-on-supermarket-essentials-29376327/",
+        "durationS": 10.8,
+        "width": 3834,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Dudubangbang Travel",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "supermarket aisle shopping"
+      },
+      "mediaSha256": "936f230a57553d74e78b3429f3d83c2ebbef73aa11d89116e1dba6cd4aa54773",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.432,
+          "sha256": "00ea20b20e5d95d1de2cacb4f630271de53206fcdb0c96c10ae26cd398fe3def"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.7,
+          "sha256": "ae95ebed0a560d00f994bf2a7ff31145dc2e34155c7813fbc9adcfdce9772955"
+        },
+        {
+          "index": 2,
+          "timestampS": 5.4,
+          "sha256": "067da46eea5d1984000635be4cb2f16567c5f9fb22c5d679362e9200077e4889"
+        },
+        {
+          "index": 3,
+          "timestampS": 8.1,
+          "sha256": "9106b48fa3b7e0952d790dc5b4cdb0c9924980ebdd4559b3c8bb705b65c97bfc"
+        },
+        {
+          "index": 4,
+          "timestampS": 10.368,
+          "sha256": "6524270f026b18e477514aca02c43a4de9a30c9e3638b611c2c549c582a64716"
+        }
+      ],
+      "contactSheet": {
+        "file": "set-supermarket-aisle__29376327.jpg",
+        "sha256": "2a9c56e0f598106225854ddd2d174eee14f8c8d97c9c82d51880494271fde26f",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [],
+        "settings": [
+          "retail-space"
+        ]
+      },
+      "narration": "Computer vision is spreading through retail.",
+      "visualPrompt": "Supermarket interior with shoppers",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Proves the retail setting only; no camera subject expected.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "set-warehouse-interior",
+      "role": "setting-only",
+      "source": {
+        "provider": "pexels",
+        "id": "6046361",
+        "pageUrl": "https://www.pexels.com/video/drone-footage-inside-industrial-building-6046361/",
+        "durationS": 22.252,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "K",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "warehouse interior workers"
+      },
+      "mediaSha256": "6601d5e13b547ebd82d9f377a159c4f6cfdc361afee43db0c0ed436585946b5d",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "e5ad0f5e2ffe9c3c781913ab9fc1316f77c92cde964896584ccdd97f2e5cadb8"
+        },
+        {
+          "index": 1,
+          "timestampS": 5.563,
+          "sha256": "1557a684c8b6a677bf4857ac4e7b3310b830f92f2fa9800f37524f6a0234c104"
+        },
+        {
+          "index": 2,
+          "timestampS": 11.126,
+          "sha256": "f3d31b0203933d1f3540269a1a4c363dfe8f5aad1774d3945adef51430b95ec1"
+        },
+        {
+          "index": 3,
+          "timestampS": 16.689,
+          "sha256": "94b3db5000bd3d71875c6be2ccdd850e3c2519565889075e0b0c8b57b8365f93"
+        },
+        {
+          "index": 4,
+          "timestampS": 21.652,
+          "sha256": "94d47cf55ccd603d834abb3ee8cdb268d396f5460a1473e37d6c9d8b5aa6e0ef"
+        }
+      ],
+      "contactSheet": {
+        "file": "set-warehouse-interior__6046361.jpg",
+        "sha256": "ea8b742e3101cf50f4d28b02dd4ca6e1ab9c45c2c2c925526d4e3ce76053f30b",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [],
+        "settings": [
+          "warehouse-space"
+        ]
+      },
+      "narration": "Step into the warehouse next door.",
+      "visualPrompt": "Warehouse interior",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Interior workplace setting, explicitly not an exterior aerial.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "set-factory-floor",
+      "role": "setting-only",
+      "source": {
+        "provider": "pexels",
+        "id": "32268481",
+        "pageUrl": "https://www.pexels.com/video/industrial-fabric-production-process-from-above-32268481/",
+        "durationS": 18.168,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Usman AbdulrasheedGambo",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "factory production line"
+      },
+      "mediaSha256": "a7d1ac8098e65f86e4b2ba3278fd1b41c2af90fa3d9d0a4c0abd714c13a9c001",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "037faed6ec50b15ee2604ec93e6e5cfa65e076bd9c247099c85e740c92884b0e"
+        },
+        {
+          "index": 1,
+          "timestampS": 4.542,
+          "sha256": "05d3feceb7f45a4d774f537a5d4cd3dd4bb51ada2534aef9ce8eec4475125723"
+        },
+        {
+          "index": 2,
+          "timestampS": 9.084,
+          "sha256": "63c38ccfd2a13fce7484dfccca3c08193d2d8d8edd00345d5599c4fb2f59a470"
+        },
+        {
+          "index": 3,
+          "timestampS": 13.626,
+          "sha256": "1b217d60881bc959e8a37fba117eb3a38b944b7e6116b37dd67f792a4225c4f2"
+        },
+        {
+          "index": 4,
+          "timestampS": 17.568,
+          "sha256": "fa6322cfe2609153c57e3fc175cac6b44da953bf58f141365191fa68c63ea653"
+        }
+      ],
+      "contactSheet": {
+        "file": "set-factory-floor__32268481.jpg",
+        "sha256": "bd9502a850b060fb1d055ce88477cbbf2b511afb2e805bb755bd339e42c2e577",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [],
+        "settings": [
+          "factory-space"
+        ]
+      },
+      "narration": "Assembly lines are shaped around human reach.",
+      "visualPrompt": "Factory production line",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Factory floor setting.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "set-server-room",
+      "role": "setting-only",
+      "source": {
+        "provider": "pexels",
+        "id": "7140928",
+        "pageUrl": "https://www.pexels.com/video/close-up-of-a-cpu-7140928/",
+        "durationS": 9.387,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "MrColo",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "data center server room"
+      },
+      "mediaSha256": "985e6f5c676bb712b13e22ee66493ff19a9273ab5c2b47c2ab480085eea6a897",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.375,
+          "sha256": "2a1af05a13f71d7266561f1f7d19652329f94bde8e292e92b3546b17458a922b"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.347,
+          "sha256": "0d7faa643f4b160ff80d607bb6e9895dcf66ea59691986fc8737f271115b4104"
+        },
+        {
+          "index": 2,
+          "timestampS": 4.693,
+          "sha256": "eea53b3988f300ca2676154be31866e3f979f345ec306975a3abddf7419a383c"
+        },
+        {
+          "index": 3,
+          "timestampS": 7.04,
+          "sha256": "9c9380f120b3fe876967e26c87e12b7b400e8371a668f87c78e5a9645f477ad0"
+        },
+        {
+          "index": 4,
+          "timestampS": 9.011,
+          "sha256": "ccf947fbed7c3f2dc597d534b5cd519bbef8deb8750f7cc309d13f17c39eec9e"
+        }
+      ],
+      "contactSheet": {
+        "file": "set-server-room__7140928.jpg",
+        "sha256": "bd4369099970f6eec13f322ae8e8dd3a28c9eb081a5276abae28608c6775e83d",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [],
+        "settings": [
+          "datacenter-space"
+        ]
+      },
+      "narration": "Inside, the aisles never get quiet.",
+      "visualPrompt": "Data centre server room interior",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Server-room interior; cross-domain.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "set-street-intersection",
+      "role": "setting-only",
+      "source": {
+        "provider": "pexels",
+        "id": "3727447",
+        "pageUrl": "https://www.pexels.com/video/time-lapse-video-of-traffic-on-a-main-road-at-night-3727447/",
+        "durationS": 68.068,
+        "width": 1920,
+        "height": 1080,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 5,
+        "contributor": "German Korb",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "city street intersection traffic"
+      },
+      "mediaSha256": "982043638de9ecbeb0c8e52bb3776f3debdba37c53d496363c8f9a60171d1b67",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "a07dc3a79891f5ba8c8d9abc3e6f8cf284d4b2ea662d30e7317b963d15083ac3"
+        },
+        {
+          "index": 1,
+          "timestampS": 17.017,
+          "sha256": "553a6a71221612a7bb89679f638b0988922b86da10302cae97649181a54db9a8"
+        },
+        {
+          "index": 2,
+          "timestampS": 34.034,
+          "sha256": "069aa663571b5531c8cf06f4716b7c7213f3820b7fe51c85f2e32df23f9635ba"
+        },
+        {
+          "index": 3,
+          "timestampS": 51.051,
+          "sha256": "9321e76f01d1078c256a9677a57d7798920ec00507353ff8a97810dd7a4eb27a"
+        },
+        {
+          "index": 4,
+          "timestampS": 67.468,
+          "sha256": "7c96ef683a9dfe7e966aaa3d420ae8c1dce97d1c38169d9038f2ed9f3480395f"
+        }
+      ],
+      "contactSheet": {
+        "file": "set-street-intersection__3727447.jpg",
+        "sha256": "5d7de33cb23fd9fe26d4341fbccd4df5df64766d5d7d5ce223380212a2ec3d63",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [],
+        "settings": [
+          "street-public"
+        ]
+      },
+      "narration": "Cities are writing rules for machines that were never in the plan.",
+      "visualPrompt": "Urban street intersection",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Public roadway setting.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "act-selfcheckout-scan",
+      "role": "action",
+      "source": {
+        "provider": "pexels",
+        "id": "34225457",
+        "pageUrl": "https://www.pexels.com/video/young-adult-scanning-groceries-at-self-checkout-34225457/",
+        "durationS": 105.267,
+        "width": 1920,
+        "height": 1080,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 4,
+        "contributor": "Sachin Sharma",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "self checkout supermarket scanning"
+      },
+      "mediaSha256": "81aa108484f744d316e2e68760ba29cf1e27189de95622991969664b618d3f08",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "622ce17424608c8a28da7d06b2537b89ec0f6832907ea3041a58bc79d1494ef8"
+        },
+        {
+          "index": 1,
+          "timestampS": 26.317,
+          "sha256": "0a290c37af2d43da42a1c9f7ae8ba6e55480c0ab8c0046110ba63fbc4f030d1b"
+        },
+        {
+          "index": 2,
+          "timestampS": 52.633,
+          "sha256": "6d9ce7b66ce9bf198fcaefe7e23a3ad84f2df575f9371724f3f49fd0869e2a8f"
+        },
+        {
+          "index": 3,
+          "timestampS": 78.95,
+          "sha256": "96eef32ba7cdeaa92627da2fa69ca4fb38d267d326ba2f275efa246ffeeeb1c8"
+        },
+        {
+          "index": 4,
+          "timestampS": 104.667,
+          "sha256": "c7de0f719a3b78909e9437ee918f719d52f077cdbcdbcfde4aff0032637f79ae"
+        }
+      ],
+      "contactSheet": {
+        "file": "act-selfcheckout-scan__34225457.jpg",
+        "sha256": "06ec07f1ab64c49b0e6fdbfdaf1cdb42e4ce2a553b7e0a9f6980f594332888da",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [],
+        "settings": [
+          "retail-space"
+        ],
+        "action": "scanning groceries at self checkout"
+      },
+      "narration": "Self checkout is where the cameras watch hardest.",
+      "visualPrompt": "Self checkout station in a store",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Setting plus a visible scanning action. This is the clip class v1 wrongly rejected.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "act-operator-watching",
+      "role": "action",
+      "source": {
+        "provider": "pexels",
+        "id": "38779098",
+        "pageUrl": "https://www.pexels.com/video/high-tech-control-room-for-traffic-monitoring-38779098/",
+        "durationS": 8.56,
+        "width": 1920,
+        "height": 1080,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 4,
+        "contributor": "Kiwi and Camera",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "security operator monitoring cctv screens"
+      },
+      "mediaSha256": "bce60a02a0ff29461993052ccc7e82cf1f5bf38d1e747d0587252597d9e999bd",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.342,
+          "sha256": "4a2d5e0cd6dbd5b989e28d0f1b62b42dddc3beb06e4b8a46edd742605d169d31"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.14,
+          "sha256": "2aa39da7167d847401fd0f3c9fbc4f332e7ab1b2258ec086ee2909ae08e96afe"
+        },
+        {
+          "index": 2,
+          "timestampS": 4.28,
+          "sha256": "08bea3e26d12ee07d13383d5fcfee709c111de57ee35fae98245efc1a05a38ac"
+        },
+        {
+          "index": 3,
+          "timestampS": 6.42,
+          "sha256": "f05c03ec1524d23ec1614cd0d2e98d94e6e77d54b2cda2bd55debb518eb20697"
+        },
+        {
+          "index": 4,
+          "timestampS": 8.218,
+          "sha256": "24e8d2ba4cc99ca4533b02becda7c54189846a21ba831ee38e4b4942299a078d"
+        }
+      ],
+      "contactSheet": {
+        "file": "act-operator-watching__38779098.jpg",
+        "sha256": "399208e1cfe2e06d4bfa739d6cefeae68d2068a1eca31381002830af943c9790",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "surveillance-operator"
+        ],
+        "settings": [
+          "control-room-space"
+        ],
+        "action": "observing camera feeds"
+      },
+      "narration": "Operators watch dozens of camera feeds at once.",
+      "visualPrompt": "Security operator watching CCTV feeds",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Joint: operator and monitoring room together.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "joint-traffic-camera-road",
+      "role": "joint",
+      "source": {
+        "provider": "pexels",
+        "id": "4261446",
+        "pageUrl": "https://www.pexels.com/video/a-double-lane-highway-for-road-travelers-4261446/",
+        "durationS": 30.64,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "Jozef Papp",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "traffic camera over highway road"
+      },
+      "mediaSha256": "1805223d8b1e979e9684aa8fbe93f37ffc6dcc2698b587e92a9ec331464fefae",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "e7998f71668d721b85be81b65ebbd7a01859c233667c7830d2dce0557111f884"
+        },
+        {
+          "index": 1,
+          "timestampS": 7.66,
+          "sha256": "4baaaf89b781ebee9c2006387bafab80e7344eed6d5f9bcf44e8c4655b255b19"
+        },
+        {
+          "index": 2,
+          "timestampS": 15.32,
+          "sha256": "d0b06d8be3f35ade4e0d03013fafc445864d275b91bd3e53649f71f97a682bf8"
+        },
+        {
+          "index": 3,
+          "timestampS": 22.98,
+          "sha256": "b4026dab989731d291513ad47d47f012ce6248021bc9691079d90b324be1aa21"
+        },
+        {
+          "index": 4,
+          "timestampS": 30.04,
+          "sha256": "4b72062825f4836bffbd3709ff135bdadc5707613f2aef8f8a4ed6728ead1736"
+        }
+      ],
+      "contactSheet": {
+        "file": "joint-traffic-camera-road__4261446.jpg",
+        "sha256": "9bfaf1033c0444e93fd43913cf565613612eaa5d925c0f40ea62d0130ba3771f",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "security-camera"
+        ],
+        "settings": [
+          "street-public"
+        ]
+      },
+      "narration": "Traffic cameras watch the same intersection from above.",
+      "visualPrompt": "Traffic camera positioned over a roadway",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Camera and roadway must appear in one shot.",
+      "reviewCaution": "Gantry over the motorway is visible but a camera unit is not clearly resolvable at panel size. May be AMBIGUOUS or need a closer clip.",
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "joint-robot-in-warehouse",
+      "role": "joint",
+      "source": {
+        "provider": "pexels",
+        "id": "15462319",
+        "pageUrl": "https://www.pexels.com/video/animation-of-cardboard-boxes-on-a-conveyor-belt-15462319/",
+        "durationS": 28.032,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "Miguel Á. Padriñán",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "robot warehouse automation moving goods"
+      },
+      "mediaSha256": "feb3cd1e55f46b5ff419c7646fe20a9a0d0a750dbbc798817ac2930708d637dc",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "687549d386e6af123ef053624efd92a17dfcda4f6911b03c4909876ded5e732d"
+        },
+        {
+          "index": 1,
+          "timestampS": 7.008,
+          "sha256": "f3628d704c8aef9cf0a1e5448d0a2000af66c050619f52b1be55d68f70c61793"
+        },
+        {
+          "index": 2,
+          "timestampS": 14.016,
+          "sha256": "a67ebf8b109625327c6ac11ecd0377460d704c51a188697130c928c8da1fff4e"
+        },
+        {
+          "index": 3,
+          "timestampS": 21.024,
+          "sha256": "4693d1f93c8a5b21fb5c4603b2b1055d2554e83c50c64efa9efb3c4d03444636"
+        },
+        {
+          "index": 4,
+          "timestampS": 27.432,
+          "sha256": "5efad8f05099c2c7ea41f1ab55f6ff0492e89676f017a3baec52701841af5f36"
+        }
+      ],
+      "contactSheet": {
+        "file": "joint-robot-in-warehouse__15462319.jpg",
+        "sha256": "349f10f7a6ac8c162c75c253140fa81135dc23f209eb86cdc6edb3983b196e48",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "robot"
+        ],
+        "settings": [
+          "warehouse-space"
+        ]
+      },
+      "narration": "The robot moving across this warehouse floor has no map.",
+      "visualPrompt": "Robot operating inside a warehouse",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Robot visibly inside the warehouse; cross-domain joint.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "joint-robot-on-line",
+      "role": "joint",
+      "source": {
+        "provider": "pexels",
+        "id": "32386590",
+        "pageUrl": "https://www.pexels.com/video/advanced-robotics-in-automated-factory-32386590/",
+        "durationS": 11.32,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Usman AbdulrasheedGambo",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "robotic arm assembly line factory"
+      },
+      "mediaSha256": "c6e47d53ba7fe1a88b265864687470dab18088cdcafbaea31f07f9e707e3399a",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.453,
+          "sha256": "328edd2fd931510e1917c83702978954559920954c9bfcafa79252d00c88c5e2"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.83,
+          "sha256": "17f468ae27d9189fcf78cd47b1ac4414a1c1606619fb163bf0d48dd61aa08b19"
+        },
+        {
+          "index": 2,
+          "timestampS": 5.66,
+          "sha256": "bc6fc615b31f63b5809c3d1eb96da6004f2b216ea1f15be9623cf137a8bbb784"
+        },
+        {
+          "index": 3,
+          "timestampS": 8.49,
+          "sha256": "18f6bda484d6a1d648101ba293333738bf5f5c45f6c3c542c7d6e4b2cf137f37"
+        },
+        {
+          "index": 4,
+          "timestampS": 10.867,
+          "sha256": "7415d46bd032c67612e2429dc256dcddf6807923b97b3091b5fede9e65f19234"
+        }
+      ],
+      "contactSheet": {
+        "file": "joint-robot-on-line__32386590.jpg",
+        "sha256": "9ed1c1aba33b7113606ae077a17db7d36794b0586a2cb55fc6a246bf88ba1be5",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "robot"
+        ],
+        "settings": [
+          "factory-space"
+        ]
+      },
+      "narration": "Robot arms dominate the parts of the line that never move.",
+      "visualPrompt": "Industrial robot working on a factory line",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Robot visibly on the production line.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "joint-racks-in-room",
+      "role": "joint",
+      "source": {
+        "provider": "pexels",
+        "id": "1085656",
+        "pageUrl": "https://www.pexels.com/video/blue-colored-cables-1085656/",
+        "durationS": 23.552,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 6,
+        "contributor": "Dima Krivoy",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "server racks data centre corridor"
+      },
+      "mediaSha256": "5ba18972d4d934a72113f76bd17742ef496e5d9d9d42b15f4b43ccc0efbee10d",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "de152eae09ea11ead2fbaf1dda82f1f43bd11ae2098e8a8b44b3fc3417fd84ea"
+        },
+        {
+          "index": 1,
+          "timestampS": 5.888,
+          "sha256": "e426e0f73016910c5cd3518113c3178e5088462ca7ef1ee588c820d6e4b2684a"
+        },
+        {
+          "index": 2,
+          "timestampS": 11.776,
+          "sha256": "77d1afe697777eff3be46c63efe92e3bbae731d0ad6b793dd1a2ffc6dabfad35"
+        },
+        {
+          "index": 3,
+          "timestampS": 17.664,
+          "sha256": "725fd778e8b3d88bef97eb2860e8c74bff2da75685255552409dc988139011f8"
+        },
+        {
+          "index": 4,
+          "timestampS": 22.952,
+          "sha256": "e5ea98a60844dcaa6cbbc614ed0773209dfda5b80b3bd147d79036c9d48d092c"
+        }
+      ],
+      "contactSheet": {
+        "file": "joint-racks-in-room__1085656.jpg",
+        "sha256": "9e3d0e8d98b4cf66023b57c43a6c3d758fb12910d1bdb90929edc3276270957e",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "server-rack"
+        ],
+        "settings": [
+          "datacenter-space"
+        ]
+      },
+      "narration": "Rows of racks stretch the length of the hall.",
+      "visualPrompt": "Server racks inside a data centre",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Racks visibly inside the room; cross-domain joint.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "joint-delivery-robot-street",
+      "role": "joint",
+      "source": {
+        "provider": "pexels",
+        "id": "8566760",
+        "pageUrl": "https://www.pexels.com/video/robot-rovers-line-up-8566760/",
+        "durationS": 11.477,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 6,
+        "contributor": "Kindel Media",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "delivery robot sidewalk pedestrian"
+      },
+      "mediaSha256": "6204238b735f8a2f41255aa13829c645fec2aeee7ca12bb56117c1c73ec70fb9",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.459,
+          "sha256": "02b6c133873a15723b34baeff26bd4a523ab71545b3de2a450a4642c777d75a6"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.869,
+          "sha256": "1e2f9c99a6ec8cc033bfc3b0d0dbbaac0bd6b4524134ba885124c2691adff350"
+        },
+        {
+          "index": 2,
+          "timestampS": 5.738,
+          "sha256": "bb02a06fc6d96d24fb712308bfd957c0fd51db36aaa6297df0598ae3dc70590e"
+        },
+        {
+          "index": 3,
+          "timestampS": 8.608,
+          "sha256": "8ed5eff94e217c50ce53ed0a54ef82de4bc00a8ca5360241d377ebc187a1a2f6"
+        },
+        {
+          "index": 4,
+          "timestampS": 11.018,
+          "sha256": "1a7cf94a4ca11c975e917254fd8c2e50602141d841828b5e189b60e5da43da86"
+        }
+      ],
+      "contactSheet": {
+        "file": "joint-delivery-robot-street__8566760.jpg",
+        "sha256": "6444cd5c95483f18a904f99c22639cc408322e77f1618473c63ff4ab8d37d2fd",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "robot"
+        ],
+        "settings": [
+          "street-public"
+        ]
+      },
+      "narration": "A cooler on six wheels is competing for your pavement.",
+      "visualPrompt": "Delivery robot on a public pavement",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "DIRECT"
+      },
+      "provisionalRationale": "Robot visibly in a pedestrian environment.",
+      "reviewCaution": null,
+      "safetyCritical": false,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "neg-balloon-vs-datacentre",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "7403336",
+        "pageUrl": "https://www.pexels.com/video/drone-video-of-a-hot-air-balloon-flying-over-an-industrial-park-7403336/",
+        "durationS": 11.8,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "Jozef Papp",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:7403336"
+      },
+      "mediaSha256": "b6d0ca6bef4556757119ae3525485712db6beb16495d27b48bc5c7db80608a8a",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.472,
+          "sha256": "1778b93a5c69c385aec3d87ae871e3ff63822580803576e4c2bac5af3ef62a73"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.95,
+          "sha256": "dc0f63e0fa263ee4b59a0be52f62a08530943188b0424b46f7e3a26290d6f828"
+        },
+        {
+          "index": 2,
+          "timestampS": 5.9,
+          "sha256": "0be1779fb0f544d7059d209d5be56f707e0727f6d2c52d2a1c85fda3f54df607"
+        },
+        {
+          "index": 3,
+          "timestampS": 8.85,
+          "sha256": "23030f813d2afc035a94a0f8e61a7bb253e52ffbcfa67d39fdb90cb2caddb621"
+        },
+        {
+          "index": 4,
+          "timestampS": 11.328,
+          "sha256": "37706bdca7cefd3cbf6bcb171641141783d7f6b5725c60f03cf50e3424162409"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-balloon-vs-datacentre__7403336.jpg",
+        "sha256": "b2ca2d0d9f6758bd2a4c021c32e8121231fde99445390b14d10ff548a3944c44",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "server-rack"
+        ],
+        "settings": [
+          "datacenter-space"
+        ]
+      },
+      "narration": "Inside, the racks run hot enough to need their own weather.",
+      "visualPrompt": "Data centre server room",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "The canonical unknown-domain fail-open case: scored DIRECT under the old taxonomy.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "neg-airport-vs-cli",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "16189939",
+        "pageUrl": "https://www.pexels.com/video/a-view-of-the-airport-terminal-from-above-16189939/",
+        "durationS": 20.073,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "K",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:16189939"
+      },
+      "mediaSha256": "0d97fc6b4534ef010ba55665848078cf23b68274fca8f6372d311cb108ec7e73",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "0cd99e1686c41be522deaff43dbeda20d129a10eed0200bc7ece918b980cffb6"
+        },
+        {
+          "index": 1,
+          "timestampS": 5.018,
+          "sha256": "721146e349bc5546ce84ae65e5746f461c0327053d43200e78a80eee4881bf3a"
+        },
+        {
+          "index": 2,
+          "timestampS": 10.037,
+          "sha256": "a4992bb8f67143308bac4dac6c59802d6c6e2361ec00730208a31ee10dade0b0"
+        },
+        {
+          "index": 3,
+          "timestampS": 15.055,
+          "sha256": "4a7145eb5047b5e1363efa60c7a8e5b6312a1d6de3d5a1b5a8a0c36a374499fe"
+        },
+        {
+          "index": 4,
+          "timestampS": 19.473,
+          "sha256": "0a6bb3c8edd1ce120b42c85498efa826ccac9b926f4a47ca45cd509d00eda547"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-airport-vs-cli__16189939.jpg",
+        "sha256": "79b20cf1462d9dd95d70447f06e5a3c72bff383966a2c407d8d539a590faa2b7",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "software-screen"
+        ],
+        "settings": []
+      },
+      "narration": "The software runs on a terminal in the back office.",
+      "visualPrompt": "Command line terminal on a screen",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "Accepted as software because metadata said 'terminal'.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "neg-cli-vs-transit",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "35475345",
+        "pageUrl": "https://www.pexels.com/video/terminal-screen-with-python-package-installation-35475345/",
+        "durationS": 14.88,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Shutter  Break",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:35475345"
+      },
+      "mediaSha256": "547e10886a9a7d0c7f93ea3f6eb6317e7f17ca42096744a0f252f12e2b353470",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.595,
+          "sha256": "d62da3a9d00632e98be81af270a43a3d2211134e0fcc4adcec143209a23997d8"
+        },
+        {
+          "index": 1,
+          "timestampS": 3.72,
+          "sha256": "b0fbfc9bc9d0ed43cdf8be3fd91d297ddcc526ff697890fe0eb6e5b9167bdbfe"
+        },
+        {
+          "index": 2,
+          "timestampS": 7.44,
+          "sha256": "b7ea1220160870b93ac129409dc5d2298e9e8728b5debbd46b5cd9f95cd85dde"
+        },
+        {
+          "index": 3,
+          "timestampS": 11.16,
+          "sha256": "c9d8e64f83f5c93209f06d49a1a6e6fca7ff383f599139e3012a557b96f7e3cf"
+        },
+        {
+          "index": 4,
+          "timestampS": 14.285,
+          "sha256": "14faa0a2e0d382aee687e30be20a45b37a9743c7ea94e57670e5b03be009b146"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-cli-vs-transit__35475345.jpg",
+        "sha256": "c46e1894bf6919078daa4248cfcc620101889d6cd5e99d9ff728ba93eae1ac1d",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [],
+        "settings": [
+          "street-public"
+        ]
+      },
+      "narration": "Passengers move through the transit terminal all day.",
+      "visualPrompt": "Busy transit terminal with passengers",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "Reverse polysemy: a shell is not a transit hall.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "neg-aerial-vs-interior",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "29959327",
+        "pageUrl": "https://www.pexels.com/video/aerial-view-of-large-industrial-warehouse-facility-29959327/",
+        "durationS": 20.003,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Toàn BDS",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:29959327"
+      },
+      "mediaSha256": "b313780e581c620f30ef0db1b2ffdb63befcc33908048e74818b80daa1a4facf",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "b0f246c8836dfe9c45fe6c491c6e1fcd8179868e1964f9d27e4cbcd0c465ae7d"
+        },
+        {
+          "index": 1,
+          "timestampS": 5.001,
+          "sha256": "ef208e9d8a8ae67fd1d94da112c89896ef20e099327932371957207f6224d210"
+        },
+        {
+          "index": 2,
+          "timestampS": 10.002,
+          "sha256": "37e3a87971c239fa50959a6d2e34b066094fe2059010783e85c56f6e0b7a0fb7"
+        },
+        {
+          "index": 3,
+          "timestampS": 15.002,
+          "sha256": "f8eaf46a5c85f9803991ea28d84308e72d73cd4470400164a841b75015f5cd59"
+        },
+        {
+          "index": 4,
+          "timestampS": 19.403,
+          "sha256": "88c2ea24c301b4fbdffe656ce279ccbda8992fa269cc89d394065bc5f9073e6c"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-aerial-vs-interior__29959327.jpg",
+        "sha256": "06bcc6410f467c8a9507d09eeffaf5ed045fa4fb27c208b8c53867e342bcff6d",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "security-camera"
+        ],
+        "settings": [
+          "warehouse-space"
+        ]
+      },
+      "narration": "Cameras at packing stations track worker hand movements.",
+      "visualPrompt": "Warehouse packing station with a camera above it",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "An exterior roof is not evidence of interior monitoring.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "neg-roof-vs-selfcheckout",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "33601045",
+        "pageUrl": "https://www.pexels.com/video/aerial-view-of-industrial-warehouse-roofs-with-solar-panels-33601045/",
+        "durationS": 12.2,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Altaf Shah",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:33601045"
+      },
+      "mediaSha256": "9af7f3853d2fc1e2c76fb7adc55c465acd2818bfb23e97d5f8fc82eee719d607",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.488,
+          "sha256": "67c96c746891eeab07af3804f55c6e4a8142949a7f8589ce20a98ed274aef97d"
+        },
+        {
+          "index": 1,
+          "timestampS": 3.05,
+          "sha256": "bb31fc91659f0dc6be67a9d497dfb093416888b8f789eb7b7755d831ca730c8a"
+        },
+        {
+          "index": 2,
+          "timestampS": 6.1,
+          "sha256": "9307c81bce0eed971769fa57060af90c8f514b4c5856e808e7836c8c197dfa88"
+        },
+        {
+          "index": 3,
+          "timestampS": 9.15,
+          "sha256": "d0b35b976ced62946a6cdadd8febc250f532d47ffacbf7f1b8f31038b1d93727"
+        },
+        {
+          "index": 4,
+          "timestampS": 11.712,
+          "sha256": "852965dd64144b541efa4635b4ce7e823ec3d3a455f04325435e668ee3b81ee5"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-roof-vs-selfcheckout__33601045.jpg",
+        "sha256": "6ddd87f7f69d4eb61a527b367df494799c91913db87cba79e341beea8b5d75e0",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "security-camera"
+        ],
+        "settings": [
+          "retail-space"
+        ]
+      },
+      "narration": "Object detection flags items that never passed the scanner.",
+      "visualPrompt": "Self checkout with a camera above it",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "Neither subject nor setting present.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "neg-tomatoes-vs-retail-surveillance",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "8633309",
+        "pageUrl": "https://www.pexels.com/video/tomatoes-on-a-conveyor-belt-8633309/",
+        "durationS": 12.312,
+        "width": 1920,
+        "height": 1080,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 4,
+        "contributor": "Amar  Preciado",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:8633309"
+      },
+      "mediaSha256": "3cfda59d9e3a59c0293d456aa527e7d5147c4065f98a2ec02ffbdab2bec871c8",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.492,
+          "sha256": "696e14536e4ee5b2362bd037ca1ba4d612e46821aa0f7923271c997f26e29c45"
+        },
+        {
+          "index": 1,
+          "timestampS": 3.078,
+          "sha256": "9ba2c393a33429a6343f2c92507e95b13e6cd44bd188b241fcb411c435af4019"
+        },
+        {
+          "index": 2,
+          "timestampS": 6.156,
+          "sha256": "357f524a4a78be02d3670678cc0da64a0b3ceafb00fc37785e0346ba80d394a5"
+        },
+        {
+          "index": 3,
+          "timestampS": 9.234,
+          "sha256": "d1f31dd91118ba23965b373cc96bdf57bd70219a06eefb46e3cad1bca3140e87"
+        },
+        {
+          "index": 4,
+          "timestampS": 11.819,
+          "sha256": "f7cb4dab4a9fa817b3f2e8f188f7ed72c3119b68b722cbb40ab70bdb745429b9"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-tomatoes-vs-retail-surveillance__8633309.jpg",
+        "sha256": "ea4e5f20d213ba7ae19b3bf775fd64868b9db7defce4972098453da1b08b163b",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "security-camera"
+        ],
+        "settings": [
+          "retail-space"
+        ]
+      },
+      "narration": "Shrink detection runs on the same cameras that used to just record.",
+      "visualPrompt": "Supermarket aisle with a security camera",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "Food processing is neither retail nor surveillance.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "neg-trading-vs-controlroom",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "37962424",
+        "pageUrl": "https://www.pexels.com/video/financial-trading-data-on-screens-in-dark-room-37962424/",
+        "durationS": 29.88,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Rafael Minguet Delgado",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:37962424"
+      },
+      "mediaSha256": "9f32920dd0c17bbf090129a95ada9ce5d33aab1aa7231c40e43dc554f3e0efb6",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "4363ce3f9ee370f2bc9341917b340f265c6f7f30411b18f02c1b2a9de08447f4"
+        },
+        {
+          "index": 1,
+          "timestampS": 7.47,
+          "sha256": "04561f77b53fd4cd7c69bc4decfdd3b39fdbbaf36ebdadad4dd024faddae8f32"
+        },
+        {
+          "index": 2,
+          "timestampS": 14.94,
+          "sha256": "9dd2f0ef3ce7784de4787578093116a826698f2c8509b1c85727eb71b89ed254"
+        },
+        {
+          "index": 3,
+          "timestampS": 22.41,
+          "sha256": "66f6fd539da38b21e21d03954ae402c5ab78e7c4b1fa4c6b45a3dc0acd551cb6"
+        },
+        {
+          "index": 4,
+          "timestampS": 29.28,
+          "sha256": "d43a174760a2b7cf5612d55528db9bb7d4b5bd7075f3015d61074f4cc29d5a24"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-trading-vs-controlroom__37962424.jpg",
+        "sha256": "1f2a51b7768e82c22da34055e045fd95d9cc599ac44b8680ce458dff62dabd1e",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "surveillance-operator"
+        ],
+        "settings": [
+          "control-room-space"
+        ]
+      },
+      "narration": "Operators watch the feeds from a control room.",
+      "visualPrompt": "Security control room with a video wall",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "A dark room of screens is not a security control room.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "neg-python-vs-vision",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "35475345",
+        "pageUrl": "https://www.pexels.com/video/terminal-screen-with-python-package-installation-35475345/",
+        "durationS": 14.88,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 6,
+        "contributor": "Shutter  Break",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:35475345"
+      },
+      "mediaSha256": "547e10886a9a7d0c7f93ea3f6eb6317e7f17ca42096744a0f252f12e2b353470",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.595,
+          "sha256": "d62da3a9d00632e98be81af270a43a3d2211134e0fcc4adcec143209a23997d8"
+        },
+        {
+          "index": 1,
+          "timestampS": 3.72,
+          "sha256": "b0fbfc9bc9d0ed43cdf8be3fd91d297ddcc526ff697890fe0eb6e5b9167bdbfe"
+        },
+        {
+          "index": 2,
+          "timestampS": 7.44,
+          "sha256": "b7ea1220160870b93ac129409dc5d2298e9e8728b5debbd46b5cd9f95cd85dde"
+        },
+        {
+          "index": 3,
+          "timestampS": 11.16,
+          "sha256": "c9d8e64f83f5c93209f06d49a1a6e6fca7ff383f599139e3012a557b96f7e3cf"
+        },
+        {
+          "index": 4,
+          "timestampS": 14.285,
+          "sha256": "14faa0a2e0d382aee687e30be20a45b37a9743c7ea94e57670e5b03be009b146"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-python-vs-vision__35475345.jpg",
+        "sha256": "c46e1894bf6919078daa4248cfcc620101889d6cd5e99d9ff728ba93eae1ac1d",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "vision-processing"
+        ],
+        "settings": []
+      },
+      "narration": "The model draws a box around every person it detects.",
+      "visualPrompt": "Object detection bounding boxes on a feed",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "Package installation is not computer vision.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "neg-sound-vs-surveillance",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "4985367",
+        "pageUrl": "https://www.pexels.com/video/close-up-sound-processing-software-on-a-screen-4985367/",
+        "durationS": 10.12,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "Tima Miroshnichenko",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:4985367"
+      },
+      "mediaSha256": "a015b5e97772e3dd788b575c9d5b464da255119233c10068d678292bdacd2d57",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.405,
+          "sha256": "1f708482d6156b18e803702c3e563c66b90a3ad70e1297005a671b6b8d5eab43"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.53,
+          "sha256": "9ced9a2de416e156d68415f8794e1320aef477993cb2a8a87c3122f3a11697e7"
+        },
+        {
+          "index": 2,
+          "timestampS": 5.06,
+          "sha256": "76651ddcf1d02df62ac75c012aeff0abf69647135fd9726fab463d582d87730e"
+        },
+        {
+          "index": 3,
+          "timestampS": 7.59,
+          "sha256": "a8b2f886158531f0d9dcc1b5f59ec656fcb7e5905fe028fdc02a24b72b354524"
+        },
+        {
+          "index": 4,
+          "timestampS": 9.715,
+          "sha256": "0d56abcf73927b32bdf354ce7b0a8d918a782fdf3580a0b82e492be1f769a42e"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-sound-vs-surveillance__4985367.jpg",
+        "sha256": "78beef62b33000ded969577fb2012442dc88febb2a245d29144606e6320af2e6",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "surveillance-operator"
+        ],
+        "settings": [
+          "control-room-space"
+        ]
+      },
+      "narration": "Operators watch the feeds from a control room.",
+      "visualPrompt": "Security control room with a video wall",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "Audio software is unrelated to visual surveillance.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    },
+    {
+      "caseId": "neg-building-vs-serverroom",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "6429646",
+        "pageUrl": "https://www.pexels.com/video/drone-shot-of-a-tall-building-6429646/",
+        "durationS": 27.753,
+        "width": 3840,
+        "height": 2160,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 7,
+        "contributor": "K",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "id:6429646"
+      },
+      "mediaSha256": "ab7c758b3d238cf8e1fc4ccf0ca318537511c467a4b4b38320ce5b0b6a83e1ac",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.6,
+          "sha256": "460c9caf574d6350bf02473dab7fc5efb8c13b4aca7a4c084acc37991a7eb00f"
+        },
+        {
+          "index": 1,
+          "timestampS": 6.938,
+          "sha256": "e70678e98d2ee5a5c503e99a3fe797ee8aeadbee5a2753b31c1f2ddfe484f39a"
+        },
+        {
+          "index": 2,
+          "timestampS": 13.877,
+          "sha256": "9fb124970d7b99e2eefd6d338d35a533bd3ea4e1c289d4f0365a9983c97979d4"
+        },
+        {
+          "index": 3,
+          "timestampS": 20.815,
+          "sha256": "6d205c504b7de548f602281f9ad633b331e5c5defc3e1b7a09254cd1baaa3179"
+        },
+        {
+          "index": 4,
+          "timestampS": 27.153,
+          "sha256": "4b88ddf7519ca0215ba5d97037b940417c64b789232a4a5e41fea8477d65b098"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-building-vs-serverroom__6429646.jpg",
+        "sha256": "1b3576c801af75ba12949f18dad73e98e23d6d17d4b0e093587d571a592aaa95",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [],
+        "settings": [
+          "datacenter-space"
+        ]
+      },
+      "narration": "Inside, the aisles never get quiet.",
+      "visualPrompt": "Data centre server room interior",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "A building exterior is not a server-room interior.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "neg-photocam-vs-securitycam",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "33607021",
+        "pageUrl": "https://www.pexels.com/video/professional-photographer-in-studio-setup-33607021/",
+        "durationS": 8,
+        "width": 1920,
+        "height": 1080,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": null
+        },
+        "variantCount": 4,
+        "contributor": "ZEEL DIGITAL",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "photographer dslr camera tripod studio"
+      },
+      "mediaSha256": "958bcd3414f4a6d909487517d5bcfc264cbd4ce7f3fb4b4147eea9475d1bdcf5",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.32,
+          "sha256": "44c5708be4ad6d41b825dbac005bb194f934811c3908ce3f2ef65110fe2f4d28"
+        },
+        {
+          "index": 1,
+          "timestampS": 2,
+          "sha256": "b70fe926c227d5dcee895b1498f16b3580f21171abb01846dc4e2b08a04bc36d"
+        },
+        {
+          "index": 2,
+          "timestampS": 4,
+          "sha256": "0f26666a1984f721711b98875837d34822cc7efd4cd49a7c3f7837e5616fa49f"
+        },
+        {
+          "index": 3,
+          "timestampS": 6,
+          "sha256": "51494f1721e6a315057397c0476d6b970ed11a8bd9bccd2a3a0a0f256745d644"
+        },
+        {
+          "index": 4,
+          "timestampS": 7.68,
+          "sha256": "70af1dc0d4f3ee9605fdf4d435b130879265d52381345001e891c8755f97826d"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-photocam-vs-securitycam__33607021.jpg",
+        "sha256": "3a8a2b7e091144fd0e9413e81261bc0bab4893486cad56f5b5aa9e750de8f975",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "security-camera"
+        ],
+        "settings": []
+      },
+      "narration": "The security camera never blinks.",
+      "visualPrompt": "Dome security camera mounted on a ceiling",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "jointRequired": false,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "A photography camera is not a surveillance camera.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "holdout"
+    },
+    {
+      "caseId": "neg-conveyor-vs-robot",
+      "role": "hard-negative",
+      "source": {
+        "provider": "pexels",
+        "id": "10472351",
+        "pageUrl": "https://www.pexels.com/video/close-up-on-parcels-on-sorting-lane-10472351/",
+        "durationS": 8.362,
+        "width": 1920,
+        "height": 1080,
+        "variant": {
+          "width": 640,
+          "height": 360,
+          "quality": "sd"
+        },
+        "variantCount": 4,
+        "contributor": "Thanh Văn",
+        "license": "Pexels License (free use, attribution appreciated)",
+        "foundBy": "conveyor belt packages warehouse"
+      },
+      "mediaSha256": "c8ef48a0e193aef35206e64ef1be19b581a46eed1b16de31d36d2c70f6a74c8d",
+      "samplingVersion": "frames-v1",
+      "frames": [
+        {
+          "index": 0,
+          "timestampS": 0.334,
+          "sha256": "a2931c015ab587c7db2de09e4c77efdbecf68bd26c10b8a9aded37faf17697e0"
+        },
+        {
+          "index": 1,
+          "timestampS": 2.09,
+          "sha256": "1f31b5f29431ceddc186032380422405b6203b5657e50e7b134e8d7ab8553018"
+        },
+        {
+          "index": 2,
+          "timestampS": 4.181,
+          "sha256": "775e979e02a030f1e0000ff6b1e4e2a573ca0569f50b56b56b91237af6b07ad5"
+        },
+        {
+          "index": 3,
+          "timestampS": 6.271,
+          "sha256": "1d97d239a1c0dd959e29dd1c8e41db245bf096cf85716905a2d636693a68f55f"
+        },
+        {
+          "index": 4,
+          "timestampS": 8.027,
+          "sha256": "1cf65c1039e22cb3190870ff06d2b5d3085748e0843a0202a419b197d0e73a26"
+        }
+      ],
+      "contactSheet": {
+        "file": "neg-conveyor-vs-robot__10472351.jpg",
+        "sha256": "0ad63ed127eaff3600a868d545c810995cdf8561361140c251534882a7e84215",
+        "width": 1600,
+        "height": 180
+      },
+      "requirement": {
+        "primarySubjects": [
+          "robot"
+        ],
+        "settings": [
+          "warehouse-space"
+        ]
+      },
+      "narration": "The robot reroutes around the worker in its path.",
+      "visualPrompt": "Mobile robot driving across a warehouse floor",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "jointRequired": true,
+      "provisionalExpected": {
+        "finalVerdict": "IRRELEVANT"
+      },
+      "provisionalRationale": "Fixed conveyor infrastructure is not an autonomous robot; cross-domain negative.",
+      "reviewCaution": null,
+      "safetyCritical": true,
+      "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
+      "includeInMetrics": false,
+      "split": "calibration"
+    }
+  ]
+}
