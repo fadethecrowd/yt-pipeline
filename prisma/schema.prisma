@@ -508,6 +508,11 @@ enum UploadIntentState {
   RECONCILIATION_REQUIRED
   /// Failed before any remote call. Safe to retry — YouTube never saw it.
   FAILED_BEFORE_REMOTE_CALL
+  /// A pre-existing remote video adopted retrospectively. Terminal and
+  /// upload-blocking like PERSISTED, but deliberately distinct: it predates the
+  /// correlation marker, so its artifact binding is inferred rather than
+  /// cryptographically verified. Never produced by a live upload.
+  RECONCILED_HISTORICAL_UPLOAD
 }
 
 /// One row per intended upload of one approved artifact.
@@ -536,9 +541,30 @@ model UploadIntent {
   sourceTable String    @default("video")
 
   // Immutable identity of the approved artifact.
-  fileSha256          String
-  manifestSha256      String
+  //
+  // Nullable ONLY so a retrospectively adopted historical upload can decline to
+  // claim hashes it cannot prove. A database CHECK constraint requires both to
+  // be present for every state except RECONCILED_HISTORICAL_UPLOAD, so the
+  // exact-hash requirement for real uploads is unchanged.
+  fileSha256          String?
+  manifestSha256      String?
   metadataFingerprint String
+
+  // Evidence provenance. Defaults describe a normal marker-backed upload; the
+  // historical reconciliation path sets them explicitly.
+  /// "MARKER_BACKED" for live uploads, "HISTORICAL_RECONCILIATION" otherwise.
+  provenance             String  @default("MARKER_BACKED")
+  /// Whether the correlation marker genuinely exists in the remote video tags.
+  remoteMarkerPresent    Boolean @default(true)
+  /// Whether the uploaded bytes were cryptographically bound at upload time.
+  fileHashVerified       Boolean @default(true)
+  /// Whether the scene manifest was cryptographically bound at upload time.
+  manifestHashVerified   Boolean @default(true)
+  /// Best-supported candidate hashes, explicitly NOT proof of what was sent.
+  inferredFileSha256     String?
+  inferredManifestSha256 String?
+  /// What the evidence does and does not establish.
+  evidenceNote           String?
 
   // Immutable expectations, asserted again at reconciliation time.
   expectedTitle      String

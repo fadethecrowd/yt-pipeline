@@ -55,6 +55,7 @@ export {
   iso8601DurationToSeconds,
   UploadBlockedError,
   classifyUploadDisposition,
+  TERMINAL_UPLOADED_STATES,
 } from "./lib/uploadIntent";
 export type {
   UploadIntentRecord,

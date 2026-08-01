@@ -9,6 +9,7 @@ import {
   correlationIdFromTags,
   metadataFingerprint,
   iso8601DurationToSeconds,
+  classifyUploadDisposition,
   UploadBlockedError,
   CORRELATION_TAG_PREFIX,
 } from "../packages/pipeline-core/src/lib/uploadIntent";
@@ -478,6 +479,78 @@ describe("guards block the upload", () => {
     );
     assert.equal(yt.inserts.length, 1, "never issued a second insert");
     assert.equal(video.row.youtubeId, null, "no false success");
+  });
+});
+
+// ── Historical reconciliation ────────────────────────────────────────────
+
+describe("historical remote adoption", () => {
+  const historicalBase = {
+    channel: "ai-doom-scroll", channelId: AI_DOOM, testStage: "QUALIFICATION" as const,
+    format: "LONGFORM", assetKey: "ai1", videoId: "vid-hbm", sourceTable: "video",
+    fileSha256: null, manifestSha256: null,
+    metadataFingerprint: metadataFingerprint(METADATA), expectedTitle: METADATA.title,
+    expectedPrivacy: "private", publishAtAbsent: true, expectedDurationS: 436,
+    durationToleranceS: 2, correlationId: "local-historical-1",
+    provenance: "HISTORICAL_RECONCILIATION", remoteMarkerPresent: false,
+    fileHashVerified: false, manifestHashVerified: false,
+    inferredFileSha256: "811e6134".padEnd(64, "0"), inferredManifestSha256: null,
+    evidenceNote: "runtime match only; predates marker mechanism",
+  };
+
+  test("blocks any further upload of the same asset", async () => {
+    const store = createInMemoryIntentStore();
+    const yt = mockYouTube();
+    const video = mockVideoRow();
+
+    const created = await store.create(historicalBase);
+    await store.update(created.id, {
+      state: "RECONCILED_HISTORICAL_UPLOAD", youtubeId: "uVQ-vcJHWNk", adopted: true,
+    });
+
+    const r = await guardedUpload(
+      input({ videoId: "vid-hbm", assetKey: "ai1" }),
+      { port: yt.port, store, persistYoutubeId: video.persistYoutubeId },
+    );
+    assert.equal(r.status, "already_uploaded");
+    assert.equal(r.youtubeId, "uVQ-vcJHWNk");
+    assert.equal(yt.inserts.length, 0, "no insert issued");
+  });
+
+  test("is terminal — not treated as unresolved work", async () => {
+    const store = createInMemoryIntentStore();
+    const created = await store.create(historicalBase);
+    await store.update(created.id, {
+      state: "RECONCILED_HISTORICAL_UPLOAD", youtubeId: "uVQ-vcJHWNk", adopted: true,
+    });
+    assert.equal((await store.listUnresolved()).length, 0);
+  });
+
+  test("classifies distinctly from a marker-backed upload", async () => {
+    const store = createInMemoryIntentStore();
+    const created = await store.create(historicalBase);
+    const hist = await store.update(created.id, {
+      state: "RECONCILED_HISTORICAL_UPLOAD", youtubeId: "uVQ-vcJHWNk", adopted: true,
+    });
+    const d = classifyUploadDisposition({
+      localYoutubeId: "uVQ-vcJHWNk", intents: [hist], remoteMatches: [],
+    });
+    assert.equal(d.disposition, "VERIFIED_HISTORICAL_REMOTE_ADOPTION");
+    assert.equal(d.blocking, false, "truthfully represented, so no longer blocking");
+    assert.match(d.detail, /remote marker present=false/);
+    assert.match(d.detail, /file hash verified=false/);
+    assert.match(d.detail, /manifest hash verified=false/);
+  });
+
+  test("a second historical adoption for the same asset is rejected", async () => {
+    const store = createInMemoryIntentStore();
+    const a = await store.create(historicalBase);
+    await store.update(a.id, { state: "RECONCILED_HISTORICAL_UPLOAD", youtubeId: "uVQ-vcJHWNk" });
+    const b = await store.create({ ...historicalBase, correlationId: "local-historical-2" });
+    await assert.rejects(
+      () => store.update(b.id, { state: "RECONCILED_HISTORICAL_UPLOAD", youtubeId: "other" }),
+      /one completed intent per videoId/,
+    );
   });
 });
 

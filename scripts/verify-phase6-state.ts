@@ -90,6 +90,14 @@ async function main() {
     console.log(`      remote check FAILED: ${err instanceof Error ? err.message : err}`);
   }
 
+  const quarantinedNow = (await prisma.jobQuarantine.count({
+    where: { videoId: HBM, releasedAt: null },
+  })) === 1;
+  const visualUnchanged = (await prisma.qaRecord.count({
+    where: { videoId: HBM, overall: "VISUAL_SOURCE_INCOMPATIBLE_WITH_CURRENT_LIBRARY" },
+  })) > 0;
+  const resumableNow = (await resumableJobs("ai-doom-scroll")).some((j) => j.id === HBM);
+
   const uploadDisposition = classifyUploadDisposition({
     localYoutubeId: hbm?.youtubeId ?? null,
     intents,
@@ -104,12 +112,28 @@ async function main() {
     "HBM upload disposition",
     `${uploadDisposition.disposition} — ${uploadDisposition.detail}`,
   );
-  if (uploadDisposition.remoteIds.length > 0) {
-    console.log(
-      `      KNOWN REMOTE ORPHAN: ${uploadDisposition.remoteIds.join(", ")} exists privately on ` +
-      `${CHANNELS["ai-doom-scroll"].title} but is absent from every persistence record ` +
-      `(video row, upload record, pipeline run, manifest). Local youtubeId is still NULL.`,
-    );
+  // Report the constituent facts separately. The suite may go green once the
+  // orphan is durably represented, but it must never imply marker-backed or
+  // hash-verified provenance that does not exist.
+  const hist = intents.find((i) => i.state === "RECONCILED_HISTORICAL_UPLOAD");
+  if (hist || uploadDisposition.remoteIds.length > 0) {
+    const f = (label: string, value: string) =>
+      console.log(`      ${label.padEnd(46)} ${value}`);
+    f("remote YouTube identity verified", remoteChecked ? "yes" : "NOT VERIFIABLE");
+    f("local youtubeId persisted", hbm?.youtubeId ? `yes (${hbm.youtubeId})` : "no");
+    f("historical orphan reconciled", hist ? `yes (intent ${hist.id})` : "no");
+    f("remote correlation marker present",
+      hist ? (hist.remoteMarkerPresent ? "yes" : "no — predates mechanism") : "n/a");
+    f("exact uploaded file hash verified",
+      hist ? (hist.fileHashVerified ? "yes" : "NO — inferred only, not cryptographic") : "n/a");
+    f("exact uploaded manifest hash verified",
+      hist ? (hist.manifestHashVerified ? "yes" : "NO — no manifest existed at upload time") : "n/a");
+    if (hist?.inferredFileSha256) {
+      f("best-supported candidate file sha256", `${hist.inferredFileSha256.slice(0, 24)}… (INFERRED)`);
+    }
+    f("quarantine active", quarantinedNow ? "yes" : "NO");
+    f("visual-source incompatibility unchanged", visualUnchanged ? "yes" : "NO");
+    f("resumable", resumableNow ? "YES — UNEXPECTED" : "no");
   }
 
   // No asset anywhere may sit on an unresolved intent.

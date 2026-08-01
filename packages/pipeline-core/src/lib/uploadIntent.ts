@@ -96,9 +96,16 @@ export interface UploadIntentRecord {
   assetKey: string;
   videoId: string;
   sourceTable: string;
-  fileSha256: string;
-  manifestSha256: string;
+  fileSha256: string | null;
+  manifestSha256: string | null;
   metadataFingerprint: string;
+  provenance: string;
+  remoteMarkerPresent: boolean;
+  fileHashVerified: boolean;
+  manifestHashVerified: boolean;
+  inferredFileSha256: string | null;
+  inferredManifestSha256: string | null;
+  evidenceNote: string | null;
   expectedTitle: string;
   expectedPrivacy: string;
   publishAtAbsent: boolean;
@@ -121,6 +128,14 @@ export type NewUploadIntent = Omit<
   UploadIntentRecord,
   | "id" | "state" | "youtubeId" | "remoteEtag" | "remotePublishedAt" | "adopted"
   | "attempts" | "lastError" | "reconcileNote" | "resolvedAt" | "createdAt" | "updatedAt"
+  | "provenance" | "remoteMarkerPresent" | "fileHashVerified" | "manifestHashVerified"
+  | "inferredFileSha256" | "inferredManifestSha256" | "evidenceNote"
+> & Partial<
+  Pick<
+    UploadIntentRecord,
+    | "provenance" | "remoteMarkerPresent" | "fileHashVerified" | "manifestHashVerified"
+    | "inferredFileSha256" | "inferredManifestSha256" | "evidenceNote"
+  >
 >;
 
 /** Persistence boundary — swapped for an in-memory store in tests. */
@@ -163,6 +178,14 @@ export interface YouTubePort {
   listChannelUploads(): Promise<RemoteVideo[]>;
   getVideo(id: string): Promise<RemoteVideo | null>;
 }
+
+/**
+ * Terminal states meaning "this asset is already on YouTube". A historical
+ * adoption blocks a further upload exactly like a normal completed one.
+ */
+export const TERMINAL_UPLOADED_STATES: UploadIntentState[] = [
+  "PERSISTED", "RECONCILED_HISTORICAL_UPLOAD",
+];
 
 /** States in which an upload path is open and no new one may start. */
 const ACTIVE_STATES: UploadIntentState[] = ["PREPARED", "UPLOAD_STARTED"];
@@ -268,11 +291,12 @@ export async function assertUploadable(
   }
 
   const intents = await store.findByVideo(input.videoId);
-  const persisted = intents.find((i) => i.state === "PERSISTED");
+  const persisted = intents.find((i) => TERMINAL_UPLOADED_STATES.includes(i.state));
   if (persisted) {
     throw new UploadBlockedError(
       "COMPLETED_INTENT_EXISTS",
-      `upload intent ${persisted.id} already completed as ${persisted.youtubeId}`,
+      `upload intent ${persisted.id} already completed as ${persisted.youtubeId} ` +
+        `(state=${persisted.state})`,
     );
   }
   const blocked = intents.find((i) => i.state === "RECONCILIATION_REQUIRED");
@@ -331,7 +355,7 @@ export async function reconcileIntent(
 ): Promise<ReconcileOutcome> {
   const store = deps.store ?? prismaIntentStore;
 
-  if (intent.state === "PERSISTED" && intent.youtubeId) {
+  if (TERMINAL_UPLOADED_STATES.includes(intent.state) && intent.youtubeId) {
     return { outcome: "already_persisted", youtubeId: intent.youtubeId, intent };
   }
 
@@ -491,7 +515,7 @@ export async function guardedUpload(
         : `unresolved intent ${openIntent.id} could not be reconciled; refusing to upload again`,
     );
   }
-  const persisted = existing.find((i) => i.state === "PERSISTED");
+  const persisted = existing.find((i) => TERMINAL_UPLOADED_STATES.includes(i.state));
   if (persisted?.youtubeId) {
     return { status: "already_uploaded", youtubeId: persisted.youtubeId, intent: persisted };
   }
@@ -608,9 +632,10 @@ export function createInMemoryIntentStore(): IntentStore & { rows: UploadIntentR
 
   function assertInvariants(candidate: UploadIntentRecord) {
     const others = rows.filter((r) => r.id !== candidate.id);
-    if (candidate.state === "PERSISTED" &&
-        others.some((r) => r.videoId === candidate.videoId && r.state === "PERSISTED")) {
-      throw new Error("unique violation: one PERSISTED intent per videoId");
+    if (TERMINAL_UPLOADED_STATES.includes(candidate.state) &&
+        others.some((r) => r.videoId === candidate.videoId &&
+          TERMINAL_UPLOADED_STATES.includes(r.state))) {
+      throw new Error("unique violation: one completed intent per videoId");
     }
     if (ACTIVE_STATES.includes(candidate.state) &&
         others.some((r) => r.videoId === candidate.videoId && ACTIVE_STATES.includes(r.state))) {
@@ -644,6 +669,13 @@ export function createInMemoryIntentStore(): IntentStore & { rows: UploadIntentR
     async create(data) {
       const now = new Date();
       const row: UploadIntentRecord = {
+        provenance: "MARKER_BACKED",
+        remoteMarkerPresent: true,
+        fileHashVerified: true,
+        manifestHashVerified: true,
+        inferredFileSha256: null,
+        inferredManifestSha256: null,
+        evidenceNote: null,
         ...data,
         id: `intent-${++seq}`,
         state: "PREPARED",
@@ -797,6 +829,8 @@ export type UploadDisposition =
   | "VERIFIED_UPLOADED_AND_PERSISTED"
   /** Remote holds it; local persistence never happened. */
   | "VERIFIED_REMOTE_ORPHAN"
+  /** A pre-marker remote video adopted retrospectively; binding inferred. */
+  | "VERIFIED_HISTORICAL_REMOTE_ADOPTION"
   /** An intent records that a call may have been made; remote unchecked or silent. */
   | "UPLOAD_OUTCOME_UNKNOWN"
   /** Explicitly flagged for a human. */
@@ -830,6 +864,19 @@ export function classifyUploadDisposition(i: DispositionInput): DispositionResul
   }
 
   if (isRealId(i.localYoutubeId)) {
+    const historical = i.intents.find((x) => x.state === "RECONCILED_HISTORICAL_UPLOAD");
+    if (historical) {
+      return {
+        disposition: "VERIFIED_HISTORICAL_REMOTE_ADOPTION",
+        detail:
+          `youtubeId=${i.localYoutubeId} adopted retrospectively via intent ${historical.id}; ` +
+          `remote marker present=${historical.remoteMarkerPresent}, ` +
+          `file hash verified=${historical.fileHashVerified}, ` +
+          `manifest hash verified=${historical.manifestHashVerified}`,
+        blocking: false,
+        remoteIds,
+      };
+    }
     const persisted = i.intents.find((x) => x.state === "PERSISTED");
     return {
       disposition: "VERIFIED_UPLOADED_AND_PERSISTED",
