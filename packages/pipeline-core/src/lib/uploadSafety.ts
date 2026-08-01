@@ -1,6 +1,4 @@
-import { google } from "googleapis";
-import { env } from "../config";
-import { CHANNELS, verifyChannel } from "../youtubeAuth";
+import { buildYouTubeClient, CHANNELS, verifyChannel } from "../youtubeAuth";
 import type { ChannelKey } from "../youtubeAuth";
 import { currentTestStage, isTestStage } from "./testStage";
 import { prisma } from "./db";
@@ -111,10 +109,7 @@ export async function confirmUploadState(opts: {
   expectPrivate: boolean;
   videoId?: string;
 }): Promise<{ privacyStatus: string | null; channelId: string | null }> {
-  const config = env();
-  const auth = new google.auth.OAuth2(config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET);
-  auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-  const yt = google.youtube({ version: "v3", auth });
+  const yt = buildYouTubeClient();
 
   const res = await yt.videos.list({ part: ["status", "snippet"], id: [opts.youtubeId] });
   const item = res.data.items?.[0];

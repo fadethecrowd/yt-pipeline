@@ -1,8 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
-import { google } from "googleapis";
 import { VideoStatus } from "@prisma/client";
 import { prisma } from "../lib/db";
-import { env } from "../config";
+import { buildYouTubeClient } from "../youtubeAuth";
 import {
   prepareUpload,
   confirmUploadState,
@@ -56,15 +55,13 @@ function getNextPublishSlot(): Date {
 
 /**
  * Create an authenticated YouTube Data API v3 client.
+ *
+ * Delegates to the shared constructor so the uploader, the duplicate guard,
+ * the reconciler and the preflight can never authenticate as different
+ * identities.
  */
 function getYouTubeClient() {
-  const config = env();
-  const auth = new google.auth.OAuth2(
-    config.YOUTUBE_CLIENT_ID,
-    config.YOUTUBE_CLIENT_SECRET
-  );
-  auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-  return google.youtube({ version: "v3", auth });
+  return buildYouTubeClient();
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────
