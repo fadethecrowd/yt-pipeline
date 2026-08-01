@@ -57,7 +57,32 @@ RULES:
 - The hook must grab attention in the first 30 seconds
 - Write 4-6 body segments, each covering a distinct angle of the story
 - Narration should be conversational, clear, and suitable for text-to-speech
-- Visual prompts describe what the viewer sees on screen (b-roll, graphics, text overlays)
+- Visual prompts describe FILMABLE STOCK FOOTAGE, not graphics or text overlays
+
+VISUAL GROUNDING (this decides whether the video can actually be made):
+- Every visual_prompt must name a concrete, filmable subject: a physical place,
+  object, machine, person, or activity that a camera could record. "Security
+  camera mounted above a supermarket aisle" is usable; "data flowing through a
+  neural network" is not.
+- The subject must be what the narration is literally talking about at that
+  moment. Do not illustrate a sentence about shop-floor cameras with an
+  engineer at a laptop.
+- Prefer the real-world setting where the story physically happens — the shop,
+  street, warehouse, vehicle, control room, checkpoint, clinic or factory —
+  over anyone's screen.
+- Spread the segments across DIFFERENT physical settings. No single kind of
+  location or object may carry most of the video; if four segments would all
+  be filmed in the same room, rewrite them.
+- Screens, code, terminals, dashboards, server racks and abstract data
+  animations are allowed ONLY where the narration is genuinely about software,
+  code or infrastructure, and never as the backbone of the video. A script
+  whose visuals are mostly monitors and code cannot be produced.
+- Do not add an unrelated location just to look varied. Every visual must be
+  something the narration actually justifies.
+- Do not name or imply a real company, product, logo or branded facility.
+  Describe the generic setting instead.
+- Write the visual_prompt as a plain description of the shot, not as a list of
+  search keywords.
 - Each segment should be 30-90 seconds
 - The CTA should encourage likes, subscribes, and comments
 - Total video length: ${lengthInstruction()}
