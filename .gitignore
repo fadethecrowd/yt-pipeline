@@ -6,10 +6,20 @@ dist/
 *.mp4
 .DS_Store
 
-# Local-only YouTube OAuth token files — never commit
-token-ai-doom-scroll.json
-token-wet-circuit.json
+# Local-only YouTube OAuth token files — never commit.
+#
+# Patterns, not exact names: the loopback helper writes timestamped backups
+# (token-*.json.bak-<iso>) and a short-lived verification token
+# (.token-*.verify.json) before promoting a credential. Naming files
+# individually left those untracked-but-ignorable, so a single `git add -A`
+# would have staged a live refresh token.
 token.json
+token-*.json
+token-*.json.bak-*
+.token-*.verify.json
+*.token.json
+client_secret*.json
+oauth-callback-*.json
 
 # Render artifacts and scratch (large, regenerable, machine-specific)
 tmp/
