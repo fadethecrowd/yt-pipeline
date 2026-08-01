@@ -60,6 +60,11 @@ export const FAMILIES: Record<string, Family> = {
     terms: ["object detection", "facial recognition", "face detection", "computer vision",
             "bounding box", "machine vision", "detection overlay", "recognition system"],
   },
+  "access-control-device": {
+    terms: ["badge reader", "id scanner", "biometric scanner", "face scanner",
+            "fingerprint reader", "access reader", "card reader", "turnstile reader",
+            "badge", "biometric", "scanning a badge"],
+  },
   "worker-person": {
     terms: ["worker", "employee", "staff", "cashier", "operator", "shopper", "customer",
             "person", "people"],
@@ -339,9 +344,16 @@ export function scoreSemantic(req: BeatRequirement, description: string): Semant
     }
   }
 
-  const subjectMatch = req.primarySubjects.length === 0 ||
+  // Fail closed on an unrecognised requirement.
+  //
+  // Defaulting an empty requirement to "matched" is fail-OPEN: a beat whose
+  // subject and setting are outside the taxonomy accepted anything, and a hot
+  // air balloon scored DIRECT against a data-centre beat. An empty requirement
+  // means the taxonomy cannot describe this beat, which is a reason to refuse
+  // to judge it — never a reason to approve every candidate.
+  const subjectMatch = req.primarySubjects.length > 0 &&
     req.primarySubjects.some((s) => effective.has(s) || senseSupported.has(s));
-  const settingMatch = req.settings.length === 0 ||
+  const settingMatch = req.settings.length > 0 &&
     req.settings.some((s) => effective.has(s));
 
   if (subjectMatch) reasons.push(`subject ${req.primarySubjects.join("/") || "(any)"} satisfied`);
@@ -351,10 +363,20 @@ export function scoreSemantic(req: BeatRequirement, description: string): Semant
                               : `missing setting ${req.settings.join("/")}`);
   }
 
+  // A component that is genuinely not required does not need satisfying; one
+  // that is required but unrecognised leaves the beat unjudgeable.
+  const subjectOk = req.primarySubjects.length === 0 ? null : subjectMatch;
+  const settingOk = req.settings.length === 0 ? null : settingMatch;
+
   let verdict: SemanticVerdict;
   if (contradicted) verdict = "IRRELEVANT";
-  else if (subjectMatch && settingMatch) verdict = "DIRECT";
-  else if (subjectMatch || settingMatch) verdict = "RELATED";
+  else if (subjectOk === null && settingOk === null) verdict = "IRRELEVANT";
+  else if (subjectOk !== false && settingOk !== false &&
+           (subjectOk === true || settingOk === true)) {
+    verdict = (subjectOk === true && settingOk === true) ||
+      (subjectOk === true && settingOk === null) ||
+      (settingOk === true && subjectOk === null) ? "DIRECT" : "RELATED";
+  } else if (subjectOk === true || settingOk === true) verdict = "RELATED";
   else verdict = "IRRELEVANT";
 
   return { verdict, subjectMatch, settingMatch, contradicted, reasons };
