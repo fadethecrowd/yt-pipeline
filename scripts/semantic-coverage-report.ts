@@ -12,8 +12,8 @@
 import { writeFileSync } from "node:fs";
 import {
   prisma, disconnect, env, pexelsOnlySource, planPreliminaryBeats,
-  buildSearchQueries, deriveRequirement, coverBeat, assessSemanticCoverage,
-  scoreSemantic, TITLE_CARD_S, BEAT_MAX_S,
+  deriveRequirement, assessSemanticCoverage, buildBeatQueries, derivePolicy,
+  composeBeat, scoreSemantic, TITLE_CARD_S, BEAT_MAX_S,
 } from "@yt-pipeline/pipeline-core";
 import { ASSETS } from "./qualify";
 import "dotenv/config";
@@ -49,41 +49,71 @@ async function main() {
       // The first beat of the video carries the thesis and may not be carded.
       isHighSalience: beat.index === 1,
     });
-    const queries = buildSearchQueries(seg.visual_prompt, seg.title, spec.channel);
+    const policy = derivePolicy(req);
+    const beatQueries = buildBeatQueries(req);
 
+    // Query provenance: every candidate remembers which query produced it,
+    // that query's class, and what it was meant to satisfy.
     const cands: any[] = [];
     const seen = new Set<string>();
-    for (const q of queries) {
-      for (const c of await search(q)) {
-        if (seen.has(c.assetId)) continue;
+    for (const bq of beatQueries) {
+      const results = await search(bq.query);
+      results.forEach((c: any, rank: number) => {
+        if (seen.has(c.assetId)) return;
         seen.add(c.assetId);
-        cands.push({ assetId: c.assetId, description: c.description ?? "",
-                     durationS: c.durationS ?? 0, brandRisk: false, query: q });
-      }
+        cands.push({
+          assetId: c.assetId, description: c.description ?? "",
+          durationS: c.durationS ?? 0, brandRisk: false,
+          query: bq.query, queryClass: bq.klass, satisfies: bq.satisfies, rank,
+        });
+      });
     }
 
-    const cov = coverBeat(req, beat.durationS, cands, {
+    const comp = composeBeat(req, policy, beat.durationS, cands, {
       beatMaxS: BEAT_MAX_S, minFragmentS: MIN_FRAGMENT_S, claimed,
     });
-    for (const d of cov.directCandidates.slice(0, 3)) claimed.add(d.assetId);
-    coverages.push(cov);
+    for (const f of comp.fragments) claimed.add(f.assetId);
+
+    const direct = cands.filter((c) => scoreSemantic(req, c.description).verdict === "DIRECT");
+    const cov = {
+      requirement: req, plannedS: beat.durationS,
+      directCandidates: comp.fragments.map((f) => ({
+        assetId: f.assetId, description: f.description, usableS: f.durationS, brandRisk: f.brandRisk,
+      })),
+      relevantSeconds: comp.fragments.reduce((a, f) => a + f.durationS, 0),
+      nonBrandRiskSeconds: comp.fragments.filter((f) => !f.brandRisk).reduce((a, f) => a + f.durationS, 0),
+      rejected: cands.filter((c) => !comp.fragments.some((f) => f.assetId === c.assetId))
+        .slice(0, 40)
+        .map((c) => { const sc = scoreSemantic(req, c.description);
+          return { assetId: c.assetId, description: c.description, verdict: sc.verdict,
+                   reason: sc.reasons.join("; ") }; }),
+      supported: comp.covered,
+      needsCard: !comp.covered && req.cardPermitted,
+      unsupported: !comp.covered && !req.cardPermitted,
+    };
+    coverages.push(cov as any);
 
     const status = cov.supported ? "SUPPORTED" : cov.unsupported ? "UNSUPPORTED" : "CARD";
-    console.log(`── beat ${String(beat.index).padStart(2)} (${beat.durationS.toFixed(1)}s) ${status}`);
-    console.log(`   narration : ${beat.narration.slice(0, 88)}`);
+    console.log(`── beat ${String(beat.index).padStart(2)} (${beat.durationS.toFixed(1)}s) ${status}  [${policy}]`);
+    console.log(`   narration : ${beat.narration.slice(0, 84)}`);
     console.log(`   subject   : ${req.primarySubjects.join(", ") || "(none)"}   setting: ${req.settings.join(", ") || "(none)"}`);
-    console.log(`   queries   : ${queries.length} → ${cands.length} candidates`);
-    console.log(`   DIRECT    : ${cov.directCandidates.length} (${cov.relevantSeconds.toFixed(1)}s usable, ${cov.nonBrandRiskSeconds.toFixed(1)}s non-brand)`);
-    for (const d of cov.directCandidates.slice(0, 2)) console.log(`      ✓ ${d.usableS.toFixed(1)}s "${d.description.slice(0, 66)}"`);
-    for (const r of cov.rejected.slice(0, 2)) console.log(`      ✗ ${r.verdict.padEnd(10)} "${r.description.slice(0, 52)}" — ${r.reason.slice(0, 70)}`);
+    console.log(`   queries   : ${beatQueries.map((q) => q.query).slice(0, 4).join(" | ")}`);
+    console.log(`   candidates: ${cands.length}  DIRECT: ${direct.length}  fragments: ${comp.fragments.length}`);
+    console.log(`   shares    : subject ${(comp.subjectShare * 100).toFixed(0)}%  setting ${(comp.settingShare * 100).toFixed(0)}%${comp.jointMatchAsset ? `  joint=${comp.jointMatchAsset}` : ""}`);
+    for (const f of comp.fragments.slice(0, 3)) {
+      console.log(`      ✓ ${f.durationS.toFixed(1)}s ${f.carriesSubject ? "S" : "-"}${f.carriesSetting ? "P" : "-"} "${f.description.slice(0, 58)}"`);
+    }
+    console.log(`   verdict   : ${comp.reasons.join("; ").slice(0, 150)}`);
     console.log();
 
     perBeat.push({
       beat: beat.index, plannedS: +beat.durationS.toFixed(1), status,
       narration: beat.narration, visualPrompt: seg.visual_prompt,
       requiredSubjects: req.primarySubjects, requiredSettings: req.settings,
-      queries, candidateCount: cands.length,
-      directCount: cov.directCandidates.length,
+      policy, queries: beatQueries, candidateCount: cands.length,
+      directCount: direct.length, fragments: comp.fragments,
+      subjectShare: +comp.subjectShare.toFixed(3), settingShare: +comp.settingShare.toFixed(3),
+      jointMatchAsset: comp.jointMatchAsset ?? null, compositionReasons: comp.reasons,
       relevantSeconds: +cov.relevantSeconds.toFixed(1),
       nonBrandRiskSeconds: +cov.nonBrandRiskSeconds.toFixed(1),
       accepted: cov.directCandidates.slice(0, 5),

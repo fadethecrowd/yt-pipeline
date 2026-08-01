@@ -553,3 +553,296 @@ export function assessSemanticCoverage(coverages: BeatCoverage[]): SemanticFeasi
     failureReason: failed ? `${failed.name}: ${failed.detail}` : undefined,
   };
 }
+
+// ── Query construction ───────────────────────────────────────────────────
+//
+// Query building previously took the leading words of the visual prompt, so a
+// beat asking for "Wide-angle shot looking down a long supermarket aisle …
+// showing a dome security camera" searched for "wide-angle looking down long".
+// The words that mattered — supermarket, aisle, security camera — were never
+// sent. Queries are now built from the beat's semantic requirement.
+
+/** Camera direction and prose framing: never the subject of a search. */
+const FRAMING_TERMS = [
+  "wide-angle", "wide angle", "close-up", "close up", "closeup", "looking down",
+  "looking up", "cinematic", "shot of", "footage of", "view of", "ground-level",
+  "ground level", "overhead shot", "aerial shot", "pov", "point of view",
+  "b-roll", "broll", "slow motion", "timelapse", "time lapse", "handheld",
+  "static shot", "tracking shot", "establishing shot", "wide shot", "medium shot",
+];
+
+/** One searchable phrase per family — what you would actually type. */
+const FAMILY_QUERY_TERMS: Record<string, string[]> = {
+  "security-camera": ["security camera", "cctv camera", "surveillance camera", "dome camera"],
+  "surveillance-operator": ["security control room", "cctv monitoring room", "video wall operator"],
+  "software-screen": ["software dashboard screen", "computer code screen"],
+  "vision-processing": ["object detection overlay", "facial recognition screen"],
+  "worker-person": ["worker", "staff member"],
+  "retail-space": ["supermarket aisle", "grocery store", "self checkout", "retail store interior"],
+  "warehouse-space": ["warehouse packing station", "warehouse interior worker"],
+  "street-public": ["city street pedestrians", "urban street traffic"],
+  "control-room-space": ["control room monitors", "security operations centre"],
+  "checkpoint-space": ["access gate turnstile", "biometric checkpoint"],
+  "factory-space": ["factory production line", "conveyor belt factory"],
+};
+
+export type QueryClass =
+  | "EXACT_COMPOSITE" | "CONTROLLED_SYNONYM" | "COMPONENT_SUBJECT"
+  | "COMPONENT_SETTING" | "COMPONENT_ACTION" | "BROAD_FALLBACK" | "GENERIC_FALLBACK";
+
+export interface BeatQuery {
+  query: string;
+  klass: QueryClass;
+  /** Requirement families this query is meant to satisfy. */
+  satisfies: string[];
+}
+
+/** Strip framing vocabulary so it can never stand in for a subject noun. */
+export function stripFraming(text: string): string {
+  let t = ` ${text.toLowerCase()} `;
+  for (const f of FRAMING_TERMS) t = t.split(f).join(" ");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Controlled query set for one beat. Ordered most specific first, capped, and
+ * deduplicated — never an uncontrolled combinatorial expansion.
+ */
+export function buildBeatQueries(req: BeatRequirement, max = 8): BeatQuery[] {
+  const out: BeatQuery[] = [];
+  const push = (query: string, klass: QueryClass, satisfies: string[]) => {
+    const q = query.replace(/\s+/g, " ").trim();
+    if (q.length < 3) return;
+    if (out.some((o) => o.query === q)) return;
+    out.push({ query: q, klass, satisfies });
+  };
+
+  // Terms the prompt actually names come first: a beat about a self checkout
+  // should search for self checkouts, not for whichever retail phrase happens
+  // to be listed first.
+  const promptText = ` ${stripFraming(`${req.visualPrompt} ${req.narration}`)} `;
+  const prioritise = (terms: string[]) => {
+    const named = terms.filter((t) => promptText.includes(` ${t} `) ||
+      t.split(" ").every((w) => promptText.includes(` ${w} `)));
+    return [...named, ...terms.filter((t) => !named.includes(t))];
+  };
+  const subjTerms = prioritise(req.primarySubjects.flatMap((f) => FAMILY_QUERY_TERMS[f] ?? []));
+  const setTerms = prioritise(req.settings.flatMap((f) => FAMILY_QUERY_TERMS[f] ?? []));
+
+  // 1. subject + setting — the thing, where it is.
+  for (const s of subjTerms.slice(0, 2)) {
+    for (const p of setTerms.slice(0, 2)) {
+      push(`${s} ${p}`, "EXACT_COMPOSITE", [...req.primarySubjects, ...req.settings]);
+    }
+  }
+  // 2. controlled synonyms of the same pairing.
+  for (const s of subjTerms.slice(2, 3)) {
+    for (const p of setTerms.slice(0, 1)) {
+      push(`${s} ${p}`, "CONTROLLED_SYNONYM", [...req.primarySubjects, ...req.settings]);
+    }
+  }
+  // 3. each component alone.
+  for (const s of subjTerms.slice(0, 2)) push(s, "COMPONENT_SUBJECT", req.primarySubjects);
+  for (const p of setTerms.slice(0, 2)) push(p, "COMPONENT_SETTING", req.settings);
+
+  // 4. concrete nouns surviving in the prompt, framing removed.
+  const stripped = stripFraming(req.visualPrompt);
+  const nouns = stripped.split(/[,.;]/)[0]!.split(" ")
+    .filter((w) => w.length > 3 && !["with", "from", "that", "this", "showing", "above",
+                                      "below", "long", "their", "some"].includes(w));
+  if (nouns.length >= 2) {
+    push(nouns.slice(0, 3).join(" "), "BROAD_FALLBACK", [...req.primarySubjects, ...req.settings]);
+  }
+
+  return out.slice(0, max);
+}
+
+// ── Composition policy ───────────────────────────────────────────────────
+
+export type CompositionPolicy =
+  | "JOINT_MATCH_REQUIRED" | "COMPOSITIONAL_MATCH_ALLOWED"
+  | "SUBJECT_DOMINANT" | "SETTING_DOMINANT";
+
+/**
+ * Sentences asserting that a thing is physically AT a place cannot be proved
+ * by cutting a generic thing next to a generic place — that composition
+ * asserts a co-location the footage does not show.
+ */
+const COLOCATION_MARKERS = [
+  "above the", "mounted", "installed", "attached to", "over the", "at the checkout",
+  "in the aisle", "on the ceiling", "overhead", "directly above", "watching the",
+  "pointed at", "aimed at",
+];
+
+export function derivePolicy(req: BeatRequirement): CompositionPolicy {
+  // The claim has to be made by THIS beat's narration. A segment's visual
+  // prompt describes the ideal shot for the whole segment and is reused across
+  // every beat inside it, so reading co-location from the prompt would make
+  // "grainy footage sat on a hard drive" assert that a camera is mounted above
+  // an aisle. Only the sentence actually being spoken can require a joint
+  // match; the prompt merely raises it for a sentence already leaning that way.
+  const narration = req.narration.toLowerCase();
+  const assertsColocation = COLOCATION_MARKERS.some((m) => narration.includes(m));
+  if (assertsColocation && req.primarySubjects.length > 0 && req.settings.length > 0) {
+    return "JOINT_MATCH_REQUIRED";
+  }
+  if (req.settings.length === 0) return "SUBJECT_DOMINANT";
+  if (req.primarySubjects.length === 0) return "SETTING_DOMINANT";
+  return "COMPOSITIONAL_MATCH_ALLOWED";
+}
+
+// ── Compositional coverage ───────────────────────────────────────────────
+
+/**
+ * Minimum share of a beat that must actually show the primary subject.
+ *
+ * Without it, one second of camera would legitimise seventeen seconds of
+ * aisle. 30% is deliberately conservative: it permits the normal
+ * establish-then-show edit while refusing a token subject shot. Subject-
+ * dominant beats require 50%, because there the subject IS the content.
+ */
+export const MIN_SUBJECT_SHARE = 0.3;
+export const MIN_SUBJECT_SHARE_DOMINANT = 0.5;
+export const MIN_SETTING_SHARE = 0.3;
+
+export interface Fragment {
+  assetId: string;
+  description: string;
+  durationS: number;
+  brandRisk: boolean;
+  carriesSubject: boolean;
+  carriesSetting: boolean;
+}
+
+export interface CompositionResult {
+  policy: CompositionPolicy;
+  fragments: Fragment[];
+  subjectShare: number;
+  settingShare: number;
+  jointMatchAsset?: string;
+  covered: boolean;
+  reasons: string[];
+}
+
+/**
+ * Select a fragment set for one beat and decide whether it truthfully covers
+ * the requirement. Every fragment must directly support a required component;
+ * nothing is admitted merely to fill duration.
+ */
+export function composeBeat(
+  req: BeatRequirement,
+  policy: CompositionPolicy,
+  plannedS: number,
+  candidates: CandidateLike[],
+  opts: { beatMaxS: number; minFragmentS: number; claimed?: Set<string> },
+): CompositionResult {
+  const claimed = opts.claimed ?? new Set<string>();
+  const reasons: string[] = [];
+
+  const scored = candidates
+    .filter((c) => !claimed.has(c.assetId))
+    .filter((c) => !(c.durationS > 0 && c.durationS < opts.minFragmentS))
+    .map((c) => ({ c, s: scoreSemantic(req, c.description) }))
+    // Only footage that directly supports a required component is admissible.
+    .filter((x) => x.s.verdict === "DIRECT" || (x.s.verdict === "RELATED" && !x.s.contradicted))
+    .filter((x) => x.s.subjectMatch || x.s.settingMatch)
+    .filter((x) => !x.c.brandRisk);
+
+  const joint = scored.find((x) => x.s.subjectMatch && x.s.settingMatch);
+
+  if (policy === "JOINT_MATCH_REQUIRED") {
+    if (!joint) {
+      reasons.push(
+        "narration asserts the subject is physically at the setting; no single asset shows both, " +
+        "and cutting a generic subject beside a generic setting would assert a relationship the " +
+        "footage does not show",
+      );
+      return { policy, fragments: [], subjectShare: 0, settingShare: 0, covered: false, reasons };
+    }
+    reasons.push(`joint match: ${joint.c.assetId}`);
+  }
+
+  // Prefer joint assets, then subject, then setting — establish-then-show.
+  const ordered = [...scored].sort((a, b) => {
+    const rank = (x: typeof a) =>
+      (x.s.subjectMatch && x.s.settingMatch ? 0 : x.s.subjectMatch ? 1 : 2);
+    return rank(a) - rank(b) || (b.c.durationS || 0) - (a.c.durationS || 0);
+  });
+
+  // Satisfy the requirements before filling time.
+  //
+  // A greedy longest-first pass fills the whole beat with one long setting
+  // clip and leaves no room for the subject, which then reads as "no fragment
+  // carries the primary subject" even though the library had one. Place a
+  // subject-bearing fragment and a setting-bearing fragment first, each capped
+  // so the other still fits, and only then fill whatever remains.
+  const fragments: Fragment[] = [];
+  const used = new Set<string>();
+  let remaining = plannedS;
+
+  const place = (x: (typeof ordered)[number], cap: number) => {
+    const use = Math.min(x.c.durationS || 0, opts.beatMaxS, remaining, cap);
+    if (use < opts.minFragmentS) return false;
+    fragments.push({
+      assetId: x.c.assetId, description: x.c.description, durationS: use,
+      brandRisk: Boolean(x.c.brandRisk),
+      carriesSubject: x.s.subjectMatch, carriesSetting: x.s.settingMatch,
+    });
+    used.add(x.c.assetId);
+    remaining -= use;
+    return true;
+  };
+
+  const needSetting = req.settings.length > 0 && policy !== "SUBJECT_DOMINANT";
+  if (req.primarySubjects.length > 0) {
+    const best = ordered.find((x) => x.s.subjectMatch && !used.has(x.c.assetId));
+    // Leave room for the setting requirement — unless this fragment already
+    // carries the setting itself, in which case nothing needs reserving.
+    const reserveForSetting = needSetting && !best?.s.settingMatch;
+    if (best) place(best, reserveForSetting ? plannedS * (1 - MIN_SETTING_SHARE) : plannedS);
+  }
+  if (needSetting) {
+    const best = ordered.find((x) => x.s.settingMatch && !used.has(x.c.assetId));
+    if (best) place(best, remaining);
+  }
+  for (const x of ordered) {
+    if (remaining < opts.minFragmentS) break;
+    if (used.has(x.c.assetId)) continue;
+    place(x, remaining);
+  }
+
+  const total = fragments.reduce((a, f) => a + f.durationS, 0);
+  const subjectS = fragments.filter((f) => f.carriesSubject).reduce((a, f) => a + f.durationS, 0);
+  const settingS = fragments.filter((f) => f.carriesSetting).reduce((a, f) => a + f.durationS, 0);
+  const subjectShare = total > 0 ? subjectS / total : 0;
+  const settingShare = total > 0 ? settingS / total : 0;
+
+  const needSubject = policy === "SUBJECT_DOMINANT"
+    ? MIN_SUBJECT_SHARE_DOMINANT : MIN_SUBJECT_SHARE;
+
+  let covered = true;
+  if (remaining >= opts.minFragmentS) {
+    covered = false;
+    reasons.push(`${remaining.toFixed(1)}s of ${plannedS.toFixed(1)}s uncovered without reuse or looping`);
+  }
+  if (req.primarySubjects.length > 0 && !fragments.some((f) => f.carriesSubject)) {
+    covered = false; reasons.push("no fragment carries the primary subject");
+  } else if (req.primarySubjects.length > 0 && subjectShare < needSubject) {
+    covered = false;
+    reasons.push(`subject share ${(subjectShare * 100).toFixed(0)}% below ${needSubject * 100}%`);
+  }
+  if (req.settings.length > 0 && policy !== "SUBJECT_DOMINANT") {
+    if (!fragments.some((f) => f.carriesSetting)) {
+      covered = false; reasons.push("no fragment carries the required setting");
+    } else if (settingShare < MIN_SETTING_SHARE) {
+      covered = false;
+      reasons.push(`setting share ${(settingShare * 100).toFixed(0)}% below ${MIN_SETTING_SHARE * 100}%`);
+    }
+  }
+  if (covered) reasons.push(`covered by ${fragments.length} fragment(s)`);
+
+  return {
+    policy, fragments, subjectShare, settingShare,
+    jointMatchAsset: joint?.c.assetId, covered, reasons,
+  };
+}

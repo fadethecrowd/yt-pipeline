@@ -272,9 +272,12 @@ export { notify } from "./stages/notify";
 export {
   FAMILIES, POLYSEMY, familiesIn, resolveSense, deriveRequirement,
   scoreSemantic, coverBeat, assessSemanticCoverage,
+  buildBeatQueries, stripFraming, derivePolicy, composeBeat,
+  MIN_SUBJECT_SHARE, MIN_SUBJECT_SHARE_DOMINANT, MIN_SETTING_SHARE,
 } from "./lib/semanticCoverage";
 export type {
   Family, Sense, BeatRequirement, SemanticVerdict, SemanticScore,
   CandidateLike, QueryProvenance, BeatCoverage, SemanticCoverageOptions,
-  SemanticFeasibility,
+  SemanticFeasibility, QueryClass, BeatQuery, CompositionPolicy,
+  Fragment, CompositionResult,
 } from "./lib/semanticCoverage";
