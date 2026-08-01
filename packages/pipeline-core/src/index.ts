@@ -281,3 +281,7 @@ export type {
   SemanticFeasibility, QueryClass, BeatQuery, CompositionPolicy,
   Fragment, CompositionResult,
 } from "./lib/semanticCoverage";
+
+// ── Brand-risk normalisation ───────────────────────────────────────────────
+export { normaliseBrandRisk } from "./lib/brandRisk";
+export type { BrandRisk, BrandRiskNormalisation } from "./lib/brandRisk";

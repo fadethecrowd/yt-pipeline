@@ -11,6 +11,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
+import { normaliseBrandRisk } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
 
 // ── Pinned configuration ────────────────────────────────────────────────
@@ -89,7 +90,15 @@ export function validate(o: any): { ok: true; value: any } | { ok: false; reason
   }
   if (typeof o.actionMatch.observable !== "boolean") return { ok: false, reason: "actionMatch.observable invalid" };
   if (!o.contradictions || !Array.isArray(o.contradictions.detectedConcepts)) return { ok: false, reason: "contradictions invalid" };
-  if (!o.brandRisk || !["NONE", "POSSIBLE", "VISIBLE"].includes(o.brandRisk.result)) return { ok: false, reason: "brandRisk invalid" };
+  // brandRisk is normalised rather than rejected: an unrecognised value is a
+  // reason to record POSSIBLE, not a reason to throw the judgment away. The
+  // first run lost 7 of 56 judgments — three of them usable DIRECTs — to this
+  // one check being strict about spelling.
+  if (!o.brandRisk || typeof o.brandRisk !== "object") return { ok: false, reason: "brandRisk missing" };
+  const nb = normaliseBrandRisk(o.brandRisk.result);
+  o.brandRisk.result = nb.value;
+  o.brandRisk.rawResult = nb.raw;
+  o.brandRisk.recognised = nb.recognised;
   if (!o.jointMatch || typeof o.jointMatch.satisfied !== "boolean") return { ok: false, reason: "jointMatch invalid" };
   if (!num(o.confidence)) return { ok: false, reason: "confidence invalid" };
   if (!["DIRECT", "RELATED", "IRRELEVANT", "AMBIGUOUS"].includes(o.finalVerdict)) return { ok: false, reason: "finalVerdict invalid" };
@@ -204,6 +213,11 @@ async function main() {
         joint: schemaOk ? parsed.jointMatch.satisfied : null,
         brandRisk: schemaOk ? parsed.brandRisk.result : null,
         explanation: schemaOk ? String(parsed.explanation).slice(0, 180) : schemaReason,
+        // Keep the raw body. The first run recorded only the validation reason,
+        // so when the validator turned out to be at fault the responses could
+        // not be re-scored without paying for them again.
+        rawResponse: text,
+        brandRiskRaw: schemaOk ? parsed.brandRisk?.rawResult ?? null : null,
         schemaOk, transportRetried,
         usage: { input: usage.input_tokens, output: usage.output_tokens }, costUsd: +callCost.toFixed(6),
         cumulativeUsd: +cost.toFixed(6), model: MODEL,
