@@ -76,7 +76,7 @@ export const FAMILIES: Record<string, Family> = {
     terms: ["supermarket", "grocery store", "grocery", "retail store", "shop interior",
             "store aisle", "aisle", "shelves stocked", "checkout", "self-checkout",
             "cash register", "till", "shopping trolley", "shopping cart", "shopper",
-            "store entrance", "retail", "convenience store"],
+            "store entrance", "retail", "convenience store", "store", "shop"],
   },
   "warehouse-space": {
     isSetting: true,
@@ -227,6 +227,18 @@ export interface BeatRequirement {
   screensAllowed: boolean;
   /** A fallback card may stand in for this beat. */
   cardPermitted: boolean;
+  /**
+   * The prompt names a place, but no setting family recognised it.
+   *
+   * An empty `settings` list is ambiguous on its own: it means either "this
+   * beat needs no particular place" or "this beat needs a place the taxonomy
+   * cannot describe". Treating both as "no requirement" is the unknown-domain
+   * fail-open in miniature, so the two are distinguished and the unrecognised
+   * case fails closed.
+   */
+  unrecognisedSetting: boolean;
+  /** The prompt names a concrete subject, but no subject family recognised it. */
+  unrecognisedSubject: boolean;
 }
 
 /**
@@ -264,9 +276,16 @@ export function deriveRequirement(input: {
   const disallowed: string[] = [];
   if (!screensAllowed) disallowed.push("software-screen");
 
+  // Does the prompt point at a place or a thing the taxonomy could not name?
+  const promptLower = input.visualPrompt.toLowerCase();
+  const namesPlace = /\b(?:inside|within|in a|in an|in the|at a|at an|at the|on a|on the|outside)\s+[a-z]/.test(promptLower);
+  const namesThing = /\b(?:showing|with a|with an|of a|of an|a |an )\s*[a-z]+/.test(promptLower);
+
   return {
     beatIndex: input.beatIndex,
     segmentIndex: input.segmentIndex,
+    unrecognisedSetting: settings.length === 0 && namesPlace,
+    unrecognisedSubject: subjects.length === 0 && namesThing,
     narration: input.narration,
     visualPrompt: input.visualPrompt,
     primarySubjects: primarySubjects.length ? primarySubjects : subjects,
@@ -364,7 +383,17 @@ export function scoreSemantic(req: BeatRequirement, description: string): Semant
   }
 
   // A component that is genuinely not required does not need satisfying; one
-  // that is required but unrecognised leaves the beat unjudgeable.
+  // that is required but unrecognised leaves the beat unjudgeable, and
+  // unjudgeable must never read as satisfied.
+  if (req.unrecognisedSubject || req.unrecognisedSetting) {
+    reasons.push(
+      `requirement outside the taxonomy (${req.unrecognisedSubject ? "subject" : ""}` +
+      `${req.unrecognisedSubject && req.unrecognisedSetting ? "+" : ""}` +
+      `${req.unrecognisedSetting ? "setting" : ""}) — cannot be judged, failing closed`,
+    );
+    return { verdict: "IRRELEVANT", subjectMatch: false, settingMatch: false,
+             contradicted, reasons };
+  }
   const subjectOk = req.primarySubjects.length === 0 ? null : subjectMatch;
   const settingOk = req.settings.length === 0 ? null : settingMatch;
 

@@ -1,0 +1,300 @@
+{
+  "version": 1,
+  "createdAt": "2026-08-01",
+  "purpose": "Human-labelled benchmark for any candidate visual-semantic relevance judge. Labels are authored from preserved ai1r/HBM evidence and existing regression fixtures. No judge under evaluation may produce or influence these labels.",
+  "labelProvenance": "Hand-labelled by Claude Code from observed Pexels descriptions in output/ai1r-attempt-1-feasibility.json, output/ai1r-attempt-2-feasibility.json and output/ai1r-semantic-coverage.json, plus the control cases already pinned in tests/semantic-coverage.test.ts and tests/beat-composition.test.ts. Reviewed against the narration each candidate would have sat under.",
+  "scoring": {
+    "includedInMetrics": "cases where includeInMetrics=true",
+    "safetyCritical": "hard negatives that must never score DIRECT; a single failure disqualifies an approach",
+    "ambiguousPolicy": "cases labelled AMBIGUOUS are excluded from precision/recall and must not be forced to a label"
+  },
+  "cases": [
+    {
+      "id": "pos-selfcheckout-action",
+      "source": "pexels probe, ai1r attempt-2 re-evaluation",
+      "requirement": { "primarySubjects": [], "settings": ["retail-space"], "action": "scanning groceries at self checkout" },
+      "narration": "Self checkout is where the cameras watch hardest.",
+      "visualPrompt": "Close-up of a self checkout station in a retail store",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "candidate": { "assetId": "pexels-selfcheckout-1", "description": "young adult scanning groceries at self checkout", "durationS": 105 },
+      "expected": { "subject": "N/A", "setting": "MATCH", "action": "MATCH", "contradiction": false, "joint": "N/A", "finalVerdict": "DIRECT" },
+      "rationale": "Depicts the self-checkout setting and the scanning action directly. Rejecting this was the false negative that motivated compositional coverage.",
+      "safetyCritical": false, "includeInMetrics": true
+    },
+    {
+      "id": "pos-supermarket-aisle-setting",
+      "source": "pexels probe",
+      "requirement": { "primarySubjects": [], "settings": ["retail-space"] },
+      "narration": "Computer vision is spreading through retail.",
+      "visualPrompt": "Supermarket interior with shoppers",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "candidate": { "assetId": "pexels-aisle-1", "description": "woman shopping in grocery aisle", "durationS": 7 },
+      "expected": { "subject": "N/A", "setting": "MATCH", "action": "N/A", "contradiction": false, "joint": "N/A", "finalVerdict": "DIRECT" },
+      "rationale": "Proves the retail setting. Does not prove any surveillance subject.",
+      "safetyCritical": false, "includeInMetrics": true
+    },
+    {
+      "id": "pos-cctv-subject",
+      "source": "ai1r attempt-2 candidate pool",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": [] },
+      "narration": "The camera never blinks.",
+      "visualPrompt": "Close view of a dome security camera",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "candidate": { "assetId": "pexels-cctv-1", "description": "a person getting the cctv device while the girl is holding a camera", "durationS": 12 },
+      "expected": { "subject": "MATCH", "setting": "N/A", "action": "N/A", "contradiction": false, "joint": "N/A", "finalVerdict": "DIRECT" },
+      "rationale": "Depicts CCTV hardware as the subject. Carries no retail setting.",
+      "safetyCritical": false, "includeInMetrics": true
+    },
+    {
+      "id": "pos-control-room",
+      "source": "ai1r attempt-2 candidate pool",
+      "requirement": { "primarySubjects": ["surveillance-operator"], "settings": ["control-room-space"] },
+      "narration": "Operators watch dozens of camera feeds at once.",
+      "visualPrompt": "Security operators watching a video wall inside a control room",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "candidate": { "assetId": "pexels-controlroom-1", "description": "high tech control room with multiple cctv monitors", "durationS": 10 },
+      "expected": { "subject": "MATCH", "setting": "MATCH", "action": "MATCH", "contradiction": false, "joint": "SATISFIED", "finalVerdict": "DIRECT" },
+      "rationale": "Operators and the monitoring room appear together in one asset.",
+      "safetyCritical": false, "includeInMetrics": true
+    },
+    {
+      "id": "pos-traffic-camera",
+      "source": "ai1r attempt-2 candidate pool",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["street-public"] },
+      "narration": "Traffic cameras watch the same intersection from above.",
+      "visualPrompt": "Traffic camera on a pole above a city intersection",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "candidate": { "assetId": "pexels-trafficcam-1", "description": "busy urban street monitoring with traffic cameras", "durationS": 11 },
+      "expected": { "subject": "MATCH", "setting": "MATCH", "action": "N/A", "contradiction": false, "joint": "SATISFIED", "finalVerdict": "DIRECT" },
+      "rationale": "Camera and street appear in the same shot, satisfying a joint requirement.",
+      "safetyCritical": false, "includeInMetrics": true
+    },
+    {
+      "id": "pos-retail-camera-joint",
+      "source": "synthetic positive control (tests/semantic-coverage.test.ts)",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["retail-space"] },
+      "narration": "That camera above the cereal aisle isn't just recording anymore.",
+      "visualPrompt": "Supermarket aisle with a dome security camera mounted above the shelves",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "candidate": { "assetId": "synthetic-retailcam-1", "description": "security camera mounted above a supermarket aisle with shelves", "durationS": 20 },
+      "expected": { "subject": "MATCH", "setting": "MATCH", "action": "N/A", "contradiction": false, "joint": "SATISFIED", "finalVerdict": "DIRECT" },
+      "rationale": "The asset class ai1r needed and the Pexels library did not contain. Retained so a future library can be measured against it.",
+      "safetyCritical": false, "includeInMetrics": true
+    },
+    {
+      "id": "pos-warehouse-packing-camera",
+      "source": "synthetic positive control",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["warehouse-space"] },
+      "narration": "Cameras mounted at packing stations track worker hand movements.",
+      "visualPrompt": "Warehouse packing station with a security camera mounted above the workstation",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "candidate": { "assetId": "synthetic-warehousecam-1", "description": "security camera mounted above a packing station in a warehouse where a worker boxes items", "durationS": 18 },
+      "expected": { "subject": "MATCH", "setting": "MATCH", "action": "MATCH", "contradiction": false, "joint": "SATISFIED", "finalVerdict": "DIRECT" },
+      "rationale": "Interior workplace monitoring shown in one asset.",
+      "safetyCritical": false, "includeInMetrics": true
+    },
+
+    {
+      "id": "neg-balloon-datacentre",
+      "source": "invalid topic screening, 2026-08-01 (the fail-open defect)",
+      "requirement": { "primarySubjects": [], "settings": [], "unrecognisedDomain": true },
+      "narration": "Inside, the racks run hot enough to need their own weather.",
+      "visualPrompt": "Data centre server room with racks and cooling",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "candidate": { "assetId": "neg-balloon", "description": "a hot air balloon drifting over an empty field", "durationS": 20 },
+      "expected": { "subject": "NO_MATCH", "setting": "NO_MATCH", "action": "N/A", "contradiction": false, "joint": "NOT_SATISFIED", "finalVerdict": "IRRELEVANT" },
+      "rationale": "Scored DIRECT under the fail-open taxonomy and produced five fake topic passes. The canonical unknown-domain regression.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-airport-software",
+      "source": "ai1r attempt-2 accepted pool (false positive)",
+      "requirement": { "primarySubjects": ["software-screen"], "settings": [] },
+      "narration": "The software runs on a terminal in the back office.",
+      "visualPrompt": "Command line terminal on a computer screen",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "candidate": { "assetId": "neg-airport", "description": "people are walking through an airport terminal with luggage", "durationS": 12 },
+      "expected": { "subject": "NO_MATCH", "setting": "NO_MATCH", "action": "N/A", "contradiction": true, "joint": "NOT_SATISFIED", "finalVerdict": "IRRELEVANT" },
+      "rationale": "Accepted as software because the metadata contained the word 'terminal'. Polysemy, not relevance.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-cli-transit",
+      "source": "polysemy control",
+      "requirement": { "primarySubjects": [], "settings": ["street-public"] },
+      "narration": "Passengers move through the transit terminal all day.",
+      "visualPrompt": "Busy transit terminal with passengers",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "candidate": { "assetId": "neg-cli", "description": "downloading python packages on terminal screen", "durationS": 17 },
+      "expected": { "subject": "N/A", "setting": "NO_MATCH", "action": "N/A", "contradiction": true, "joint": "N/A", "finalVerdict": "IRRELEVANT" },
+      "rationale": "The reverse polysemy direction: a command-line terminal is not a transit terminal.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-warehouse-aerial-interior",
+      "source": "ai1r attempt-2 accepted pool (false positive)",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["warehouse-space"] },
+      "narration": "Cameras mounted at packing stations track worker hand movements.",
+      "visualPrompt": "Warehouse packing station with a camera above the workstation",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "candidate": { "assetId": "neg-aerial-1", "description": "aerial view of large industrial warehouse facility", "durationS": 19 },
+      "expected": { "subject": "NO_MATCH", "setting": "NO_MATCH", "action": "N/A", "contradiction": true, "joint": "NOT_SATISFIED", "finalVerdict": "IRRELEVANT" },
+      "rationale": "An exterior roof shot is not evidence of monitoring inside the building.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-warehouse-roof-selfcheckout",
+      "source": "ai1r attempt-2 accepted pool (false positive)",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["retail-space"] },
+      "narration": "Object detection flags items that never made it past the scanner.",
+      "visualPrompt": "Self checkout station with a camera above it",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "candidate": { "assetId": "neg-aerial-2", "description": "aerial view of industrial warehouse roofs with solar panels", "durationS": 9 },
+      "expected": { "subject": "NO_MATCH", "setting": "NO_MATCH", "action": "N/A", "contradiction": true, "joint": "NOT_SATISFIED", "finalVerdict": "IRRELEVANT" },
+      "rationale": "Neither the subject nor the setting appears.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-tomatoes-retail-surveillance",
+      "source": "ai1r attempt-2 accepted pool (false positive)",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["retail-space"] },
+      "narration": "Shrink detection now runs on the same cameras that used to just record.",
+      "visualPrompt": "Supermarket aisle with a security camera overhead",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "candidate": { "assetId": "neg-tomatoes", "description": "tomatoes on a conveyor belt", "durationS": 12 },
+      "expected": { "subject": "NO_MATCH", "setting": "NO_MATCH", "action": "N/A", "contradiction": false, "joint": "NOT_SATISFIED", "finalVerdict": "IRRELEVANT" },
+      "rationale": "Food-processing footage is neither a retail setting nor a surveillance subject.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-trading-surveillance",
+      "source": "ai1r attempt-1 accepted pool (false positive)",
+      "requirement": { "primarySubjects": ["surveillance-operator"], "settings": ["control-room-space"] },
+      "narration": "Operators watch the feeds from a control room.",
+      "visualPrompt": "Security control room with a video wall",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "candidate": { "assetId": "neg-trading", "description": "financial trading data on screens in dark room", "durationS": 20 },
+      "expected": { "subject": "NO_MATCH", "setting": "NO_MATCH", "action": "N/A", "contradiction": true, "joint": "NOT_SATISFIED", "finalVerdict": "IRRELEVANT" },
+      "rationale": "A dark room full of screens is not a security control room.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-python-computervision",
+      "source": "ai1r attempt-1 accepted pool (false positive)",
+      "requirement": { "primarySubjects": ["vision-processing"], "settings": [] },
+      "narration": "The model draws a box around every person it detects.",
+      "visualPrompt": "Object detection bounding boxes on a camera feed",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "candidate": { "assetId": "neg-python", "description": "downloading python packages on terminal screen", "durationS": 17 },
+      "expected": { "subject": "NO_MATCH", "setting": "N/A", "action": "N/A", "contradiction": true, "joint": "N/A", "finalVerdict": "IRRELEVANT" },
+      "rationale": "Package installation is not computer vision.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-sound-software-surveillance",
+      "source": "ai1r attempt-2 accepted pool (false positive)",
+      "requirement": { "primarySubjects": ["surveillance-operator"], "settings": ["control-room-space"] },
+      "narration": "Operators watch the feeds from a control room.",
+      "visualPrompt": "Security control room with a video wall",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "candidate": { "assetId": "neg-sound", "description": "close up sound processing software on a screen", "durationS": 7 },
+      "expected": { "subject": "NO_MATCH", "setting": "NO_MATCH", "action": "N/A", "contradiction": true, "joint": "NOT_SATISFIED", "finalVerdict": "IRRELEVANT" },
+      "rationale": "Audio software has nothing to do with visual surveillance.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-building-aerial-serverroom",
+      "source": "synthetic hard negative",
+      "requirement": { "primarySubjects": [], "settings": ["datacenter-space"], "unrecognisedDomain": true },
+      "narration": "Inside, the racks run hot enough to need their own weather.",
+      "visualPrompt": "Data centre server room with racks and cooling",
+      "compositionPolicy": "SETTING_DOMINANT",
+      "candidate": { "assetId": "neg-building", "description": "drone shot of a tall building", "durationS": 19 },
+      "expected": { "subject": "N/A", "setting": "NO_MATCH", "action": "N/A", "contradiction": true, "joint": "N/A", "finalVerdict": "IRRELEVANT" },
+      "rationale": "A building exterior is not a server room interior.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "neg-photography-camera",
+      "source": "polysemy control",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": [] },
+      "narration": "The security camera never blinks.",
+      "visualPrompt": "Dome security camera mounted on a ceiling",
+      "compositionPolicy": "SUBJECT_DOMINANT",
+      "candidate": { "assetId": "neg-photocam", "description": "photographer with a dslr camera and tripod in a studio", "durationS": 14 },
+      "expected": { "subject": "NO_MATCH", "setting": "N/A", "action": "N/A", "contradiction": true, "joint": "N/A", "finalVerdict": "IRRELEVANT" },
+      "rationale": "A photography camera is not a surveillance camera; the word alone is not evidence.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+
+    {
+      "id": "comp-retail-plus-camera-allowed",
+      "source": "compositional control",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["retail-space"] },
+      "narration": "Computer vision is spreading through retail, from the aisle to the checkout.",
+      "visualPrompt": "Supermarket interior with shoppers, self checkout stations, and CCTV cameras",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "candidateSet": [
+        { "assetId": "comp-aisle", "description": "customers shopping at supermarket aisle", "durationS": 12 },
+        { "assetId": "comp-cam", "description": "dome security camera mounted on a ceiling", "durationS": 12 }
+      ],
+      "expected": { "beatCovered": true, "finalVerdict": "DIRECT" },
+      "rationale": "A general claim may be established across two directly relevant fragments.",
+      "safetyCritical": false, "includeInMetrics": true
+    },
+    {
+      "id": "comp-retail-plus-camera-joint-refused",
+      "source": "compositional control",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["retail-space"] },
+      "narration": "That camera above the cereal aisle isn't just recording anymore.",
+      "visualPrompt": "Supermarket aisle with a dome security camera mounted above the shelves",
+      "compositionPolicy": "JOINT_MATCH_REQUIRED",
+      "candidateSet": [
+        { "assetId": "comp-aisle", "description": "customers shopping at supermarket aisle", "durationS": 12 },
+        { "assetId": "comp-cam", "description": "dome security camera mounted on a ceiling", "durationS": 12 }
+      ],
+      "expected": { "beatCovered": false, "finalVerdict": "IRRELEVANT" },
+      "rationale": "The same two clips cannot prove a camera is mounted above that exact aisle. Cutting them together asserts a relationship neither shot shows.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "comp-token-subject-refused",
+      "source": "prominence control",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["retail-space"] },
+      "narration": "Computer vision is spreading through retail.",
+      "visualPrompt": "Supermarket interior with shoppers and CCTV cameras",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "candidateSet": [
+        { "assetId": "comp-aisle-long", "description": "customers shopping at supermarket aisle", "durationS": 17 },
+        { "assetId": "comp-cam-token", "description": "dome security camera mounted on a ceiling", "durationS": 1 }
+      ],
+      "expected": { "beatCovered": false, "finalVerdict": "IRRELEVANT" },
+      "rationale": "A one-second subject shot must not legitimise seventeen seconds of setting.",
+      "safetyCritical": true, "includeInMetrics": true
+    },
+    {
+      "id": "amb-shopping-mall-aerial",
+      "source": "ai1r attempt-2 candidate pool",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["retail-space"] },
+      "narration": "Surveillance is spreading across commercial space.",
+      "visualPrompt": "Retail environment under camera monitoring",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "candidate": { "assetId": "amb-mall", "description": "dynamic aerial view of busy shopping mall", "durationS": 11 },
+      "expected": { "finalVerdict": "AMBIGUOUS" },
+      "rationale": "A mall is commercial retail space, but an aerial view shows neither an interior nor a camera. Genuinely unclear; excluded from metrics rather than forced.",
+      "safetyCritical": false, "includeInMetrics": false
+    },
+    {
+      "id": "amb-shopfront-pedestrian",
+      "source": "ai1r attempt-2 candidate pool",
+      "requirement": { "primarySubjects": ["security-camera"], "settings": ["retail-space"] },
+      "narration": "Cameras watch the entrances as much as the aisles.",
+      "visualPrompt": "Store entrance with a camera above the door",
+      "compositionPolicy": "COMPOSITIONAL_MATCH_ALLOWED",
+      "candidate": { "assetId": "amb-shopfront", "description": "pedestrian walking by korean shopfronts", "durationS": 9 },
+      "expected": { "finalVerdict": "AMBIGUOUS" },
+      "rationale": "Shopfronts are retail exteriors and may or may not carry a visible camera; the metadata cannot settle it and frames would be needed.",
+      "safetyCritical": false, "includeInMetrics": false
+    }
+  ]
+}
