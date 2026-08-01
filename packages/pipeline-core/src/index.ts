@@ -155,6 +155,8 @@ export type { Candidate, ValidationOutcome, SceneRecordInput } from "./lib/visua
 export {
   scoreRelevance, describeFromPexelsUrl, narrationIsAboutVoiceAI,
   VisualPlan, REJECT_THRESHOLD, buildSearchQueries,
+  classifyConcept,
+  AI_SUBJECTS,
 } from "./lib/visualRelevance";
 export type { RelevanceInput, RelevanceResult, Verdict } from "./lib/visualRelevance";
 

@@ -38,7 +38,7 @@ export interface RelevanceResult {
 // ── Vocabulary ────────────────────────────────────────────────────────────
 
 /** Subjects that make a visual clearly on-topic for AI Doom Scroll. */
-const AI_SUBJECTS: Record<string, string[]> = {
+export const AI_SUBJECTS: Record<string, string[]> = {
   compute: ["cpu", "gpu", "chip", "processor", "semiconductor", "motherboard",
             "circuit board", "silicon", "wafer", "microchip", "graphics card"],
   datacenter: ["data center", "data centre", "server", "server rack", "server room",
@@ -61,7 +61,14 @@ const AI_SUBJECTS: Record<string, string[]> = {
   voiceai: ["waveform", "audio interface", "speech", "speaking", "voice", "vocal",
             "spectrogram", "sound wave", "audio editing", "synthesis",
             "microphone", "recording studio", "headphones", "audio mixer"],
-  surveillance: ["surveillance", "cctv", "security camera", "monitoring", "tracking"],
+  // Phrases, not bare tokens, so a control room reads as monitoring rather
+  // than as "a room with screens in it".
+  surveillance: ["surveillance", "cctv", "security camera", "monitoring", "tracking",
+                 "control room", "security control room", "video monitoring",
+                 "traffic monitoring", "surveillance monitor", "video wall",
+                 "security operations center", "security operations centre",
+                 "monitoring station", "security footage", "camera feed",
+                 "closed circuit"],
   autonomy: ["autonomous", "self-driving", "self driving", "driverless", "navigation"],
   energy: ["power plant", "electricity", "energy", "grid", "transformer", "turbine",
            "cooling tower", "power consumption"],
@@ -121,8 +128,120 @@ function norm(s: string): string {
   return ` ${s.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").replace(/\s+/g, " ")} `;
 }
 
+/**
+ * Light plural folding so "screens" matches "screen" and "cameras" matches
+ * "camera", without the prefix collisions raw substring matching produced.
+ */
+function singular(w: string): string {
+  if (w.length > 4 && w.endsWith("ies")) return `${w.slice(0, -3)}y`;
+  if (w.length > 4 && /(ses|xes|zes|ches|shes)$/.test(w)) return w.slice(0, -2);
+  if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0, -1);
+  return w;
+}
+
+function tokenize(s: string): string[] {
+  return norm(s).trim().split(/[\s-]+/).filter(Boolean).map(singular);
+}
+
+/** Does `term` appear in `hay` as a whole token or contiguous token phrase? */
+function matchesTerm(hay: string[], term: string): boolean {
+  const t = term.trim().toLowerCase().split(/[\s-]+/).filter(Boolean).map(singular);
+  if (t.length === 0) return false;
+  outer: for (let i = 0; i + t.length <= hay.length; i++) {
+    for (let j = 0; j < t.length; j++) if (hay[i + j] !== t[j]) continue outer;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Terms matched in `haystack`, by whole token or phrase.
+ *
+ * Previously this was raw substring matching against a space-padded string,
+ * so a leading-space test succeeded on any prefix: "monitoring" matched the
+ * software term "monitor" and "screens" matched "screen". Every control-room
+ * and video-monitoring asset was therefore scored as generic software, and
+ * because ties fell to whichever concept was declared first — software sits
+ * above surveillance in AI_SUBJECTS — surveillance could never win. On the
+ * ai1r plan that misfiled 42s of control-room footage and pushed the software
+ * share from 39% to 51%, failing a gate the plan should have failed on its
+ * own merits rather than on a measurement error.
+ */
 function hits(haystack: string, terms: string[]): string[] {
-  return terms.filter((t) => haystack.includes(` ${t}`) || haystack.includes(`${t} `));
+  const hay = tokenize(haystack);
+  return terms.filter((t) => matchesTerm(hay, t));
+}
+
+/**
+ * Attributive modifiers that describe manner or a component rather than the
+ * subject itself, and that recur across concepts: "automated" appears in
+ * robotics but describes half of all factory footage; "rack" means a server
+ * rack in a data centre and a test-tube rack in a laboratory. Scored at half
+ * weight so a genuine subject noun wins without needing a special case.
+ */
+const WEAK_TERMS = new Set([
+  "automated", "automation", "industrial", "data", "screen", "monitor",
+  "rack", "interface", "dashboard", "sensor", "cable", "tracking", "scanner",
+]);
+
+/** Token count of a term — multiword phrases are more specific evidence. */
+function termSpecificity(term: string): number {
+  return term.trim().split(/[\s-]+/).filter(Boolean).length;
+}
+
+/** Weighted evidence: a 2-word phrase outranks any number of single tokens. */
+function termWeight(term: string): number {
+  const n = termSpecificity(term);
+  if (n >= 3) return 6;
+  if (n === 2) return 3;
+  return WEAK_TERMS.has(term.trim().toLowerCase()) ? 0.5 : 1;
+}
+
+export interface ConceptMatch {
+  concept: string;
+  score: number;
+  /** Terms matched by the winning concept. */
+  matched: string[];
+  /** Terms matched across ALL concepts — feeds the relevance score. */
+  totalMatched: number;
+}
+
+/**
+ * Pick the concept with the strongest evidence.
+ *
+ * Ordering is explicit rather than incidental: total weighted score, then the
+ * longest single phrase matched, then concept name. A genuine tie on both
+ * score and specificity resolves to "ambiguous" instead of silently taking
+ * whichever key happens to be declared first.
+ */
+export function classifyConcept(
+  text: string,
+  taxonomy: Record<string, string[]>,
+): ConceptMatch {
+  const hay = tokenize(text);
+  const scored = Object.entries(taxonomy)
+    .map(([concept, terms]) => {
+      const matched = terms.filter((t) => matchesTerm(hay, t));
+      return {
+        concept,
+        score: matched.reduce((a, t) => a + termWeight(t), 0),
+        longest: matched.reduce((a, t) => Math.max(a, termSpecificity(t)), 0),
+        matched,
+      };
+    })
+    .filter((c) => c.score > 0);
+
+  const totalMatched = scored.reduce((a, c) => a + c.matched.length, 0);
+  if (scored.length === 0) return { concept: "none", score: 0, matched: [], totalMatched: 0 };
+  scored.sort(
+    (a, b) => b.score - a.score || b.longest - a.longest || a.concept.localeCompare(b.concept),
+  );
+  const top = scored[0]!;
+  const next = scored[1];
+  if (next && next.score === top.score && next.longest === top.longest) {
+    return { concept: "ambiguous", score: top.score, matched: top.matched, totalMatched };
+  }
+  return { concept: top.concept, score: top.score, matched: top.matched, totalMatched };
 }
 
 /** Extract the human-written description from a Pexels page URL slug. */
@@ -174,15 +293,14 @@ export function scoreRelevance(input: RelevanceInput): RelevanceResult {
 
   // ── Subject match ────────────────────────────────────────────────────
   const taxonomy = input.channel === "wet-circuit" ? MARINE_SUBJECTS : AI_SUBJECTS;
-  let best = { concept: "none", n: 0 };
-  let subjectHits = 0;
-  for (const [concept, terms] of Object.entries(taxonomy)) {
-    const n = hits(desc, terms).length;
-    subjectHits += n;
-    if (n > best.n) best = { concept, n };
-  }
+  const match = classifyConcept(desc, taxonomy);
+  const best = { concept: match.concept === "ambiguous" ? "none" : match.concept, n: match.score };
+  const subjectHits = match.totalMatched;
+  const subjectEvidence = match.score;
   if (subjectHits > 0) {
-    reasons.push(`matches ${input.channel} subject "${best.concept}"`);
+    reasons.push(
+      `matches ${input.channel} subject "${match.concept}" (${match.matched.join(", ")})`,
+    );
   }
 
   // ── Agreement with the narration and the prompt ───────────────────────
@@ -200,7 +318,16 @@ export function scoreRelevance(input: RelevanceInput): RelevanceResult {
 
   // ── Composite score ──────────────────────────────────────────────────
   let score = 0;
-  score += Math.min(subjectHits, 3) * 0.25;      // up to 0.75
+  // Strength of on-topic subject evidence, capped at 0.75 as before.
+  //
+  // This reads the WEIGHTED score of the identified subject rather than a raw
+  // count of term hits across every concept. The old count double-counted
+  // substrings — "microchip" scored both "microchip" and "chip" — so removing
+  // that overlap would otherwise have deflated every on-topic asset by up to
+  // 0.25 and pushed genuinely relevant footage below REJECT_THRESHOLD. Phrase
+  // matches now weigh more than bare tokens, which is what "strong evidence
+  // for one subject" should mean. The cap and REJECT_THRESHOLD are unchanged.
+  score += Math.min(subjectEvidence, 3) * 0.25; // up to 0.75
   score += Math.min(promptOverlap, 3) * 0.08;     // up to 0.24
   score += Math.min(narrationOverlap, 3) * 0.05;  // up to 0.15
   // A justified performance visual is the correct choice for a voice-AI
@@ -334,12 +461,7 @@ export function buildSearchQueries(
 
   // Canonical query for the concept the prompt is closest to.
   const taxonomy = channel === "wet-circuit" ? MARINE_SUBJECTS : AI_SUBJECTS;
-  const p = norm(prompt);
-  let best = { concept: "", n: 0 };
-  for (const [concept, terms] of Object.entries(taxonomy)) {
-    const n = hits(p, terms).length;
-    if (n > best.n) best = { concept, n };
-  }
+  const best = classifyConcept(prompt, taxonomy);
   if (best.concept && CONCEPT_QUERIES[best.concept]) {
     queries.push(CONCEPT_QUERIES[best.concept]);
   }

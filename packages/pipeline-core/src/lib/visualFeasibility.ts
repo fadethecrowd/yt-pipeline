@@ -452,10 +452,15 @@ export async function assessVisualFeasibility(
     }))
     .sort((a, b) => b.projectedSeconds - a.projectedSeconds);
 
-  // "Distinct, concrete visual categories" — generic-abstract is not one, and
-  // "none" means the scorer could not name a subject at all.
+  // "Distinct, concrete visual categories" — generic-abstract is not one,
+  // "none" means the scorer could not name a subject at all, and "ambiguous"
+  // means the evidence tied between concepts. None of them is a category a
+  // viewer would perceive, so none may help satisfy MIN_DISTINCT_CONCEPTS.
+  // They remain in conceptBreakdown, so a plan dominated by unnameable
+  // footage still fails the share cap.
   const distinctConcepts = conceptBreakdown.filter(
-    (c) => c.concept !== "generic-abstract" && c.concept !== "none" && c.concept !== "card",
+    (c) => c.concept !== "generic-abstract" && c.concept !== "none"
+      && c.concept !== "card" && c.concept !== "ambiguous",
   ).length;
 
   const uniqueUsableAssets = accepted.length;
