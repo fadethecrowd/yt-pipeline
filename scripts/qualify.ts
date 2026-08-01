@@ -30,6 +30,8 @@ import {
   sha256File, sha256Manifest, storeApproval, verifyApproved,
   BEAT_MAX_S,
   assessVisualFeasibility, pexelsOnlySource, formatFeasibility,
+  guardedUpload, createGoogleYouTubePort, prismaIntentStore,
+  reconcileAll, UploadBlockedError, buildYouTubeClient,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
@@ -475,7 +477,7 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
   if (qa.overall !== "PASS") fail("automated QA did not pass — not uploading");
   if (!noUpload) {
     await verifyApproved({ filePath: out.videoPath, fileSha256, manifestSha256, manifest });
-    await upload(spec, video.id, out.videoPath, qaId, fileSha256);
+    await upload(spec, video.id, out.videoPath, qaId, fileSha256, manifestSha256);
   }
 
   await disconnect();
@@ -497,7 +499,8 @@ async function runShort(spec: AssetSpec, noUpload: boolean) {
  * work. It sends the exact file whose hash was approved, or it fails closed.
  */
 async function upload(
-  spec: AssetSpec, videoId: string, videoPath: string, qaId: string, fileSha256: string,
+  spec: AssetSpec, videoId: string, videoPath: string, qaId: string,
+  fileSha256: string, manifestSha256: string,
 ) {
   const actual = await sha256File(videoPath);
   if (actual !== fileSha256) {
@@ -509,31 +512,63 @@ async function upload(
 
   await verifyChannel(CHANNELS[spec.channel], `qual:${spec.key}`);
 
-  const config = env();
-  const auth = new google.auth.OAuth2(config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET);
-  auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-  const yt = google.youtube({ version: "v3", auth });
+  const port = createGoogleYouTubePort();
+  const persistYoutubeId = async (_intent: unknown, id: string) => {
+    await repo.updateVideo(videoId, { youtubeId: id });
+  };
+
+  // Resolve anything an earlier crash left open BEFORE considering an upload.
+  // A null youtubeId is not evidence that YouTube never accepted this asset.
+  const pending = await reconcileAll({
+    port, store: prismaIntentStore, persistYoutubeId, channel: spec.channel,
+  });
+  for (const p of pending) {
+    console.log(`  reconciled intent ${p.intent.id}: ${p.outcome}`);
+  }
 
   const title = `[PRIVATE QUALIFICATION] ${spec.topicTitle}`.slice(0, 100);
   console.log(`\n  uploading "${title}" …`);
-  const res = await yt.videos.insert({
-    part: ["snippet", "status"],
-    requestBody: {
-      snippet: {
-        title,
-        description:
-          "PRIVATE PHASE 6 QUALIFICATION ASSET — not for publication.\n\n"
-          + "Awaiting manual editorial review. This video must remain private.",
-        categoryId: "28",
-        tags: ["qualification", "internal"],
-      },
-      status: { privacyStatus: "private", selfDeclaredMadeForKids: false },
-    },
-    media: { body: createReadStream(videoPath) },
-  });
-  const youtubeId = res.data.id!;
-  await repo.updateVideo(videoId, { youtubeId });
 
+  let youtubeId: string;
+  try {
+    const result = await guardedUpload(
+      {
+        channelKey: spec.channel,
+        assetKey: spec.key,
+        videoId,
+        testStage: currentTestStage(),
+        format: spec.format,
+        filePath: videoPath,
+        fileSha256,
+        manifestSha256,
+        metadata: {
+          title,
+          description:
+            "PRIVATE PHASE 6 QUALIFICATION ASSET — not for publication.\n\n"
+            + "Awaiting manual editorial review. This video must remain private.",
+          tags: ["qualification", "internal"],
+          categoryId: "28",
+          privacyStatus: "private",
+          publishAt: null,
+        },
+        expectedDurationS: spec.targetS,
+        existingYoutubeId: row?.youtubeId ?? null,
+        verifiedChannelId: CHANNELS[spec.channel].id,
+        actualFileSha256: actual,
+        actualManifestSha256: manifestSha256,
+      },
+      { port, store: prismaIntentStore, persistYoutubeId },
+    );
+    youtubeId = result.youtubeId;
+    console.log(`  upload outcome: ${result.status} (intent ${result.intent.id})`);
+  } catch (err) {
+    if (err instanceof UploadBlockedError) {
+      fail(`upload blocked [${err.code}]: ${err.message}`);
+    }
+    throw err;
+  }
+
+  const yt = buildYouTubeClient();
   const check = await yt.videos.list({ part: ["status", "snippet"], id: [youtubeId] });
   const item = check.data.items?.[0];
   const privacy = item?.status?.privacyStatus;

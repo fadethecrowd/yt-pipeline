@@ -486,3 +486,85 @@ model ScriptGenerationFailure {
   @@index([failureType])
   @@map("script_generation_failure")
 }
+
+// ── Durable upload intent ─────────────────────────────────────────────────
+
+/// Lifecycle of a single intended YouTube upload.
+///
+/// The states exist so that a process death at ANY point leaves evidence that
+/// distinguishes "never called YouTube" from "YouTube may already have it".
+enum UploadIntentState {
+  /// Row written before anything is sent. Guards have passed.
+  PREPARED
+  /// Written immediately before videos.insert. If a crash leaves an intent
+  /// here, the remote outcome is UNKNOWN and must be reconciled, never retried.
+  UPLOAD_STARTED
+  /// videos.insert returned an id. The id is durable from this point.
+  REMOTE_CONFIRMED
+  /// The owning video row now carries the youtubeId. Terminal success.
+  PERSISTED
+  /// Remote state could not be resolved automatically. Terminal until a human
+  /// acts; blocks all further upload attempts for the asset.
+  RECONCILIATION_REQUIRED
+  /// Failed before any remote call. Safe to retry — YouTube never saw it.
+  FAILED_BEFORE_REMOTE_CALL
+}
+
+/// One row per intended upload of one approved artifact.
+///
+/// Exists because `youtubeId == null` is not evidence that nothing was
+/// uploaded: qualification asset ai1 was accepted by YouTube as uVQ-vcJHWNk
+/// and the process died before the id was written, leaving a remote orphan
+/// that every local check reported as "never uploaded". The intent is written
+/// BEFORE the remote call, so that failure mode now leaves an unresolved row.
+///
+/// `correlationId` is echoed into the uploaded video's tags, which makes the
+/// remote object self-identifying and therefore reconcilable without any
+/// local record of its id.
+model UploadIntent {
+  id            String @id @default(cuid())
+  /// Embedded in the remote video's tags as `qid-<correlationId>`.
+  correlationId String @unique
+
+  channel     String
+  channelId   String
+  testStage   TestStage
+  format      String
+  assetKey    String
+  videoId     String
+  /// "video" (AI Doom) or "wc_video" (Wet Circuit).
+  sourceTable String    @default("video")
+
+  // Immutable identity of the approved artifact.
+  fileSha256          String
+  manifestSha256      String
+  metadataFingerprint String
+
+  // Immutable expectations, asserted again at reconciliation time.
+  expectedTitle      String
+  expectedPrivacy    String  @default("private")
+  publishAtAbsent    Boolean @default(true)
+  expectedDurationS  Float?
+  durationToleranceS Float   @default(2)
+
+  state             UploadIntentState @default(PREPARED)
+  youtubeId         String?           @unique
+  remoteEtag        String?
+  remotePublishedAt DateTime?
+  adopted           Boolean           @default(false)
+
+  attempts      Int       @default(0)
+  lastError     String?
+  reconcileNote String?
+  resolvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  /// One intent per (asset, approved artifact) — a retry reuses the row
+  /// rather than opening a second upload path.
+  @@unique([videoId, fileSha256, manifestSha256])
+  @@index([state])
+  @@index([channel, createdAt])
+  @@index([videoId])
+  @@map("upload_intent")
+}

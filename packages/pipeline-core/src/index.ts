@@ -21,10 +21,59 @@ export type { Env } from "./config";
 // ── YouTube Auth ───────────────────────────────────────────────────────────
 export {
   buildYouTubeAuth,
+  buildYouTubeClient,
+  resolveYouTubeCredential,
+  describeCredentialSource,
+  authPreflight,
+  CredentialResolutionError,
   verifyChannel,
   CHANNELS,
 } from "./youtubeAuth";
-export type { ChannelKey, ChannelSpec } from "./youtubeAuth";
+export type {
+  ChannelKey,
+  ChannelSpec,
+  CredentialSource,
+  ResolvedCredential,
+  AuthPreflightResult,
+} from "./youtubeAuth";
+
+// ── Durable upload intent ──────────────────────────────────────────────────
+export {
+  CORRELATION_TAG_PREFIX,
+  correlationTag,
+  correlationIdFromTags,
+  newCorrelationId,
+  metadataFingerprint,
+  isUnresolved,
+  prismaIntentStore,
+  assertUploadable,
+  reconcileIntent,
+  reconcileAll,
+  guardedUpload,
+  createInMemoryIntentStore,
+  createGoogleYouTubePort,
+  iso8601DurationToSeconds,
+  UploadBlockedError,
+  classifyUploadDisposition,
+} from "./lib/uploadIntent";
+export type {
+  UploadIntentRecord,
+  NewUploadIntent,
+  IntentStore,
+  RemoteVideo,
+  InsertRequest,
+  YouTubePort,
+  UploadMetadata,
+  UploadGuardInput,
+  ReconcileOutcome,
+  ReconcileDeps,
+  GuardedUploadInput,
+  GuardedUploadDeps,
+  GuardedUploadResult,
+  UploadDisposition,
+  DispositionInput,
+  DispositionResult,
+} from "./lib/uploadIntent";
 
 // ── Lib ────────────────────────────────────────────────────────────────────
 export { prisma, disconnect } from "./lib/db";
