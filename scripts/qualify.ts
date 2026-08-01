@@ -383,6 +383,23 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
       );
     }
     console.log(`  feasibility: PASS — safe to purchase narration`);
+
+    // Pre-TTS-only mode: evaluate a script against the real gate and stop.
+    //
+    // Off by default and fail-closed — it returns before the voiceover stage,
+    // so no credit is reserved, no ElevenLabs call is made, no footage is
+    // acquired or rendered, no upload intent is created and YouTube is never
+    // contacted. Exists so a replacement script can be judged by the same gate
+    // the real run uses without spending anything. Local only; Railway never
+    // passes this flag.
+    if (process.argv.includes("--pre-tts-only")) {
+      console.log(
+        `\n  --pre-tts-only: stopping after the feasibility gate. ` +
+        `No credits reserved, no narration purchased, no render, no upload.`,
+      );
+      await disconnect();
+      return;
+    }
   } else {
     console.log(`  feasibility: skipped — narration already purchased for this row`);
   }
