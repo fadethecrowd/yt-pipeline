@@ -267,3 +267,14 @@ export type { AssemblyOutcome, AssemblyDeps } from "./stages/assemblyShared";
 export { youtubeUpload } from "./stages/youtubeUpload";
 export { thumbnailGenerator } from "./stages/thumbnailGenerator";
 export { notify } from "./stages/notify";
+
+// ── Beat-level semantic coverage ───────────────────────────────────────────
+export {
+  FAMILIES, POLYSEMY, familiesIn, resolveSense, deriveRequirement,
+  scoreSemantic, coverBeat, assessSemanticCoverage,
+} from "./lib/semanticCoverage";
+export type {
+  Family, Sense, BeatRequirement, SemanticVerdict, SemanticScore,
+  CandidateLike, QueryProvenance, BeatCoverage, SemanticCoverageOptions,
+  SemanticFeasibility,
+} from "./lib/semanticCoverage";
