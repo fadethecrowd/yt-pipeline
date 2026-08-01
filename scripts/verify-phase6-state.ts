@@ -11,10 +11,18 @@
  */
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { prisma, disconnect, resumableJobs, budgetReport } from "@yt-pipeline/pipeline-core";
+import {
+  prisma, disconnect, resumableJobs, budgetReport,
+  classifyUploadDisposition, createGoogleYouTubePort, prismaIntentStore,
+  isUnresolved, CHANNELS,
+} from "@yt-pipeline/pipeline-core";
+import type { RemoteVideo } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
 
 const HBM = "cms9970di0002mbti2m9avpui";
+
+/** Title fragment the HBM asset was uploaded under, for remote matching. */
+const HBM_EXPECTED_TITLE = "The AI Chip Shortage Moved From GPUs to Memory";
 
 /** Ledger total at the point Phase 6 was paused. */
 const EXPECTED_LEDGER = 11_569;
@@ -58,7 +66,61 @@ async function main() {
   // ── The withdrawn HBM asset ─────────────────────────────────────────
   const hbm = await prisma.video.findUnique({ where: { id: HBM } });
   check(hbm !== null, "HBM record preserved", hbm ? "present" : "MISSING");
-  check(!hbm?.youtubeId, "HBM never uploaded", hbm?.youtubeId ?? "no youtubeId ✓");
+
+  // ── Upload disposition, not "youtubeId is null" ─────────────────────
+  //
+  // The previous assertion here was `!hbm.youtubeId → "HBM never uploaded"`.
+  // That is false. The asset WAS accepted by YouTube as uVQ-vcJHWNk and the
+  // process died before the id was persisted, so this check reported a green
+  // tick over a live remote video. Local absence is not remote absence: the
+  // remote channel is now queried and the result is classified.
+  const intents = await prismaIntentStore.findByVideo(HBM);
+  let remoteMatches: RemoteVideo[] = [];
+  let remoteChecked = true;
+  try {
+    const port = createGoogleYouTubePort();
+    const uploads = await port.listChannelUploads();
+    remoteMatches = uploads.filter(
+      (v) =>
+        v.channelId === CHANNELS["ai-doom-scroll"].id &&
+        (v.title ?? "").includes(HBM_EXPECTED_TITLE),
+    );
+  } catch (err) {
+    remoteChecked = false;
+    console.log(`      remote check FAILED: ${err instanceof Error ? err.message : err}`);
+  }
+
+  const uploadDisposition = classifyUploadDisposition({
+    localYoutubeId: hbm?.youtubeId ?? null,
+    intents,
+    remoteMatches,
+  });
+
+  // An unverifiable remote is itself a failure — the suite must not report a
+  // clean state it could not establish.
+  check(remoteChecked, "HBM remote state verifiable", remoteChecked ? "queried YouTube ✓" : "COULD NOT QUERY YOUTUBE");
+  check(
+    !uploadDisposition.blocking,
+    "HBM upload disposition",
+    `${uploadDisposition.disposition} — ${uploadDisposition.detail}`,
+  );
+  if (uploadDisposition.remoteIds.length > 0) {
+    console.log(
+      `      KNOWN REMOTE ORPHAN: ${uploadDisposition.remoteIds.join(", ")} exists privately on ` +
+      `${CHANNELS["ai-doom-scroll"].title} but is absent from every persistence record ` +
+      `(video row, upload record, pipeline run, manifest). Local youtubeId is still NULL.`,
+    );
+  }
+
+  // No asset anywhere may sit on an unresolved intent.
+  const openIntents = await prismaIntentStore.listUnresolved();
+  check(
+    openIntents.length === 0,
+    "no unresolved upload intents",
+    openIntents.length === 0
+      ? "none"
+      : openIntents.map((i) => `${i.videoId}:${i.state}`).join(", "),
+  );
   check(
     Boolean(hbm?.scriptJson) && Boolean(hbm?.voiceoverPath),
     "HBM script and narration retained",
