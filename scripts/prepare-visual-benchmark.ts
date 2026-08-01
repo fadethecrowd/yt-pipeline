@@ -20,8 +20,19 @@ import { join } from "node:path";
 import sharp from "sharp";
 import "dotenv/config";
 
-export const SAMPLING_VERSION = "frames-v1";
-export const SHEET_W = 1600, SHEET_H = 900;   // 5 panels of 320x180
+export const SAMPLING_VERSION = "frames-v2";
+/**
+ * Contact sheet: 3 panels on the top row, 2 on the bottom, each 640x360.
+ *
+ * The first pass tiled five 320x180 panels in a single 1600x180 strip, which
+ * was too small to resolve details that decide a verdict — whether a gantry
+ * over a motorway actually carries a camera, for instance. A 3+2 grid at 640
+ * wide per panel is four times the linear resolution for a little over four
+ * times the image tokens, which is the right trade when the whole point is to
+ * judge what is visibly there.
+ */
+export const PANEL_W = 640, PANEL_H = 360;
+export const SHEET_W = PANEL_W * 3, SHEET_H = PANEL_H * 2;   // 1920x720
 const OUT = "tmp/bench2";
 const sha = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
 

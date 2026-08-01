@@ -4,16 +4,15 @@
   "createdAt": "2026-08-01",
   "status": "AWAITING_INDEPENDENT_LABEL_REVIEW",
   "warning": "Every label here is PROVISIONAL_CLAUDE_REVIEW and was authored by Claude Code. None of it is verified ground truth. No case may be used to certify a vision judge until independently approved. includeInMetrics is false throughout for that reason.",
-  "samplingVersion": "frames-v1",
+  "samplingVersion": "frames-v2",
   "frameSampling": "five deterministic points: edge-nudged start, 25%, 50%, 75%, edge-nudged end; edge = min(0.6s, 4% of duration) to skip leader/end cards",
   "contactSheet": {
-    "layout": "5 panels horizontal, labelled F1..F5 with timestamps",
-    "width": 1600,
-    "height": 180,
-    "note": "panel height is 180px; full-sheet target of 1600x900 was reduced to a single 1600x180 strip because five 320x180 panels tile horizontally"
+    "layout": "3 panels top row, 2 centred beneath; panels 640x360; labelled F1..F5 with timestamps",
+    "width": 1920,
+    "height": 720
   },
   "splitSeed": "split-seed-v2",
-  "splitMethod": "sha256('split-seed-v2:'+pexelsId), first hex char < '8' => calibration, else holdout; keyed on source id so duplicate clips cannot straddle the split",
+  "splitMethod": "sha256('split-seed-v2:'+pexelsId), first hex char < '8' => calibration, else holdout; keyed on source id so a clip reused across cases cannot straddle the split",
   "v1Note": "tests/fixtures/visual-semantic-benchmark.v1.json is retained as a logic/requirements fixture. Its asset references are SYNTHETIC_DESCRIPTION_REFERENCE and it is NOT frame-backed.",
   "cases": [
     {
@@ -37,39 +36,40 @@
         "foundBy": "cctv security camera"
       },
       "mediaSha256": "2bf0e9f996dd59e69215354b5eb3d8d1727ccd1db402feccad11a62e5c11bf4a",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.488,
-          "sha256": "ead06f0e8e049e9f6ddecd1c4e80e2f1483bc1fe7d555decf01264a1a62a88a0"
+          "sha256": "c2b33d6cbbdfde5c5220a36b6a869328f101a6414ba2eadca77a0dac375ebcfc"
         },
         {
           "index": 1,
           "timestampS": 3.05,
-          "sha256": "b25018ae7b4be3abc104011989285320f3cc01768c17b89120a68dcf5cd8564d"
+          "sha256": "0473087a150ab17958a4b25da08be7b4f438c94e21d08a8fb8093b5c5c932b91"
         },
         {
           "index": 2,
           "timestampS": 6.1,
-          "sha256": "b111944f5672057a9feeba97ce004a58bead4168157abfd9e9ad95b63147d828"
+          "sha256": "e023a6f0b5b1fc3998ebfd625e17a53692869488c4685e7169fe50fe99f78101"
         },
         {
           "index": 3,
           "timestampS": 9.15,
-          "sha256": "663030573f1408edc21e51587fbf89c839063005d7813b1dbfce4132c746a335"
+          "sha256": "4537aa1e810d6cf9716e553cb375448ae491d619beeaf796ed20ea5592408009"
         },
         {
           "index": 4,
           "timestampS": 11.712,
-          "sha256": "8cdfe10c6150c42aad4cc11bf27ff69943d8b3c8f73cc3d0e20bd524c53af840"
+          "sha256": "e8e9f1f426d121363f976e5e02d5ae43c6f89eaf322c0cd4259d27a1fb52b793"
         }
       ],
       "contactSheet": {
         "file": "sub-cctv__9795077.jpg",
-        "sha256": "134b2a13884251561aa11fd417b78d185526526cfb05803bef15970242765795",
-        "width": 1600,
-        "height": 180
+        "sha256": "695819a0fbdd75e14b0b264ae9254865e1a1776947526d7b67f982815ad6fd8a",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -112,39 +112,40 @@
         "foundBy": "industrial robot arm"
       },
       "mediaSha256": "13af524ba5184a5344ad7594dea21b8131a9b8261e0ef90049b785f40a8d36e9",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.519,
-          "sha256": "a13bde0d134ba12416befb06f4f914ea60f7785aa863e56efeb41d426c674336"
+          "sha256": "28e1055b71f3db26842c080dd6e96f8a2588b2b90a2c7631a99876f3ad07063d"
         },
         {
           "index": 1,
           "timestampS": 3.245,
-          "sha256": "7b0adc5d8b88852004cc8c9fdd59ad5ce2bc29d36853ed203f7cb7d554a8ea80"
+          "sha256": "111a1e1ad8147d4d401a010bf52d306bafff74b68825a40f891fc59f50a5e9af"
         },
         {
           "index": 2,
           "timestampS": 6.49,
-          "sha256": "eb1f067c2fa70bf4bc734bac529d19edb9689b2c9a7104e8693882d429e8b42c"
+          "sha256": "e80740a6c71b1a2cb6682615cd3a08ac95899852b51b37b0cdf60a3aa1936759"
         },
         {
           "index": 3,
           "timestampS": 9.735,
-          "sha256": "1428ed9c2c83fbd0786e51aeb3e35106857f76f4da20848cc9c0a0c695574495"
+          "sha256": "18737ecdd6c2603f04b8390c82d11e540e637159e28defc7780cbc686363abbb"
         },
         {
           "index": 4,
           "timestampS": 12.461,
-          "sha256": "debd9c2d9e46cd124f54e8998dc36224772a40017a1d81d98f9e50e01f6be1b6"
+          "sha256": "4187027301440b766050b9d2fc8980f583f3f9806abe179f104613232dbb4d52"
         }
       ],
       "contactSheet": {
         "file": "sub-industrial-robot__32386518.jpg",
-        "sha256": "39a82688c95afa9393cd9b5579700b6bf3877227cdf390cfdbb394325a719387",
-        "width": 1600,
-        "height": 180
+        "sha256": "6345c3f827139bebddece1a057674a41bd76ea4e9589eb9fcd72fe6d6f4fea74",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -187,39 +188,40 @@
         "foundBy": "humanoid robot"
       },
       "mediaSha256": "4ba9f6cc429473df2850dd6f597eb8fb5b611ef4402f1869dc1d257181a6b85b",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "72eb5c2592748404183fce55f35c50c5c871e0f60f2c037025947d0774a17d27"
+          "sha256": "20a72d25402102de50a9ee338a4fd40324726aede6881db4a6d5084b11648abd"
         },
         {
           "index": 1,
           "timestampS": 9.57,
-          "sha256": "6ea071fe21e10abcdaf4f07d80118078a445adc00823e7edba318169e177c647"
+          "sha256": "b6c995073efdc9d3c3b99ef4fa557b3d3543170e086bf85061de487d10ef8ca7"
         },
         {
           "index": 2,
           "timestampS": 19.14,
-          "sha256": "d30487d216c0562a0ffc2fd838794a3bfa20baa64caefbb9122135dcf3dd2b7d"
+          "sha256": "a3b30041dca4ccd18573c420273eb9411216ea9118061f48115ad9c490b87af6"
         },
         {
           "index": 3,
           "timestampS": 28.71,
-          "sha256": "3ed4831c535307d5215781d8299bb5610f36818e7dc618a0259d833e8ca7bbf5"
+          "sha256": "8976357cdb881d0f763d68a920e679913d2317c6bf39509048e358c17c821968"
         },
         {
           "index": 4,
           "timestampS": 37.68,
-          "sha256": "f92d79980955a5cde597a79210982aa030d9d9a6c39a4316b0da11080d0edbef"
+          "sha256": "22c11a98419e44bd5d5b01b7dbc8a10a03274ab1c1559de182025a55d30c939a"
         }
       ],
       "contactSheet": {
         "file": "sub-humanoid-robot__8084620.jpg",
-        "sha256": "3cf224808b64751b2df0c8b619da821b78252991cebb16e48dc63fd5bb7be0f2",
-        "width": 1600,
-        "height": 180
+        "sha256": "efdca1fb1f0d30500f9ecd54a07ea0b7d643d9ff0f037a1dab9b40188a8bb3b8",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -262,39 +264,40 @@
         "foundBy": "server rack data center"
       },
       "mediaSha256": "985e6f5c676bb712b13e22ee66493ff19a9273ab5c2b47c2ab480085eea6a897",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.375,
-          "sha256": "2a1af05a13f71d7266561f1f7d19652329f94bde8e292e92b3546b17458a922b"
+          "sha256": "7246f2276515d087c841abd7dfcbefbbd0a393abcf31fe1e6ece5355b25e8c64"
         },
         {
           "index": 1,
           "timestampS": 2.347,
-          "sha256": "0d7faa643f4b160ff80d607bb6e9895dcf66ea59691986fc8737f271115b4104"
+          "sha256": "29e7bbdab0daed0784ec85716ad21fbe09ca927f448dbc21e88fcda97c0a25de"
         },
         {
           "index": 2,
           "timestampS": 4.693,
-          "sha256": "eea53b3988f300ca2676154be31866e3f979f345ec306975a3abddf7419a383c"
+          "sha256": "d50d6aa59a9fbafe8d5ae29c3767ae9e3c4444acb70f89506b954589cdd51f58"
         },
         {
           "index": 3,
           "timestampS": 7.04,
-          "sha256": "9c9380f120b3fe876967e26c87e12b7b400e8371a668f87c78e5a9645f477ad0"
+          "sha256": "2305aa8745fe82d5c08d98768b7433ccdcb2a6302b87cbd6a264852ca6003fd1"
         },
         {
           "index": 4,
           "timestampS": 9.011,
-          "sha256": "ccf947fbed7c3f2dc597d534b5cd519bbef8deb8750f7cc309d13f17c39eec9e"
+          "sha256": "e33eb4d535fa0d5640791c3def5f247df36f8a6c4ee66669055140bd107eeaa0"
         }
       ],
       "contactSheet": {
         "file": "sub-server-racks__7140928.jpg",
-        "sha256": "bd4369099970f6eec13f322ae8e8dd3a28c9eb081a5276abae28608c6775e83d",
-        "width": 1600,
-        "height": 180
+        "sha256": "50465bb608e496b52d735c0e89be32964ad96bb05baf45071f3f303c2f4e7316",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -337,39 +340,40 @@
         "foundBy": "drone flying quadcopter"
       },
       "mediaSha256": "7a50a6b1124b5445d9a06a470e89ae7eea8a94ce6667383511eb38606baf043c",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "2a616f4034ca21be4e6ae18f2e80153a6bcac29a6424ff543589f39af1e4afbd"
+          "sha256": "47a3290a9866452c4fc84fdfbc08cf0f6a36570996c949256ee50bcb4b686b98"
         },
         {
           "index": 1,
           "timestampS": 4.196,
-          "sha256": "2038a41567f278d0cc42544c665e2a859d22f7ae74451e3548851ee11171622a"
+          "sha256": "530dc0b3a3d46517c5a8ff29397a04e62d23894b9ac105fc4e43708c585ac07c"
         },
         {
           "index": 2,
           "timestampS": 8.392,
-          "sha256": "2d0049fe945f962b56150bb64fad351b70f435d58b97836023967bd02b272f24"
+          "sha256": "4d0c988c992850f968e2d83edaf2e58d9b84858b311e77f6cc733870896a9619"
         },
         {
           "index": 3,
           "timestampS": 12.588,
-          "sha256": "ce3d2cd124646011aaa831776f5cc26c0977f9d26c1f70ddb52ba17927bbf910"
+          "sha256": "904414aed299172fac291d4e748348958216929c4d6506aa19d182bc2657fa50"
         },
         {
           "index": 4,
           "timestampS": 16.183,
-          "sha256": "1bdca252805d58ca6b487e80d918265a858b8fe7458c25e44ea879ae96255cb5"
+          "sha256": "8d6b2f4328acf92be6c542761ebd984b00315d1cb2bb8bb5db0566a5b94106b4"
         }
       ],
       "contactSheet": {
         "file": "sub-drone__8482189.jpg",
-        "sha256": "737cdd220a5249242d88593d2826421e107d684d252dd9d492d08a2dd9f096ce",
-        "width": 1600,
-        "height": 180
+        "sha256": "f6ce9be83dd7178cd440107a6152af1416667e235cf0d038b24bf84e97c1bd7b",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -412,39 +416,40 @@
         "foundBy": "supermarket aisle shopping"
       },
       "mediaSha256": "936f230a57553d74e78b3429f3d83c2ebbef73aa11d89116e1dba6cd4aa54773",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.432,
-          "sha256": "00ea20b20e5d95d1de2cacb4f630271de53206fcdb0c96c10ae26cd398fe3def"
+          "sha256": "0b5a2be09acad1d0346e0b300142bac4518f5b51e15764ee490c22ef63dc6231"
         },
         {
           "index": 1,
           "timestampS": 2.7,
-          "sha256": "ae95ebed0a560d00f994bf2a7ff31145dc2e34155c7813fbc9adcfdce9772955"
+          "sha256": "06c80a3084b4bd134d27c828f006db0a6a42ba7091fc916da4005fab34ec315d"
         },
         {
           "index": 2,
           "timestampS": 5.4,
-          "sha256": "067da46eea5d1984000635be4cb2f16567c5f9fb22c5d679362e9200077e4889"
+          "sha256": "0ca6f9c623a0f2e029d6193b95cfdd52b94e0a07b0ac6b35265af745e5f83407"
         },
         {
           "index": 3,
           "timestampS": 8.1,
-          "sha256": "9106b48fa3b7e0952d790dc5b4cdb0c9924980ebdd4559b3c8bb705b65c97bfc"
+          "sha256": "e21f9493f9da3efbe6fc99b69c9715d34389244ee4c7041bc8fa819e28e80173"
         },
         {
           "index": 4,
           "timestampS": 10.368,
-          "sha256": "6524270f026b18e477514aca02c43a4de9a30c9e3638b611c2c549c582a64716"
+          "sha256": "f11ff2a9a9313c33630546b8a4b1061f3a3b8dd6d117bdcfbff16106bcc96e13"
         }
       ],
       "contactSheet": {
         "file": "set-supermarket-aisle__29376327.jpg",
-        "sha256": "2a9c56e0f598106225854ddd2d174eee14f8c8d97c9c82d51880494271fde26f",
-        "width": 1600,
-        "height": 180
+        "sha256": "d8bc87c562e9afc173a1ca098162141367b264471761476393be06fe039ce9f3",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [],
@@ -487,39 +492,40 @@
         "foundBy": "warehouse interior workers"
       },
       "mediaSha256": "6601d5e13b547ebd82d9f377a159c4f6cfdc361afee43db0c0ed436585946b5d",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "e5ad0f5e2ffe9c3c781913ab9fc1316f77c92cde964896584ccdd97f2e5cadb8"
+          "sha256": "8e39cfcedfdd792136255536f3ad56a94a596821430b5a2344c68f1f264ffdf5"
         },
         {
           "index": 1,
           "timestampS": 5.563,
-          "sha256": "1557a684c8b6a677bf4857ac4e7b3310b830f92f2fa9800f37524f6a0234c104"
+          "sha256": "2be59749a3833135172ee49d4b88caa48485807484b1d37e60819c5c00a5bc48"
         },
         {
           "index": 2,
           "timestampS": 11.126,
-          "sha256": "f3d31b0203933d1f3540269a1a4c363dfe8f5aad1774d3945adef51430b95ec1"
+          "sha256": "d61c44f0e884d0489403f311511dbc02978a09d930fd69ef71b42b96c04bfe3a"
         },
         {
           "index": 3,
           "timestampS": 16.689,
-          "sha256": "94b3db5000bd3d71875c6be2ccdd850e3c2519565889075e0b0c8b57b8365f93"
+          "sha256": "89229016663175db3836fdb71c68254fc6e6732af78b908bb7aa8456d2df2e8c"
         },
         {
           "index": 4,
           "timestampS": 21.652,
-          "sha256": "94d47cf55ccd603d834abb3ee8cdb268d396f5460a1473e37d6c9d8b5aa6e0ef"
+          "sha256": "a16d0402220c3fe1bc61fdb00e2cb7d0dda56f065d35304e97b02971fd39bbb7"
         }
       ],
       "contactSheet": {
         "file": "set-warehouse-interior__6046361.jpg",
-        "sha256": "ea8b742e3101cf50f4d28b02dd4ca6e1ab9c45c2c2c925526d4e3ce76053f30b",
-        "width": 1600,
-        "height": 180
+        "sha256": "e726afbbb1990bbd6ebde4184314f0bd890e84bb06f56e1cc3af86f14ddf79bc",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [],
@@ -562,39 +568,40 @@
         "foundBy": "factory production line"
       },
       "mediaSha256": "a7d1ac8098e65f86e4b2ba3278fd1b41c2af90fa3d9d0a4c0abd714c13a9c001",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "037faed6ec50b15ee2604ec93e6e5cfa65e076bd9c247099c85e740c92884b0e"
+          "sha256": "272bd355e730da9ffc44dbc660cce9917f80dbbc9360ae09e1f7d6fa0fe914fc"
         },
         {
           "index": 1,
           "timestampS": 4.542,
-          "sha256": "05d3feceb7f45a4d774f537a5d4cd3dd4bb51ada2534aef9ce8eec4475125723"
+          "sha256": "2381d13316a1230baa6b9f6dce7acd068192f8afb024d5ea082e4ec075c75fbb"
         },
         {
           "index": 2,
           "timestampS": 9.084,
-          "sha256": "63c38ccfd2a13fce7484dfccca3c08193d2d8d8edd00345d5599c4fb2f59a470"
+          "sha256": "4778715e2f7b0f7070c8d0460ac73f5e5cfea698a973c6a5d150d3ab09611f53"
         },
         {
           "index": 3,
           "timestampS": 13.626,
-          "sha256": "1b217d60881bc959e8a37fba117eb3a38b944b7e6116b37dd67f792a4225c4f2"
+          "sha256": "2aca0e274e609330d00b2a7b8795c5a482ae7ed7aca16d452dc189415899ab5b"
         },
         {
           "index": 4,
           "timestampS": 17.568,
-          "sha256": "fa6322cfe2609153c57e3fc175cac6b44da953bf58f141365191fa68c63ea653"
+          "sha256": "e2a0658be8c5af1d67d4048f904ed31ac3b6b1300e2a7acb0ee4a2b9084f9e33"
         }
       ],
       "contactSheet": {
         "file": "set-factory-floor__32268481.jpg",
-        "sha256": "bd9502a850b060fb1d055ce88477cbbf2b511afb2e805bb755bd339e42c2e577",
-        "width": 1600,
-        "height": 180
+        "sha256": "d232187a767325c1668a870b1fcffd7037f791321070a13f97effa687351856e",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [],
@@ -637,39 +644,40 @@
         "foundBy": "data center server room"
       },
       "mediaSha256": "985e6f5c676bb712b13e22ee66493ff19a9273ab5c2b47c2ab480085eea6a897",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.375,
-          "sha256": "2a1af05a13f71d7266561f1f7d19652329f94bde8e292e92b3546b17458a922b"
+          "sha256": "7246f2276515d087c841abd7dfcbefbbd0a393abcf31fe1e6ece5355b25e8c64"
         },
         {
           "index": 1,
           "timestampS": 2.347,
-          "sha256": "0d7faa643f4b160ff80d607bb6e9895dcf66ea59691986fc8737f271115b4104"
+          "sha256": "29e7bbdab0daed0784ec85716ad21fbe09ca927f448dbc21e88fcda97c0a25de"
         },
         {
           "index": 2,
           "timestampS": 4.693,
-          "sha256": "eea53b3988f300ca2676154be31866e3f979f345ec306975a3abddf7419a383c"
+          "sha256": "d50d6aa59a9fbafe8d5ae29c3767ae9e3c4444acb70f89506b954589cdd51f58"
         },
         {
           "index": 3,
           "timestampS": 7.04,
-          "sha256": "9c9380f120b3fe876967e26c87e12b7b400e8371a668f87c78e5a9645f477ad0"
+          "sha256": "2305aa8745fe82d5c08d98768b7433ccdcb2a6302b87cbd6a264852ca6003fd1"
         },
         {
           "index": 4,
           "timestampS": 9.011,
-          "sha256": "ccf947fbed7c3f2dc597d534b5cd519bbef8deb8750f7cc309d13f17c39eec9e"
+          "sha256": "e33eb4d535fa0d5640791c3def5f247df36f8a6c4ee66669055140bd107eeaa0"
         }
       ],
       "contactSheet": {
         "file": "set-server-room__7140928.jpg",
-        "sha256": "bd4369099970f6eec13f322ae8e8dd3a28c9eb081a5276abae28608c6775e83d",
-        "width": 1600,
-        "height": 180
+        "sha256": "e416b0b48bf121a0c66911acc89e31427aa0c9ae5f11a50aeb6fb6a778ca9f0e",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [],
@@ -712,39 +720,40 @@
         "foundBy": "city street intersection traffic"
       },
       "mediaSha256": "982043638de9ecbeb0c8e52bb3776f3debdba37c53d496363c8f9a60171d1b67",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "a07dc3a79891f5ba8c8d9abc3e6f8cf284d4b2ea662d30e7317b963d15083ac3"
+          "sha256": "53114f46731aae5f41bfe413ed3a70758e27a33b034ac759c7838f25ecea0005"
         },
         {
           "index": 1,
           "timestampS": 17.017,
-          "sha256": "553a6a71221612a7bb89679f638b0988922b86da10302cae97649181a54db9a8"
+          "sha256": "f2ad3e79e7bd988c26da695d8b329a6632f74cc72104179b417248c3437f4fbc"
         },
         {
           "index": 2,
           "timestampS": 34.034,
-          "sha256": "069aa663571b5531c8cf06f4716b7c7213f3820b7fe51c85f2e32df23f9635ba"
+          "sha256": "d1b74b3df25f3eabb1566d8a4cd57343c5b636dde6671c82e3387f7032c42dd7"
         },
         {
           "index": 3,
           "timestampS": 51.051,
-          "sha256": "9321e76f01d1078c256a9677a57d7798920ec00507353ff8a97810dd7a4eb27a"
+          "sha256": "c5fa429b939f8da592765dccaf5aa0cbfbfdb4c38b33dfae16db9699c2f620b6"
         },
         {
           "index": 4,
           "timestampS": 67.468,
-          "sha256": "7c96ef683a9dfe7e966aaa3d420ae8c1dce97d1c38169d9038f2ed9f3480395f"
+          "sha256": "071bdc2f420c19a496a5160b517dfb2be58f0b722d94d5aeaa26a8d7644c4805"
         }
       ],
       "contactSheet": {
         "file": "set-street-intersection__3727447.jpg",
-        "sha256": "5d7de33cb23fd9fe26d4341fbccd4df5df64766d5d7d5ce223380212a2ec3d63",
-        "width": 1600,
-        "height": 180
+        "sha256": "ab25881d9d780cea77f8e2397587a08f734cf0ee222bb4c57a4288bdbc274d84",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [],
@@ -787,39 +796,40 @@
         "foundBy": "self checkout supermarket scanning"
       },
       "mediaSha256": "81aa108484f744d316e2e68760ba29cf1e27189de95622991969664b618d3f08",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "622ce17424608c8a28da7d06b2537b89ec0f6832907ea3041a58bc79d1494ef8"
+          "sha256": "25c1c5428c87a477869a88ca78ffe14799ef3121b7b639205d186cd58cd65136"
         },
         {
           "index": 1,
           "timestampS": 26.317,
-          "sha256": "0a290c37af2d43da42a1c9f7ae8ba6e55480c0ab8c0046110ba63fbc4f030d1b"
+          "sha256": "a79cb297c860caf7c8dfc3ad0523e240988ccd9b078375aeef68212dbc450812"
         },
         {
           "index": 2,
           "timestampS": 52.633,
-          "sha256": "6d9ce7b66ce9bf198fcaefe7e23a3ad84f2df575f9371724f3f49fd0869e2a8f"
+          "sha256": "18812c5aca6baeb1085bc4c015fe776060a275b08e3aa65194d47f2d213cd1b2"
         },
         {
           "index": 3,
           "timestampS": 78.95,
-          "sha256": "96eef32ba7cdeaa92627da2fa69ca4fb38d267d326ba2f275efa246ffeeeb1c8"
+          "sha256": "38906f79837b671e0d32f4d90ec12d75a836e605f86712b487789e5417ef8866"
         },
         {
           "index": 4,
           "timestampS": 104.667,
-          "sha256": "c7de0f719a3b78909e9437ee918f719d52f077cdbcdbcfde4aff0032637f79ae"
+          "sha256": "171de0408ec4c837d61a2d2bcce3babd96821847cb8f13f4565dee7c421c490f"
         }
       ],
       "contactSheet": {
         "file": "act-selfcheckout-scan__34225457.jpg",
-        "sha256": "06ec07f1ab64c49b0e6fdbfdaf1cdb42e4ce2a553b7e0a9f6980f594332888da",
-        "width": 1600,
-        "height": 180
+        "sha256": "5d7946174653743c5c22a46ffd97e176733872382af514c19b7d9192724a3aca",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [],
@@ -863,39 +873,40 @@
         "foundBy": "security operator monitoring cctv screens"
       },
       "mediaSha256": "bce60a02a0ff29461993052ccc7e82cf1f5bf38d1e747d0587252597d9e999bd",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.342,
-          "sha256": "4a2d5e0cd6dbd5b989e28d0f1b62b42dddc3beb06e4b8a46edd742605d169d31"
+          "sha256": "d9aeeaaef536806105ef805fe34a3cdb32ec6e75b871299fc5b5aa9eee7f20e3"
         },
         {
           "index": 1,
           "timestampS": 2.14,
-          "sha256": "2aa39da7167d847401fd0f3c9fbc4f332e7ab1b2258ec086ee2909ae08e96afe"
+          "sha256": "cf86adc0b37fbeb36ee179072f940299dacf0596e774eeb49ed5e21aaf80d633"
         },
         {
           "index": 2,
           "timestampS": 4.28,
-          "sha256": "08bea3e26d12ee07d13383d5fcfee709c111de57ee35fae98245efc1a05a38ac"
+          "sha256": "8e93417e4ac374bd2451b0665835348aca3824a5f3daf5760cd556e154a6350b"
         },
         {
           "index": 3,
           "timestampS": 6.42,
-          "sha256": "f05c03ec1524d23ec1614cd0d2e98d94e6e77d54b2cda2bd55debb518eb20697"
+          "sha256": "f4aa5c7237007094a05f0f0f7a8a5a90896527f3b41741004c8adeaedc85d81a"
         },
         {
           "index": 4,
           "timestampS": 8.218,
-          "sha256": "24e8d2ba4cc99ca4533b02becda7c54189846a21ba831ee38e4b4942299a078d"
+          "sha256": "226967f0edb8eb2244c4d1ba8427729d544a5130ac741e5a224ae09b0c0cd1c5"
         }
       ],
       "contactSheet": {
         "file": "act-operator-watching__38779098.jpg",
-        "sha256": "399208e1cfe2e06d4bfa739d6cefeae68d2068a1eca31381002830af943c9790",
-        "width": 1600,
-        "height": 180
+        "sha256": "7238556ce32477a9d350bb9b7248b88c7e43c4d0329be43362ea28f85f8172a9",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -941,39 +952,40 @@
         "foundBy": "traffic camera over highway road"
       },
       "mediaSha256": "1805223d8b1e979e9684aa8fbe93f37ffc6dcc2698b587e92a9ec331464fefae",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "e7998f71668d721b85be81b65ebbd7a01859c233667c7830d2dce0557111f884"
+          "sha256": "a5574d6c2e5a88491b613b77d235e93b8287b41a92609dae667ca548191fb66d"
         },
         {
           "index": 1,
           "timestampS": 7.66,
-          "sha256": "4baaaf89b781ebee9c2006387bafab80e7344eed6d5f9bcf44e8c4655b255b19"
+          "sha256": "d85c21445a6ad5209d28f81e32cdd40002da204b271668a86392d00a15a5d884"
         },
         {
           "index": 2,
           "timestampS": 15.32,
-          "sha256": "d0b06d8be3f35ade4e0d03013fafc445864d275b91bd3e53649f71f97a682bf8"
+          "sha256": "52b920ffe87c6c88cc3bff16eb5de4dce58dba1ddf394d214b0a3b84073af614"
         },
         {
           "index": 3,
           "timestampS": 22.98,
-          "sha256": "b4026dab989731d291513ad47d47f012ce6248021bc9691079d90b324be1aa21"
+          "sha256": "5a77279e43ef2d94b13bdf20a2c598501fb4e6fde6a5fc8045ce3f20a9b23898"
         },
         {
           "index": 4,
           "timestampS": 30.04,
-          "sha256": "4b72062825f4836bffbd3709ff135bdadc5707613f2aef8f8a4ed6728ead1736"
+          "sha256": "19d6876f61130a313d7605c9a3552ae7f8d4e01e33d71a68e7aa6612fd9443e8"
         }
       ],
       "contactSheet": {
         "file": "joint-traffic-camera-road__4261446.jpg",
-        "sha256": "9bfaf1033c0444e93fd43913cf565613612eaa5d925c0f40ea62d0130ba3771f",
-        "width": 1600,
-        "height": 180
+        "sha256": "c6ee38300a9d8a78cf3bf9cbeee115ad8850f618e56d407c0e85a91a3ba17d01",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -991,7 +1003,7 @@
         "finalVerdict": "DIRECT"
       },
       "provisionalRationale": "Camera and roadway must appear in one shot.",
-      "reviewCaution": "Gantry over the motorway is visible but a camera unit is not clearly resolvable at panel size. May be AMBIGUOUS or need a closer clip.",
+      "reviewCaution": "Gantry over the motorway resolves clearly at 640px, and a dark unit is visible on it — but whether that is a traffic CAMERA or variable-message-sign equipment is a genuine judgement call. Visible SCANIA/OETL truck branding in F2 (brand risk POSSIBLE). Reviewer should decide DIRECT vs AMBIGUOUS.",
       "safetyCritical": false,
       "labelStatus": "PROVISIONAL_CLAUDE_REVIEW",
       "includeInMetrics": false,
@@ -1018,39 +1030,40 @@
         "foundBy": "robot warehouse automation moving goods"
       },
       "mediaSha256": "feb3cd1e55f46b5ff419c7646fe20a9a0d0a750dbbc798817ac2930708d637dc",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "687549d386e6af123ef053624efd92a17dfcda4f6911b03c4909876ded5e732d"
+          "sha256": "775099e8722cdce1fb667f1e62dc5f20df6fa9bf1483b495de2f2181afdee85a"
         },
         {
           "index": 1,
           "timestampS": 7.008,
-          "sha256": "f3628d704c8aef9cf0a1e5448d0a2000af66c050619f52b1be55d68f70c61793"
+          "sha256": "c277ae18c881ead0b70b8415328b340650694686d7e8ccf442f737958b58cd12"
         },
         {
           "index": 2,
           "timestampS": 14.016,
-          "sha256": "a67ebf8b109625327c6ac11ecd0377460d704c51a188697130c928c8da1fff4e"
+          "sha256": "19779135b3deae4db53d34aad9d5a58b0e42f811969b473e6397f1f2455c9a85"
         },
         {
           "index": 3,
           "timestampS": 21.024,
-          "sha256": "4693d1f93c8a5b21fb5c4603b2b1055d2554e83c50c64efa9efb3c4d03444636"
+          "sha256": "5f3a031faa8a1c104018514a44183d9519b43a3a0b3c17fa19f9e3de90de9fce"
         },
         {
           "index": 4,
           "timestampS": 27.432,
-          "sha256": "5efad8f05099c2c7ea41f1ab55f6ff0492e89676f017a3baec52701841af5f36"
+          "sha256": "c05b5e2f4e728ca47d605c15cbaddcb7dec92d5950f8a4276b8bd63bccce8b0c"
         }
       ],
       "contactSheet": {
         "file": "joint-robot-in-warehouse__15462319.jpg",
-        "sha256": "349f10f7a6ac8c162c75c253140fa81135dc23f209eb86cdc6edb3983b196e48",
-        "width": 1600,
-        "height": 180
+        "sha256": "b3fe0fc160d93c8049f4ec544e70a711a82ab88cad8044a188f4ae27e082eb96",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1095,39 +1108,40 @@
         "foundBy": "robotic arm assembly line factory"
       },
       "mediaSha256": "c6e47d53ba7fe1a88b265864687470dab18088cdcafbaea31f07f9e707e3399a",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.453,
-          "sha256": "328edd2fd931510e1917c83702978954559920954c9bfcafa79252d00c88c5e2"
+          "sha256": "f5c24f73f89b77f6a38c7d02fc87998f3f326d58cb3ee36d79caf0a8fa019ea6"
         },
         {
           "index": 1,
           "timestampS": 2.83,
-          "sha256": "17f468ae27d9189fcf78cd47b1ac4414a1c1606619fb163bf0d48dd61aa08b19"
+          "sha256": "f0ebf83ac5f1c8e6fb9dfc381dbd6cfdb286c5d8b5ec96f429e5f7c034a4ac90"
         },
         {
           "index": 2,
           "timestampS": 5.66,
-          "sha256": "bc6fc615b31f63b5809c3d1eb96da6004f2b216ea1f15be9623cf137a8bbb784"
+          "sha256": "28ad42abb3be543d15945c13ad3be75dea1ce962f5fca394022ec8a7781b194e"
         },
         {
           "index": 3,
           "timestampS": 8.49,
-          "sha256": "18f6bda484d6a1d648101ba293333738bf5f5c45f6c3c542c7d6e4b2cf137f37"
+          "sha256": "601bb34c6bec302ba40945fef83947fa58bcc2647a926de27080cc031717e1a7"
         },
         {
           "index": 4,
           "timestampS": 10.867,
-          "sha256": "7415d46bd032c67612e2429dc256dcddf6807923b97b3091b5fede9e65f19234"
+          "sha256": "803f59888860240fe1c28fbdd3917d73c933314d7dccbf3932700bbba00d34ca"
         }
       ],
       "contactSheet": {
         "file": "joint-robot-on-line__32386590.jpg",
-        "sha256": "9ed1c1aba33b7113606ae077a17db7d36794b0586a2cb55fc6a246bf88ba1be5",
-        "width": 1600,
-        "height": 180
+        "sha256": "e032bf037b682fc34269864e4cc8a9c50ec8dd07b892a7d990d659cf81a94217",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1172,39 +1186,40 @@
         "foundBy": "server racks data centre corridor"
       },
       "mediaSha256": "5ba18972d4d934a72113f76bd17742ef496e5d9d9d42b15f4b43ccc0efbee10d",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "de152eae09ea11ead2fbaf1dda82f1f43bd11ae2098e8a8b44b3fc3417fd84ea"
+          "sha256": "93f198b0bee7cc424092b994fe8a1675f9bb9e6c4d921ed3859adf24936d735d"
         },
         {
           "index": 1,
           "timestampS": 5.888,
-          "sha256": "e426e0f73016910c5cd3518113c3178e5088462ca7ef1ee588c820d6e4b2684a"
+          "sha256": "a4d97941e0e2d7d8973b1f80e459dc42b1b09c4792c11bace9de39cff27f1316"
         },
         {
           "index": 2,
           "timestampS": 11.776,
-          "sha256": "77d1afe697777eff3be46c63efe92e3bbae731d0ad6b793dd1a2ffc6dabfad35"
+          "sha256": "531b00e335a75fcef3222d18e34e8bfcd17a7129b5f7d400d9c66bade8812739"
         },
         {
           "index": 3,
           "timestampS": 17.664,
-          "sha256": "725fd778e8b3d88bef97eb2860e8c74bff2da75685255552409dc988139011f8"
+          "sha256": "e0911a5bb5c46c9dd44c6b578e33e382e3787a7095f878bcbe288d46c470127e"
         },
         {
           "index": 4,
           "timestampS": 22.952,
-          "sha256": "e5ea98a60844dcaa6cbbc614ed0773209dfda5b80b3bd147d79036c9d48d092c"
+          "sha256": "03062f3c06cebd24da0e7c0b21a121094bb741267bd08f3a78cc39bb5292cb20"
         }
       ],
       "contactSheet": {
         "file": "joint-racks-in-room__1085656.jpg",
-        "sha256": "9e3d0e8d98b4cf66023b57c43a6c3d758fb12910d1bdb90929edc3276270957e",
-        "width": 1600,
-        "height": 180
+        "sha256": "2ec44d661328e40186fda04ae68384e2c45304a3985a5aaf2119cd82ac461e92",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1249,39 +1264,40 @@
         "foundBy": "delivery robot sidewalk pedestrian"
       },
       "mediaSha256": "6204238b735f8a2f41255aa13829c645fec2aeee7ca12bb56117c1c73ec70fb9",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.459,
-          "sha256": "02b6c133873a15723b34baeff26bd4a523ab71545b3de2a450a4642c777d75a6"
+          "sha256": "cbf9b3941583614df0e3d25feb5d470ebea81e3e6d0dd12f56bc963e65a0aa02"
         },
         {
           "index": 1,
           "timestampS": 2.869,
-          "sha256": "1e2f9c99a6ec8cc033bfc3b0d0dbbaac0bd6b4524134ba885124c2691adff350"
+          "sha256": "cd635321a4319c316d5659efe80408dee8fde06f5e38e0d801965b1675724c6d"
         },
         {
           "index": 2,
           "timestampS": 5.738,
-          "sha256": "bb02a06fc6d96d24fb712308bfd957c0fd51db36aaa6297df0598ae3dc70590e"
+          "sha256": "34f99c9072ae58c60170ab9ac7cfd6fea4903ff4d3642cace4b9b1f9ec03116a"
         },
         {
           "index": 3,
           "timestampS": 8.608,
-          "sha256": "8ed5eff94e217c50ce53ed0a54ef82de4bc00a8ca5360241d377ebc187a1a2f6"
+          "sha256": "65aa2002a628e05593ea445fba9fab622351a5161303fdbaf267de0b06b6977b"
         },
         {
           "index": 4,
           "timestampS": 11.018,
-          "sha256": "1a7cf94a4ca11c975e917254fd8c2e50602141d841828b5e189b60e5da43da86"
+          "sha256": "ecd323561e42104db2dbdf1dbb7fdc68db8f009fd0f9ad722e1ec67baf805d8b"
         }
       ],
       "contactSheet": {
         "file": "joint-delivery-robot-street__8566760.jpg",
-        "sha256": "6444cd5c95483f18a904f99c22639cc408322e77f1618473c63ff4ab8d37d2fd",
-        "width": 1600,
-        "height": 180
+        "sha256": "e727676636e26fd72570972a5731be451688c902700a8d7887ac769bc0323e51",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1326,39 +1342,40 @@
         "foundBy": "id:7403336"
       },
       "mediaSha256": "b6d0ca6bef4556757119ae3525485712db6beb16495d27b48bc5c7db80608a8a",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.472,
-          "sha256": "1778b93a5c69c385aec3d87ae871e3ff63822580803576e4c2bac5af3ef62a73"
+          "sha256": "58bd6582f11a450b6d5ebd59bbf50e16c54d972f98e3f1724a9e95d1618cf7a0"
         },
         {
           "index": 1,
           "timestampS": 2.95,
-          "sha256": "dc0f63e0fa263ee4b59a0be52f62a08530943188b0424b46f7e3a26290d6f828"
+          "sha256": "e06110000da99ed98c8a124731420afc7c587db7d5fad03540b0b72ea1084550"
         },
         {
           "index": 2,
           "timestampS": 5.9,
-          "sha256": "0be1779fb0f544d7059d209d5be56f707e0727f6d2c52d2a1c85fda3f54df607"
+          "sha256": "161564d2a1087338005a2c82266b6fc713bfbfc39c4c12b6a4c241028a0ee5e6"
         },
         {
           "index": 3,
           "timestampS": 8.85,
-          "sha256": "23030f813d2afc035a94a0f8e61a7bb253e52ffbcfa67d39fdb90cb2caddb621"
+          "sha256": "13066a50b3898c8210160c9dd7853bc937491bf0ec5f01ca9ca21bd841261f61"
         },
         {
           "index": 4,
           "timestampS": 11.328,
-          "sha256": "37706bdca7cefd3cbf6bcb171641141783d7f6b5725c60f03cf50e3424162409"
+          "sha256": "998bc3e3a4fa17281db797383cbcc7d9afc097484494300708765945ea583563"
         }
       ],
       "contactSheet": {
         "file": "neg-balloon-vs-datacentre__7403336.jpg",
-        "sha256": "b2ca2d0d9f6758bd2a4c021c32e8121231fde99445390b14d10ff548a3944c44",
-        "width": 1600,
-        "height": 180
+        "sha256": "b7caf3402d2299888977f5cc1361c7c640668e7a51312118ea37151312354781",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1403,39 +1420,40 @@
         "foundBy": "id:16189939"
       },
       "mediaSha256": "0d97fc6b4534ef010ba55665848078cf23b68274fca8f6372d311cb108ec7e73",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "0cd99e1686c41be522deaff43dbeda20d129a10eed0200bc7ece918b980cffb6"
+          "sha256": "4e9bc49b00e916d0162cbedc64965e0097fb10ba2b17ef889582e5f91d203271"
         },
         {
           "index": 1,
           "timestampS": 5.018,
-          "sha256": "721146e349bc5546ce84ae65e5746f461c0327053d43200e78a80eee4881bf3a"
+          "sha256": "b045b0fcbf255f34ee61099b9fc44310e5a0cf2839ab03033229e341aada1959"
         },
         {
           "index": 2,
           "timestampS": 10.037,
-          "sha256": "a4992bb8f67143308bac4dac6c59802d6c6e2361ec00730208a31ee10dade0b0"
+          "sha256": "7ae4b4e538d5500defb4f43cdb644158d91e76608bd0c4f9a5f770c76336797e"
         },
         {
           "index": 3,
           "timestampS": 15.055,
-          "sha256": "4a7145eb5047b5e1363efa60c7a8e5b6312a1d6de3d5a1b5a8a0c36a374499fe"
+          "sha256": "2f82de6d2b4b993286d8cfc53c07e42930273d137a8128c8d60082747b3cc75d"
         },
         {
           "index": 4,
           "timestampS": 19.473,
-          "sha256": "0a6bb3c8edd1ce120b42c85498efa826ccac9b926f4a47ca45cd509d00eda547"
+          "sha256": "e8de84c25e7402f42aaaa6196f90b49c52acbc39bf2a7b7535fa884c948e5fd2"
         }
       ],
       "contactSheet": {
         "file": "neg-airport-vs-cli__16189939.jpg",
-        "sha256": "79b20cf1462d9dd95d70447f06e5a3c72bff383966a2c407d8d539a590faa2b7",
-        "width": 1600,
-        "height": 180
+        "sha256": "f625d57f6130cca23fee9cd7687aad0c915afc72ab2f93c927653301c452de1d",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1478,39 +1496,40 @@
         "foundBy": "id:35475345"
       },
       "mediaSha256": "547e10886a9a7d0c7f93ea3f6eb6317e7f17ca42096744a0f252f12e2b353470",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.595,
-          "sha256": "d62da3a9d00632e98be81af270a43a3d2211134e0fcc4adcec143209a23997d8"
+          "sha256": "16e6311714e83de818d005ad3570223b9d0eec8ca07ed720076d191ea7392a8e"
         },
         {
           "index": 1,
           "timestampS": 3.72,
-          "sha256": "b0fbfc9bc9d0ed43cdf8be3fd91d297ddcc526ff697890fe0eb6e5b9167bdbfe"
+          "sha256": "2f0f04dff95d6c86327d51ceca042ba6f0b6ac757b6d0b0720228388faf22a2d"
         },
         {
           "index": 2,
           "timestampS": 7.44,
-          "sha256": "b7ea1220160870b93ac129409dc5d2298e9e8728b5debbd46b5cd9f95cd85dde"
+          "sha256": "5de6e5863491db497253fc20ff343c4172d8121192d08e3887cb9401b673ba83"
         },
         {
           "index": 3,
           "timestampS": 11.16,
-          "sha256": "c9d8e64f83f5c93209f06d49a1a6e6fca7ff383f599139e3012a557b96f7e3cf"
+          "sha256": "c5173dfc24abcfaf39dad752eeecc6bd46ee57bfb8f66d855b8c1e2d18124657"
         },
         {
           "index": 4,
           "timestampS": 14.285,
-          "sha256": "14faa0a2e0d382aee687e30be20a45b37a9743c7ea94e57670e5b03be009b146"
+          "sha256": "9efd4710c80fef4c2d235d924888c43446130b220da15fcf1ba63c9ffdd9b8fb"
         }
       ],
       "contactSheet": {
         "file": "neg-cli-vs-transit__35475345.jpg",
-        "sha256": "c46e1894bf6919078daa4248cfcc620101889d6cd5e99d9ff728ba93eae1ac1d",
-        "width": 1600,
-        "height": 180
+        "sha256": "46446ae64c6f2b4ba5c29f5b5fe87dea54ddeda85270667e159753f323401c20",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [],
@@ -1553,39 +1572,40 @@
         "foundBy": "id:29959327"
       },
       "mediaSha256": "b313780e581c620f30ef0db1b2ffdb63befcc33908048e74818b80daa1a4facf",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "b0f246c8836dfe9c45fe6c491c6e1fcd8179868e1964f9d27e4cbcd0c465ae7d"
+          "sha256": "e42c6301e90c0644e90e451b03b19ef864e287c1e0a3c8f28028c363e6f5d8d1"
         },
         {
           "index": 1,
           "timestampS": 5.001,
-          "sha256": "ef208e9d8a8ae67fd1d94da112c89896ef20e099327932371957207f6224d210"
+          "sha256": "bf0c1eb67dcceddc64345e0438959b8fc34711379a4bdedda480cf03672f09af"
         },
         {
           "index": 2,
           "timestampS": 10.002,
-          "sha256": "37e3a87971c239fa50959a6d2e34b066094fe2059010783e85c56f6e0b7a0fb7"
+          "sha256": "1b2b9e8d2ec44ac34a7989ab6610d0766cabd4043a2e8b3a5f6ef972d0b58cad"
         },
         {
           "index": 3,
           "timestampS": 15.002,
-          "sha256": "f8eaf46a5c85f9803991ea28d84308e72d73cd4470400164a841b75015f5cd59"
+          "sha256": "aaa50997b0cd058bfd9c48f2080ee3ce61db14305e28e175d171204ec581bf73"
         },
         {
           "index": 4,
           "timestampS": 19.403,
-          "sha256": "88c2ea24c301b4fbdffe656ce279ccbda8992fa269cc89d394065bc5f9073e6c"
+          "sha256": "f71d7277207380c9f6b27811ea1d6defd19f41691ebdf19acaff5ae06a336aee"
         }
       ],
       "contactSheet": {
         "file": "neg-aerial-vs-interior__29959327.jpg",
-        "sha256": "06bcc6410f467c8a9507d09eeffaf5ed045fa4fb27c208b8c53867e342bcff6d",
-        "width": 1600,
-        "height": 180
+        "sha256": "b53e1a740cff851ef5ef8af079bc1ec045f0d0348bdf876fa14562bdf0723d24",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1630,39 +1650,40 @@
         "foundBy": "id:33601045"
       },
       "mediaSha256": "9af7f3853d2fc1e2c76fb7adc55c465acd2818bfb23e97d5f8fc82eee719d607",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.488,
-          "sha256": "67c96c746891eeab07af3804f55c6e4a8142949a7f8589ce20a98ed274aef97d"
+          "sha256": "552ecc8d5b58fb4f7e7c6aa23737b0832813679210e6c29272a20856ae8cb78c"
         },
         {
           "index": 1,
           "timestampS": 3.05,
-          "sha256": "bb31fc91659f0dc6be67a9d497dfb093416888b8f789eb7b7755d831ca730c8a"
+          "sha256": "a3c243191ddfdbead33082f17bbec88b041d13a2b07e56041f5f0e596a237df8"
         },
         {
           "index": 2,
           "timestampS": 6.1,
-          "sha256": "9307c81bce0eed971769fa57060af90c8f514b4c5856e808e7836c8c197dfa88"
+          "sha256": "c330ffbb1a2077b7c061bf76d5424558e9122c5cd1b97666a16d38b9244db8ba"
         },
         {
           "index": 3,
           "timestampS": 9.15,
-          "sha256": "d0b35b976ced62946a6cdadd8febc250f532d47ffacbf7f1b8f31038b1d93727"
+          "sha256": "cc626117df7775378507cfb2f2daa392e63b7be8b0eab7fec4fb6f51bdd38263"
         },
         {
           "index": 4,
           "timestampS": 11.712,
-          "sha256": "852965dd64144b541efa4635b4ce7e823ec3d3a455f04325435e668ee3b81ee5"
+          "sha256": "ad1ddbb4b659900cad25e18befb17e5fc667fdb166b2063ed64553e9a6b8207a"
         }
       ],
       "contactSheet": {
         "file": "neg-roof-vs-selfcheckout__33601045.jpg",
-        "sha256": "6ddd87f7f69d4eb61a527b367df494799c91913db87cba79e341beea8b5d75e0",
-        "width": 1600,
-        "height": 180
+        "sha256": "385674c1a9111a8b0cb0f04725c570cc7093e62129468774aeffc39effa467eb",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1707,39 +1728,40 @@
         "foundBy": "id:8633309"
       },
       "mediaSha256": "3cfda59d9e3a59c0293d456aa527e7d5147c4065f98a2ec02ffbdab2bec871c8",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.492,
-          "sha256": "696e14536e4ee5b2362bd037ca1ba4d612e46821aa0f7923271c997f26e29c45"
+          "sha256": "c8404cc37bf2cb35a657c397527f2d91fcf09a5123d46f1dcd8503eb5c52fc4e"
         },
         {
           "index": 1,
           "timestampS": 3.078,
-          "sha256": "9ba2c393a33429a6343f2c92507e95b13e6cd44bd188b241fcb411c435af4019"
+          "sha256": "afafd8a4a07a2e814e2ba4b7a91070f4e6c57253c75f25e626cddcd7faca9294"
         },
         {
           "index": 2,
           "timestampS": 6.156,
-          "sha256": "357f524a4a78be02d3670678cc0da64a0b3ceafb00fc37785e0346ba80d394a5"
+          "sha256": "6b2c8d192333ca824eb93b9e7cc566043df3fac424384312d6158576637ad6cd"
         },
         {
           "index": 3,
           "timestampS": 9.234,
-          "sha256": "d1f31dd91118ba23965b373cc96bdf57bd70219a06eefb46e3cad1bca3140e87"
+          "sha256": "f79182cf71c374cd39b2a0de58337775f5f0eabbfe0919ea175d0102f4e0453f"
         },
         {
           "index": 4,
           "timestampS": 11.819,
-          "sha256": "f7cb4dab4a9fa817b3f2e8f188f7ed72c3119b68b722cbb40ab70bdb745429b9"
+          "sha256": "819fb2293ef5d26d1c9055ad14723b58747b38865941a46606e6604e817772da"
         }
       ],
       "contactSheet": {
         "file": "neg-tomatoes-vs-retail-surveillance__8633309.jpg",
-        "sha256": "ea4e5f20d213ba7ae19b3bf775fd64868b9db7defce4972098453da1b08b163b",
-        "width": 1600,
-        "height": 180
+        "sha256": "f84ec9b862d2695635a6c1ea133086069c96fc135dfecffd0ee1efbd884dc277",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1784,39 +1806,40 @@
         "foundBy": "id:37962424"
       },
       "mediaSha256": "9f32920dd0c17bbf090129a95ada9ce5d33aab1aa7231c40e43dc554f3e0efb6",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "4363ce3f9ee370f2bc9341917b340f265c6f7f30411b18f02c1b2a9de08447f4"
+          "sha256": "3cef2b7c6aa1ffe1817e69586a79187e660ebb58a3fd65f9b7d42033d714da8a"
         },
         {
           "index": 1,
           "timestampS": 7.47,
-          "sha256": "04561f77b53fd4cd7c69bc4decfdd3b39fdbbaf36ebdadad4dd024faddae8f32"
+          "sha256": "d05c60b09a1d2e7a56275d1cee8ca51c38a43315a8e316629c213d426144fffa"
         },
         {
           "index": 2,
           "timestampS": 14.94,
-          "sha256": "9dd2f0ef3ce7784de4787578093116a826698f2c8509b1c85727eb71b89ed254"
+          "sha256": "8e14ff2c82b8303291b1bb6b7b0b8b69e69f74ff9bc015466e17fe58a5f9f0db"
         },
         {
           "index": 3,
           "timestampS": 22.41,
-          "sha256": "66f6fd539da38b21e21d03954ae402c5ab78e7c4b1fa4c6b45a3dc0acd551cb6"
+          "sha256": "4f29b4e4ec62f50550837dc0c450b229187e2cbce402d76626a13b35d7305ea5"
         },
         {
           "index": 4,
           "timestampS": 29.28,
-          "sha256": "d43a174760a2b7cf5612d55528db9bb7d4b5bd7075f3015d61074f4cc29d5a24"
+          "sha256": "6de8efc2fcdbb31cdf1e039ad61dda1c223690500154c7dd4c91753894ffcb2e"
         }
       ],
       "contactSheet": {
         "file": "neg-trading-vs-controlroom__37962424.jpg",
-        "sha256": "1f2a51b7768e82c22da34055e045fd95d9cc599ac44b8680ce458dff62dabd1e",
-        "width": 1600,
-        "height": 180
+        "sha256": "a26d6be1c8e1584036edb17567748acbace38d42dd9df9ccbbe0139d79fc5578",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1861,39 +1884,40 @@
         "foundBy": "id:35475345"
       },
       "mediaSha256": "547e10886a9a7d0c7f93ea3f6eb6317e7f17ca42096744a0f252f12e2b353470",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.595,
-          "sha256": "d62da3a9d00632e98be81af270a43a3d2211134e0fcc4adcec143209a23997d8"
+          "sha256": "16e6311714e83de818d005ad3570223b9d0eec8ca07ed720076d191ea7392a8e"
         },
         {
           "index": 1,
           "timestampS": 3.72,
-          "sha256": "b0fbfc9bc9d0ed43cdf8be3fd91d297ddcc526ff697890fe0eb6e5b9167bdbfe"
+          "sha256": "2f0f04dff95d6c86327d51ceca042ba6f0b6ac757b6d0b0720228388faf22a2d"
         },
         {
           "index": 2,
           "timestampS": 7.44,
-          "sha256": "b7ea1220160870b93ac129409dc5d2298e9e8728b5debbd46b5cd9f95cd85dde"
+          "sha256": "5de6e5863491db497253fc20ff343c4172d8121192d08e3887cb9401b673ba83"
         },
         {
           "index": 3,
           "timestampS": 11.16,
-          "sha256": "c9d8e64f83f5c93209f06d49a1a6e6fca7ff383f599139e3012a557b96f7e3cf"
+          "sha256": "c5173dfc24abcfaf39dad752eeecc6bd46ee57bfb8f66d855b8c1e2d18124657"
         },
         {
           "index": 4,
           "timestampS": 14.285,
-          "sha256": "14faa0a2e0d382aee687e30be20a45b37a9743c7ea94e57670e5b03be009b146"
+          "sha256": "9efd4710c80fef4c2d235d924888c43446130b220da15fcf1ba63c9ffdd9b8fb"
         }
       ],
       "contactSheet": {
         "file": "neg-python-vs-vision__35475345.jpg",
-        "sha256": "c46e1894bf6919078daa4248cfcc620101889d6cd5e99d9ff728ba93eae1ac1d",
-        "width": 1600,
-        "height": 180
+        "sha256": "72545b20a40c5bee30d9ab048d255bab7bb703583f84b32c7344587ef526dafb",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -1936,39 +1960,40 @@
         "foundBy": "id:4985367"
       },
       "mediaSha256": "a015b5e97772e3dd788b575c9d5b464da255119233c10068d678292bdacd2d57",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.405,
-          "sha256": "1f708482d6156b18e803702c3e563c66b90a3ad70e1297005a671b6b8d5eab43"
+          "sha256": "bbfe74676d95be62af92c7ace5fc71d1c956be2d63c3c60dfc12c88cb74efa1d"
         },
         {
           "index": 1,
           "timestampS": 2.53,
-          "sha256": "9ced9a2de416e156d68415f8794e1320aef477993cb2a8a87c3122f3a11697e7"
+          "sha256": "4272361634b9a8ddacb7460a07a97cb3aefb7505a3c8a2e4a28fd7c21b614900"
         },
         {
           "index": 2,
           "timestampS": 5.06,
-          "sha256": "76651ddcf1d02df62ac75c012aeff0abf69647135fd9726fab463d582d87730e"
+          "sha256": "6ef39bafcb127060d7542d4b1228f23e4a1cec83384d4db28a05201a3f80a19f"
         },
         {
           "index": 3,
           "timestampS": 7.59,
-          "sha256": "a8b2f886158531f0d9dcc1b5f59ec656fcb7e5905fe028fdc02a24b72b354524"
+          "sha256": "f89af59171258879a399515ceabdd5147501601c4dd9f7808017a8852a7c562d"
         },
         {
           "index": 4,
           "timestampS": 9.715,
-          "sha256": "0d56abcf73927b32bdf354ce7b0a8d918a782fdf3580a0b82e492be1f769a42e"
+          "sha256": "8e9b74eeb1e1986225ee169c6b8f6cbdbb44f0693c7aca980450baff4102b33f"
         }
       ],
       "contactSheet": {
         "file": "neg-sound-vs-surveillance__4985367.jpg",
-        "sha256": "78beef62b33000ded969577fb2012442dc88febb2a245d29144606e6320af2e6",
-        "width": 1600,
-        "height": 180
+        "sha256": "55be9f3ec0bed268fa5d1c6318aafd88a67c51af32f0b5ec11ea8100004f7316",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -2013,39 +2038,40 @@
         "foundBy": "id:6429646"
       },
       "mediaSha256": "ab7c758b3d238cf8e1fc4ccf0ca318537511c467a4b4b38320ce5b0b6a83e1ac",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.6,
-          "sha256": "460c9caf574d6350bf02473dab7fc5efb8c13b4aca7a4c084acc37991a7eb00f"
+          "sha256": "e4ee9f952e0739925e27583d90b4ae5f15bbb7512a3f4a09f2d1090d6c629e35"
         },
         {
           "index": 1,
           "timestampS": 6.938,
-          "sha256": "e70678e98d2ee5a5c503e99a3fe797ee8aeadbee5a2753b31c1f2ddfe484f39a"
+          "sha256": "86a676ff7c763928081474b613d4707fe71bfc967985dc6bd6d7c9ccdd508579"
         },
         {
           "index": 2,
           "timestampS": 13.877,
-          "sha256": "9fb124970d7b99e2eefd6d338d35a533bd3ea4e1c289d4f0365a9983c97979d4"
+          "sha256": "b50bc951b6841e451b381d4e263ddbcce7fe55c497b9e3319ccd7d3de15c5508"
         },
         {
           "index": 3,
           "timestampS": 20.815,
-          "sha256": "6d205c504b7de548f602281f9ad633b331e5c5defc3e1b7a09254cd1baaa3179"
+          "sha256": "a424c0b7173c8a57526e692f7b1835c4993d2ed488a3989f713b25175e4f4c2d"
         },
         {
           "index": 4,
           "timestampS": 27.153,
-          "sha256": "4b88ddf7519ca0215ba5d97037b940417c64b789232a4a5e41fea8477d65b098"
+          "sha256": "9e2dc99d549b63466bc19ccd29379e38e691f26a68fb1df65d6264c57215a381"
         }
       ],
       "contactSheet": {
         "file": "neg-building-vs-serverroom__6429646.jpg",
-        "sha256": "1b3576c801af75ba12949f18dad73e98e23d6d17d4b0e093587d571a592aaa95",
-        "width": 1600,
-        "height": 180
+        "sha256": "9204436544031963defc5367a527ce99e674d8018640915d317ca2702109b3d8",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [],
@@ -2088,39 +2114,40 @@
         "foundBy": "photographer dslr camera tripod studio"
       },
       "mediaSha256": "958bcd3414f4a6d909487517d5bcfc264cbd4ce7f3fb4b4147eea9475d1bdcf5",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.32,
-          "sha256": "44c5708be4ad6d41b825dbac005bb194f934811c3908ce3f2ef65110fe2f4d28"
+          "sha256": "9a14a27e8468594ea5fcc655fee3f59e3b416ac283deaa1c82c916444323e293"
         },
         {
           "index": 1,
           "timestampS": 2,
-          "sha256": "b70fe926c227d5dcee895b1498f16b3580f21171abb01846dc4e2b08a04bc36d"
+          "sha256": "5851f1dccc7eeec261c414e04cd5ecc55f8ab5c1e494a98daa7f2fb806a78842"
         },
         {
           "index": 2,
           "timestampS": 4,
-          "sha256": "0f26666a1984f721711b98875837d34822cc7efd4cd49a7c3f7837e5616fa49f"
+          "sha256": "50bc845278b1de4f09a29c7eade08b19ef2bde1295c733627d9d9591275bfdb5"
         },
         {
           "index": 3,
           "timestampS": 6,
-          "sha256": "51494f1721e6a315057397c0476d6b970ed11a8bd9bccd2a3a0a0f256745d644"
+          "sha256": "c86aa06d8927c2e88647f122974ca9f5fa3d386aed393661c48f20a4a32b2156"
         },
         {
           "index": 4,
           "timestampS": 7.68,
-          "sha256": "70af1dc0d4f3ee9605fdf4d435b130879265d52381345001e891c8755f97826d"
+          "sha256": "ccf8de46e60d46b81cc961786bd19edacd87a7c102391c34c6710e80cf7b6e2e"
         }
       ],
       "contactSheet": {
         "file": "neg-photocam-vs-securitycam__33607021.jpg",
-        "sha256": "3a8a2b7e091144fd0e9413e81261bc0bab4893486cad56f5b5aa9e750de8f975",
-        "width": 1600,
-        "height": 180
+        "sha256": "82813bdf926d85b68899033c795bfbfb9ba3c106195e7db533086365e325662f",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
@@ -2163,39 +2190,40 @@
         "foundBy": "conveyor belt packages warehouse"
       },
       "mediaSha256": "c8ef48a0e193aef35206e64ef1be19b581a46eed1b16de31d36d2c70f6a74c8d",
-      "samplingVersion": "frames-v1",
+      "samplingVersion": "frames-v2",
       "frames": [
         {
           "index": 0,
           "timestampS": 0.334,
-          "sha256": "a2931c015ab587c7db2de09e4c77efdbecf68bd26c10b8a9aded37faf17697e0"
+          "sha256": "7192741cd34a6bd5213f9d832587fcd51ba6d4404c4c5b89673d3c07d92bd003"
         },
         {
           "index": 1,
           "timestampS": 2.09,
-          "sha256": "1f31b5f29431ceddc186032380422405b6203b5657e50e7b134e8d7ab8553018"
+          "sha256": "b5da0e9c1db8f0b3f6085489f27ab347bdf622ea5f2baf2cfec990d8f6faf93e"
         },
         {
           "index": 2,
           "timestampS": 4.181,
-          "sha256": "775e979e02a030f1e0000ff6b1e4e2a573ca0569f50b56b56b91237af6b07ad5"
+          "sha256": "013b053b11222cdcd1820f39d2ca9c5d15e3029781fb6dd1e55a641864381d52"
         },
         {
           "index": 3,
           "timestampS": 6.271,
-          "sha256": "1d97d239a1c0dd959e29dd1c8e41db245bf096cf85716905a2d636693a68f55f"
+          "sha256": "4b9a70e7634f208fd5566b5aee246082cde79b14a0b6b6810fdddaadf1c173a0"
         },
         {
           "index": 4,
           "timestampS": 8.027,
-          "sha256": "1cf65c1039e22cb3190870ff06d2b5d3085748e0843a0202a419b197d0e73a26"
+          "sha256": "bfbbc49df3a1d51278988e5a32699f209d72e249f1413b9247e1f14cdb78485f"
         }
       ],
       "contactSheet": {
         "file": "neg-conveyor-vs-robot__10472351.jpg",
-        "sha256": "0ad63ed127eaff3600a868d545c810995cdf8561361140c251534882a7e84215",
-        "width": 1600,
-        "height": 180
+        "sha256": "4a957015ca0a9770b26f4cd768b73b03d194ac2573349ea4439086636a3b328e",
+        "width": 1920,
+        "height": 720,
+        "layout": "3+2"
       },
       "requirement": {
         "primarySubjects": [
