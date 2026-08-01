@@ -26,3 +26,7 @@ tmp/
 audio/
 output/
 video/
+
+# Benchmark working media and contact sheets: large, regenerable from the
+# manifest (real Pexels IDs + deterministic sampling). Hashes are tracked.
+tmp/bench2/
