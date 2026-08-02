@@ -285,3 +285,10 @@ export type {
 // ── Brand-risk normalisation ───────────────────────────────────────────────
 export { normaliseBrandRisk } from "./lib/brandRisk";
 export type { BrandRisk, BrandRiskNormalisation } from "./lib/brandRisk";
+
+// ── Quality profiles ───────────────────────────────────────────────────────
+export {
+  qualityProfile, NON_NEGOTIABLE,
+  PREMIUM_AUTOMATED_VISUAL_QUALITY, FINITE_CREDIT_BURN_ACCEPTABLE_QUALITY,
+} from "./lib/qualityProfile";
+export type { QualityProfile, QualityProfileName } from "./lib/qualityProfile";

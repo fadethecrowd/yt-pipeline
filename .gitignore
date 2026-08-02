@@ -32,3 +32,6 @@ video/
 tmp/bench2/
 tmp/qual-review/
 tmp/qual-review-v2/
+tmp/qual-dc/
+tmp/qual-dc-v2/
+tmp/catalog/
