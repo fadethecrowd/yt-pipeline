@@ -369,6 +369,37 @@ export function scoreRelevance(input: RelevanceInput): RelevanceResult {
  * Words that describe how a shot looks rather than what it contains. Useful in
  * a generation prompt, actively harmful in a stock-library keyword search.
  */
+/**
+ * Relative pronouns and connectives. They survived the style filter and ate
+ * query slots — "wide warehouse interior where" spent a quarter of its budget
+ * on a pronoun.
+ */
+const CONNECTIVES = new Set([
+  "where", "which", "that", "who", "whose", "when", "into", "onto", "from",
+  "over", "under", "through", "between", "across", "along", "around", "above",
+  "below", "beneath", "behind", "before", "after", "during", "without", "within",
+  "part", "hard", "left", "changes", "stopping", "everything", "carrying",
+  "what", "for", "are", "was", "were", "has", "have", "had", "its", "not",
+  "but", "how", "why", "who", "all", "any", "one", "two", "own", "out", "off",
+]);
+
+/**
+ * Words that name what a shot is OF. A query missing its subject is not a
+ * weaker query, it is a query for something else — so these are lifted out of
+ * the prompt wherever they appear rather than being left to word order.
+ */
+const SUBJECT_ANCHORS = new Set([
+  "robot", "robots", "robotic", "amr", "amrs", "agv", "drone", "drones",
+  "forklift", "conveyor", "pallet", "shelving", "shelves", "rack", "racks",
+  "tote", "totes", "warehouse", "fulfilment", "fulfillment", "packing",
+  "picking", "inventory", "camera", "cameras", "cctv", "surveillance",
+  "checkout", "supermarket", "aisle", "server", "servers", "datacenter",
+  "rig", "turbine", "vehicle", "vehicles", "car", "truck", "train", "worker",
+  "workers", "operator", "operators", "engineer", "technician", "scanner",
+  "sensor", "lidar", "gantry", "crane", "machine", "machinery", "assembly",
+  "factory", "laboratory", "microchip", "wafer", "semiconductor",
+]);
+
 const STYLE_WORDS = new Set([
   "footage", "shot", "shots", "close", "closeup", "close-up", "cinematic",
   "documentary", "framing", "angle", "lighting", "realistic", "daylight",
@@ -453,20 +484,69 @@ export function buildSearchQueries(
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 2 && !STYLE_WORDS.has(w) && !GRAPHIC_WORDS.has(w));
+    .filter((w) => w.length > 2 && !STYLE_WORDS.has(w) && !GRAPHIC_WORDS.has(w)
+      && !CONNECTIVES.has(w));
 
-  // Leading concrete subject, once graphic-design vocabulary is removed.
+  // Subject-anchored, not leading-word.
+  //
+  // This took the first four surviving words of the prompt. For "Wide shot of a
+  // warehouse interior where autonomous mobile robots are lifting and
+  // transporting shelves" that produced "wide warehouse interior where": the
+  // subject — robots — sits past the truncation point and never reached the
+  // search. Nineteen warehouse-robot beats were acquired without the word
+  // "robot" appearing in a single query.
+  //
+  // Anchor terms are taken from anywhere in the prompt, so a subject named late
+  // in a sentence still drives the search.
+  const anchors = content.filter((w) => SUBJECT_ANCHORS.has(w));
+  const rest = content.filter((w) => !anchors.includes(w));
+  if (anchors.length) {
+    // Subject first, then the nearest concrete context words.
+    queries.push([...new Set([...anchors.slice(0, 2), ...rest.slice(0, 3)])].join(" "));
+    for (const a of anchors.slice(0, 2)) {
+      if (rest.length) queries.push([a, ...rest.slice(0, 2)].join(" "));
+    }
+  }
   if (content.length) queries.push(content.slice(0, 4).join(" "));
   if (content.length > 2) queries.push(content.slice(0, 2).join(" "));
 
   // Canonical query for the concept the prompt is closest to.
+  //
+  // Only when the classification is actually supported by the prompt. A
+  // warehouse fleet-software beat mentioning a "control room" classified as
+  // surveillance and pulled in "security camera surveillance", which is how
+  // traffic-control and CCTV footage entered a warehouse-robot video. An
+  // ambiguous classification injects nothing: a canonical query for a concept
+  // the prompt does not clearly belong to is cross-domain contamination.
   const taxonomy = channel === "wet-circuit" ? MARINE_SUBJECTS : AI_SUBJECTS;
   const best = classifyConcept(prompt, taxonomy);
-  if (best.concept && CONCEPT_QUERIES[best.concept]) {
-    queries.push(CONCEPT_QUERIES[best.concept]);
+  if (best.concept && best.concept !== "ambiguous" && best.concept !== "none"
+      && best.score >= 3 && CONCEPT_QUERIES[best.concept]) {
+    // ...and only when the canonical query actually shares vocabulary with this
+    // prompt. "warehouse control room where operators monitor screens"
+    // classifies as surveillance on the phrase "control room", but the
+    // canonical "security camera surveillance" shares nothing with it and is
+    // how CCTV footage reached a warehouse-robot beat.
+    const canon = CONCEPT_QUERIES[best.concept]!.split(" ");
+    if (canon.some((w) => content.includes(w))) queries.push(CONCEPT_QUERIES[best.concept]!);
   }
 
-  if (title) queries.push(title.toLowerCase());
+  // The segment title is prose, not a subject. "The fleet software is the hard
+  // part" and "From painted lines to onboard sensing" were searched verbatim,
+  // and a stock library answers an abstract phrase with whatever it likes —
+  // motorcycles, breweries, harbours, abandoned buildings. Titles are used only
+  // for their concrete anchor words, never as a whole phrase.
+  if (title) {
+    const tw = title.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)
+      .filter((w) => w.length > 2 && !STYLE_WORDS.has(w) && !GRAPHIC_WORDS.has(w)
+        && !CONNECTIVES.has(w));
+    const tAnchor = tw.filter((w) => SUBJECT_ANCHORS.has(w));
+    // Needs a subject AND real context, or it degenerates into word salad
+    // ("workers what for floor"). Prose titles contribute nothing otherwise.
+    if (tAnchor.length && tw.length >= 3) {
+      queries.push([...new Set([...tAnchor, ...tw])].slice(0, 4).join(" "));
+    }
+  }
 
   // De-duplicate while preserving order.
   return [...new Set(queries.filter((q) => q.trim().length > 2))];
