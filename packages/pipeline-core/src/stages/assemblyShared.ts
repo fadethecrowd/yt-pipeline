@@ -20,6 +20,10 @@ import type { BrandCheck } from "../lib/brandGuard";
 import { wordsFromAlignment } from "../lib/captions";
 import type { Candidate } from "../lib/visuals";
 import { readAlignments, readManifest } from "./voiceoverShared";
+import {
+  alignToNarration, assertRealizedMatchesApproved, AllocationConflictError,
+} from "../lib/approvedAllocation";
+import type { ApprovedAllocation, ApprovedBeat } from "../lib/approvedAllocation";
 import type { NarrationManifest } from "./voiceoverShared";
 import type { PipelineContext, ScriptSegment, StageResult } from "../types";
 
@@ -60,6 +64,16 @@ export interface AssemblyDeps {
   getVideo: (id: string) => Promise<any>;
   updateVideo: (id: string, data: Record<string, unknown>) => Promise<unknown>;
   setStatus: (id: string, status: string) => Promise<unknown>;
+  /**
+   * A human-approved visual allocation. When supplied, assembly renders
+   * exactly these assets in exactly this order and performs NO beat planning,
+   * NO search and NO selection — re-acquiring would render footage the
+   * reviewer never saw under an approval given to something else. When absent,
+   * assembly behaves exactly as it always has.
+   */
+  approvedAllocation?: ApprovedAllocation;
+  /** Resolves an approved asset id to a downloadable URL. Fails closed. */
+  resolveApprovedAsset?: (assetId: string) => Promise<{ url: string; pageUrl?: string; description?: string } | null>;
 }
 
 export interface AssemblyOutcome {
@@ -149,6 +163,117 @@ async function gatherCandidates(
  * documented "split the narration section into smaller visual beats" fallback,
  * preferred over looping, reuse, or a card.
  */
+/**
+ * Render one approved beat verbatim.
+ *
+ * No candidate pool, no scoring, no substitution: each fragment is the asset a
+ * human approved, cut to the duration alignment produced. A clip that cannot be
+ * resolved, downloaded or cut to length is a hard failure — silently dropping
+ * it would change the video away from what was approved.
+ */
+async function renderApprovedBeat(
+  beat: ApprovedBeat,
+  seg: ScriptSegment,
+  tmpDir: string,
+  deps: AssemblyDeps,
+  videoId: string,
+  cursorStartS: number,
+): Promise<RenderedBeat[]> {
+  const { label, channel } = deps;
+  const out: RenderedBeat[] = [];
+  let cursor = cursorStartS;
+  let fragment = 0;
+
+  // The card, when the approval includes one, at its approved length.
+  if (beat.hasCard && (beat.cardSecondsS ?? 0) > 0) {
+    const dur = beat.cardSecondsS!;
+    const sceneNumber = beat.beat * 100 + ++fragment;
+    const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
+    const titleFile = join(tmpDir, `card-${sceneNumber}.txt`);
+    await writeCardTextFile(titleFile, beat.cardText ?? seg.title);
+    await ff(
+      ["-f", "lavfi", "-i", `color=c=#243257:s=${WIDTH}x${HEIGHT}:d=${dur}:r=${FPS}`,
+       "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=64:fontcolor=white:x=(w-tw)/2:y=(h-th)/2-40:line_spacing=14,`
+         + `drawtext=text='${channel === "wet-circuit" ? "WET CIRCUIT" : "AI DOOM SCROLL"}':fontsize=30:fontcolor=0x8899ff:x=(w-tw)/2:y=h-140`,
+       "-c:v", "libx264", "-preset", "fast", "-t", String(dur), clipPath],
+      label,
+    );
+    await recordScene({
+      channel, videoId, sceneNumber, narration: beat.narration,
+      startTimeS: TITLE_CARD_DURATION + cursor, endTimeS: TITLE_CARD_DURATION + cursor + dur,
+      prompt: seg.visual_prompt, assetSource: "approved-card", localPath: clipPath,
+      width: WIDTH, height: HEIGHT, durationS: dur,
+      validation: "PASS", renderStatus: "RENDERED", rejectionReason: null,
+    });
+    out.push({
+      index: beat.beat, startS: cursor, endS: cursor + dur, durationS: dur,
+      narration: beat.narration, assetId: null, assetDescription: `approved card: ${beat.cardText ?? ""}`,
+      assetUrl: null, sourceStartS: 0, sourceEndS: dur, looped: false, reused: false,
+      relevanceScore: null, concept: "card",
+      brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
+      decision: "FALLBACK_CARD", clipPath,
+    });
+    cursor += dur;
+  }
+
+  for (const f of beat.fragments) {
+    const sceneNumber = beat.beat * 100 + ++fragment;
+    if (!deps.resolveApprovedAsset) {
+      throw new AllocationConflictError("approvedAllocation supplied without resolveApprovedAsset");
+    }
+    const resolved = await deps.resolveApprovedAsset(f.assetId);
+    if (!resolved?.url) {
+      throw new AllocationConflictError(`approved asset ${f.assetId} could not be resolved`);
+    }
+    const rawPath = join(tmpDir, `raw-${sceneNumber}.mp4`);
+    try { await downloadTo(resolved.url, rawPath); }
+    catch (e) { throw new AllocationConflictError(`approved asset ${f.assetId} failed to download: ${e}`); }
+
+    const srcDur = await videoDuration(rawPath).catch(() => 0);
+    const useDur = +f.plannedDurationS.toFixed(3);
+    if (srcDur + 1e-3 < useDur) {
+      throw new AllocationConflictError(
+        `approved asset ${f.assetId}: need ${useDur}s but source is ${srcDur.toFixed(2)}s`,
+      );
+    }
+
+    const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
+    await ff(
+      ["-i", rawPath, "-t", String(useDur),
+       "-vf", `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,format=yuv420p`,
+       "-r", String(FPS), "-c:v", "libx264", "-preset", "fast", "-an", clipPath],
+      label,
+    );
+    await recordScene({
+      channel, videoId, sceneNumber, narration: beat.narration,
+      startTimeS: TITLE_CARD_DURATION + cursor, endTimeS: TITLE_CARD_DURATION + cursor + useDur,
+      prompt: seg.visual_prompt, assetSource: "pexels-approved", assetId: f.assetId,
+      assetUrl: resolved.pageUrl ?? f.pageUrl ?? null,
+      assetDescription: resolved.description ?? f.description ?? null,
+      localPath: clipPath, durationS: useDur,
+      cropMethod: "scale-increase+centre-crop; cut (never looped)",
+      validation: "PASS", renderStatus: "RENDERED",
+      rejectionReason: null,
+    });
+    console.log(
+      `[${label}] beat ${beat.beat}.${fragment} (${useDur.toFixed(1)}s): ${f.assetId} [APPROVED]` +
+      (f.continuesIntoBeat ? ` continues ${f.continuationSeconds}s into beat ${f.continuesIntoBeat}` : ""),
+    );
+    out.push({
+      index: beat.beat, startS: cursor, endS: cursor + useDur, durationS: useDur,
+      narration: beat.narration, assetId: f.assetId,
+      assetDescription: resolved.description ?? f.description ?? null,
+      assetUrl: resolved.pageUrl ?? f.pageUrl ?? null,
+      sourceStartS: 0, sourceEndS: useDur, looped: false, reused: false,
+      relevanceScore: null, concept: "approved",
+      brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "metadata" },
+      decision: "RENDERED", clipPath,
+    });
+    cursor += useDur;
+  }
+  return out;
+}
+
 async function renderBeat(
   beat: VisualBeat,
   seg: ScriptSegment,
@@ -401,6 +526,41 @@ export async function runAssembly(
   const segmentWords = alignments.map((a, i) =>
     wordsFromAlignment(a, manifest!.segments[i].offsetS),
   );
+  // ── Approved-allocation path ─────────────────────────────────────────
+  //
+  // When a human has approved specific clips, planning and acquisition are
+  // skipped entirely: no planVisualBeats, no gatherCandidates, no search, no
+  // scoring, no substitution. The approved beats are fitted to the durations
+  // narration actually produced and rendered verbatim.
+  if (deps.approvedAllocation) {
+    const alloc = deps.approvedAllocation;
+    console.log(`[${label}] APPROVED ALLOCATION — planning and acquisition bypassed (${alloc.beats.length} beats)`);
+    const plannedTotal = alloc.beats.reduce((a, b) => a + b.durationS, 0);
+    const scale = plannedTotal > 0 ? narrationDurationS / plannedTotal : 1;
+    const aligned = alignToNarration(
+      alloc,
+      new Map(alloc.beats.map((b) => [b.beat, +(b.durationS * scale).toFixed(3)])),
+    );
+    const renderedApproved: RenderedBeat[] = [];
+    let cur = 0;
+    for (const ab of aligned) {
+      const seg = segments[Math.min(ab.beat - 1, segments.length - 1)] ?? segments[segments.length - 1];
+      const clips = await renderApprovedBeat(ab, seg, tmpDir, deps, ctx.video.id, cur);
+      renderedApproved.push(...clips);
+      cur = clips.length ? clips[clips.length - 1]!.endS : cur;
+    }
+    // Fail closed unless the render used exactly the approved set, in order.
+    assertRealizedMatchesApproved(
+      alloc,
+      renderedApproved.filter((b) => b.assetId).map((b) => b.assetId!),
+    );
+    console.log(`[${label}] approved render: ${renderedApproved.length} clips, ${cur.toFixed(1)}s, asset set and order verified`);
+    return await finishAssembly(
+      ctx, deps, renderedApproved, manifest, captions, assPath,
+      tmpDir, outputDir, narrationDurationS, start,
+    );
+  }
+
   const beats = planVisualBeats(segmentWords);
   const planSummary = summarizeBeats(beats);
   const minBeats = minimumBeatsFor(narrationDurationS);
@@ -475,6 +635,32 @@ export async function runAssembly(
       `${composition.strongCount} strong, ${composition.genericCount} generic, 0 looped, 0 reused`,
   );
 
+  return await finishAssembly(
+    ctx, deps, rendered, manifest, captions, assPath,
+    tmpDir, outputDir, narrationDurationS, start,
+  );
+}
+
+/**
+ * Title card, concat, mux, duration verification and persistence.
+ *
+ * Shared verbatim by the normal path and the approved-allocation path, so a
+ * human-approved render is muxed, captioned and duration-checked in exactly
+ * the same way as any other — only the choice of clips differs.
+ */
+async function finishAssembly(
+  ctx: PipelineContext,
+  deps: AssemblyDeps,
+  rendered: RenderedBeat[],
+  manifest: NarrationManifest,
+  captions: BuiltCaptions,
+  assPath: string,
+  tmpDir: string,
+  outputDir: string,
+  narrationDurationS: number,
+  start: number,
+): Promise<StageResult<AssemblyOutcome>> {
+  const { label } = deps;
   // ── 4. Title card ────────────────────────────────────────────────────
   const titleTextFile = join(tmpDir, "title.txt");
   await writeCardTextFile(titleTextFile, ctx.topic.title);

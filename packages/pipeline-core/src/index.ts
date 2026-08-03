@@ -292,3 +292,13 @@ export {
   PREMIUM_AUTOMATED_VISUAL_QUALITY, FINITE_CREDIT_BURN_ACCEPTABLE_QUALITY,
 } from "./lib/qualityProfile";
 export type { QualityProfile, QualityProfileName } from "./lib/qualityProfile";
+
+// ── Approved allocation ────────────────────────────────────────────────────
+export {
+  approvedAllocationHash, realizedTimelineHash, alignToNarration,
+  validateTimingEnvelope, assertRealizedMatchesApproved, AllocationConflictError,
+} from "./lib/approvedAllocation";
+export type {
+  ApprovedAllocation, ApprovedBeat, ApprovedFragment,
+  RealizedTimeline, RealizedFragment,
+} from "./lib/approvedAllocation";
