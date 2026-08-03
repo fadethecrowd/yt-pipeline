@@ -63,6 +63,11 @@ export interface VoiceoverDeps {
   /** Persists stage results to the channel's own table. */
   updateVideo: (id: string, data: Record<string, unknown>) => Promise<unknown>;
   setStatus: (id: string, status: string) => Promise<unknown>;
+  /**
+   * Request-scoped delivery speed. Absent leaves the request body and every
+   * existing caller unchanged.
+   */
+  speed?: number;
 }
 
 /**
@@ -120,6 +125,7 @@ export async function runVoiceover(
       text: segment.narration,
       voiceId,
       apiKey: config.ELEVENLABS_API_KEY,
+      speed: deps.speed,
       audioDir,
       testStage: deps.testStage,
       runId: deps.runId,

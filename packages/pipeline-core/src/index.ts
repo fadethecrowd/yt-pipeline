@@ -297,6 +297,7 @@ export type { QualityProfile, QualityProfileName } from "./lib/qualityProfile";
 export {
   approvedAllocationHash, realizedTimelineHash, alignToNarration,
   validateTimingEnvelope, assertRealizedMatchesApproved, AllocationConflictError,
+  MIN_PLAYBACK_RATE, MAX_PLAYBACK_RATE, solvePlaybackRates,
 } from "./lib/approvedAllocation";
 export type {
   ApprovedAllocation, ApprovedBeat, ApprovedFragment,

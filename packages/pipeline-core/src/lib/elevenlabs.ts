@@ -53,6 +53,12 @@ export interface SynthesizeOptions {
   runId?: string;
   /** Set on a deliberate regeneration so the usage row explains the re-charge. */
   retryReason?: string;
+  /**
+   * Delivery speed for this request only. Absent means the API default and an
+   * unchanged request body. Part of the idempotency key, so audio generated at
+   * one speed is never silently reused for another.
+   */
+  speed?: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -69,10 +75,16 @@ export function scriptHashFor(
   outputFormat = ELEVEN_OUTPUT_FORMAT,
   stability = ELEVEN_STABILITY,
   similarity = ELEVEN_SIMILARITY,
+  /** Included only when a request-scoped speed was used, so existing hashes are stable. */
+  speed?: number,
 ): string {
   return createHash("sha256")
     .update(
-      JSON.stringify({ text, voiceId, model, outputFormat, stability, similarity }),
+      // `speed` is folded in only when set, so every hash produced before
+      // request-scoped speed existed still matches and prior audio is reused.
+      JSON.stringify(speed === undefined
+        ? { text, voiceId, model, outputFormat, stability, similarity }
+        : { text, voiceId, model, outputFormat, stability, similarity, speed }),
     )
     .digest("hex");
 }
@@ -119,10 +131,20 @@ export async function synthesizeSegment(
 ): Promise<SynthesisResult> {
   const {
     channel, videoId, segmentIndex, text, voiceId, apiKey,
-    audioDir, testStage, runId, retryReason,
+    audioDir, testStage, runId, retryReason, speed,
   } = opts;
 
-  const scriptHash = scriptHashFor(text, voiceId);
+  // Request-scoped delivery speed. Omitted entirely when not supplied, so the
+  // default request body — and every existing caller — is byte-for-byte
+  // unchanged. Only a caller that asks for a speed gets one.
+  if (speed !== undefined && (speed < 0.7 || speed > 1.2)) {
+    throw new Error(`ElevenLabs speed ${speed} outside the supported 0.7-1.2 range`);
+  }
+
+  const scriptHash = scriptHashFor(
+    text, voiceId, ELEVEN_MODEL, ELEVEN_OUTPUT_FORMAT,
+    ELEVEN_STABILITY, ELEVEN_SIMILARITY, speed,
+  );
   const audioPath = join(audioDir, `segment-${segmentIndex}.mp3`);
   const alignmentPath = join(audioDir, `segment-${segmentIndex}.alignment.json`);
   await mkdir(audioDir, { recursive: true });
@@ -180,6 +202,7 @@ export async function synthesizeSegment(
           voice_settings: {
             stability: ELEVEN_STABILITY,
             similarity_boost: ELEVEN_SIMILARITY,
+            ...(speed !== undefined ? { speed } : {}),
           },
         }),
       },

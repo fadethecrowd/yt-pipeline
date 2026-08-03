@@ -27,6 +27,12 @@ export interface ApprovedFragment {
   continuationSeconds?: number;
   description?: string;
   pageUrl?: string | null;
+  /**
+   * Playback rate for this clip. 1.0 plays at source speed; below 1 stretches
+   * it over more screen time, above 1 compresses it. Bounded so motion still
+   * reads naturally, and no frame is dropped, duplicated, frozen or reversed.
+   */
+  playbackRate?: number;
 }
 
 export interface ApprovedBeat {
@@ -56,6 +62,10 @@ export interface ApprovedAllocation {
 
 /** Shortest fragment worth cutting; mirrors the assembly floor. */
 export const MIN_FRAGMENT_S = 3;
+
+/** Authorised stock playback range. 1.0 is default and always preferred. */
+export const MIN_PLAYBACK_RATE = 0.92;
+export const MAX_PLAYBACK_RATE = 1.08;
 
 // ── Identity ─────────────────────────────────────────────────────────────
 
@@ -237,4 +247,97 @@ export function assertRealizedMatchesApproved(
   if (new Set(approved).size !== approved.length) {
     throw new AllocationConflictError("approved allocation contains a duplicate asset");
   }
+}
+
+/**
+ * Fit approved fragments to an aligned beat using the smallest playback
+ * adjustment that works.
+ *
+ * Preference order is deliberate: cover the beat at 1.0 by trimming if the
+ * sources are long enough, and only stretch or compress when they are not.
+ * Every fragment in a beat takes the same rate so the cut between them does
+ * not visibly change tempo, and that rate is the one closest to 1.0 that
+ * covers the target.
+ */
+export function solvePlaybackRates(
+  beat: ApprovedBeat,
+  targetS: number,
+): { fragments: ApprovedFragment[]; rate: number } {
+  const card = beat.hasCard ? (beat.cardSecondsS ?? 0) : 0;
+  const carriedIn = beat.continuedFrom ? beat.continuedFrom.seconds : 0;
+  const own = +(targetS - card - carriedIn).toFixed(4);
+  if (own < 0) {
+    throw new AllocationConflictError(
+      `beat ${beat.beat}: card ${card}s + carried-in ${carriedIn}s exceeds target ${targetS}s`,
+    );
+  }
+  // Source seconds each fragment may draw on, excluding what it spends ahead.
+  const avail = beat.fragments.map((f) =>
+    Math.max(0, f.sourceDurationS - (f.continuationSeconds ?? 0)));
+  const availTotal = avail.reduce((a, b) => a + b, 0);
+  if (availTotal <= 0) {
+    if (own > 0.05) throw new AllocationConflictError(`beat ${beat.beat}: nothing available to cover ${own}s`);
+    return { fragments: beat.fragments, rate: 1 };
+  }
+
+  // At rate r, the beat's fragments can show at most availTotal / r seconds.
+  // Trimming covers any shortfall from above, so r = 1 works whenever the
+  // sources are long enough; otherwise slow down just enough.
+  let rate = 1;
+  if (availTotal < own) {
+    rate = +(availTotal / own).toFixed(6);
+    if (rate < MIN_PLAYBACK_RATE) {
+      throw new AllocationConflictError(
+        `beat ${beat.beat}: ${own}s needed from ${availTotal.toFixed(2)}s of source would require ${rate.toFixed(3)}x, below ${MIN_PLAYBACK_RATE}`,
+      );
+    }
+  }
+  // Share the beat proportionally, then respect the fragment floor.
+  //
+  // Strict proportional sharing starves a short clip sitting beside a long
+  // one: a 9s clip next to a 40s clip is handed 2.5s of a shrinking beat and
+  // falls under the floor, even though giving it exactly the floor and letting
+  // the long clip absorb the rest covers the beat comfortably. Fragments that
+  // would fall below the floor are pinned to it and the remainder is shared
+  // among those with room, which is ordinary trimming inside the same approved
+  // clips — no identity, order or source boundary moves.
+  const shown = avail.map((a) => a / rate);
+  const shownTotal = shown.reduce((a, b) => a + b, 0);
+  let dur = shown.map((s) => (own * s) / shownTotal);
+
+  const single = beat.fragments.length === 1;
+  if (!single) {
+    const pinned = new Array(beat.fragments.length).fill(false);
+    for (let pass = 0; pass < beat.fragments.length; pass++) {
+      const under = dur.findIndex((d, i) => !pinned[i] && d < MIN_FRAGMENT_S);
+      if (under === -1) break;
+      pinned[under] = true;
+      dur[under] = MIN_FRAGMENT_S;
+      const fixed = dur.reduce((a, d, i) => a + (pinned[i] ? d : 0), 0);
+      const rest = +(own - fixed).toFixed(6);
+      const freeTotal = shown.reduce((a, s, i) => a + (pinned[i] ? 0 : s), 0);
+      if (rest < 0 || freeTotal <= 0) {
+        throw new AllocationConflictError(
+          `beat ${beat.beat}: cannot honour the ${MIN_FRAGMENT_S}s floor for every fragment within ${own.toFixed(2)}s`,
+        );
+      }
+      dur = dur.map((d, i) => (pinned[i] ? d : (rest * shown[i]!) / freeTotal));
+    }
+  }
+
+  const fragments = beat.fragments.map((f, i) => {
+    const d = +dur[i]!.toFixed(3);
+    if (d < MIN_FRAGMENT_S && !single) {
+      throw new AllocationConflictError(
+        `beat ${beat.beat}: ${f.assetId} would show for ${d}s, below the ${MIN_FRAGMENT_S}s floor`,
+      );
+    }
+    if (+(d * rate).toFixed(3) > f.sourceDurationS + 1e-6) {
+      throw new AllocationConflictError(
+        `beat ${beat.beat}: ${f.assetId} needs ${(d * rate).toFixed(2)}s of a ${f.sourceDurationS}s source`,
+      );
+    }
+    return { ...f, plannedDurationS: d, playbackRate: rate };
+  });
+  return { fragments, rate };
 }

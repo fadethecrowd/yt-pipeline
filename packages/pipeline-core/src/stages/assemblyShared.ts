@@ -24,6 +24,7 @@ import {
   alignToNarration, assertRealizedMatchesApproved, AllocationConflictError,
 } from "../lib/approvedAllocation";
 import type { ApprovedAllocation, ApprovedBeat } from "../lib/approvedAllocation";
+import { MIN_PLAYBACK_RATE, MAX_PLAYBACK_RATE } from "../lib/approvedAllocation";
 import type { NarrationManifest } from "./voiceoverShared";
 import type { PipelineContext, ScriptSegment, StageResult } from "../types";
 
@@ -231,16 +232,30 @@ async function renderApprovedBeat(
 
     const srcDur = await videoDuration(rawPath).catch(() => 0);
     const useDur = +f.plannedDurationS.toFixed(3);
-    if (srcDur + 1e-3 < useDur) {
+    // Playback rate lets a clip cover slightly more or less screen time than
+    // its own length. Bounded because beyond this the motion reads as wrong;
+    // 1.0 is the default and the solver picks the value closest to it.
+    const rate = f.playbackRate ?? 1;
+    if (rate < MIN_PLAYBACK_RATE - 1e-9 || rate > MAX_PLAYBACK_RATE + 1e-9) {
       throw new AllocationConflictError(
-        `approved asset ${f.assetId}: need ${useDur}s but source is ${srcDur.toFixed(2)}s`,
+        `approved asset ${f.assetId}: playback rate ${rate} outside ${MIN_PLAYBACK_RATE}-${MAX_PLAYBACK_RATE}`,
+      );
+    }
+    // Screen seconds `useDur` at rate `rate` consume useDur*rate of source.
+    const sourceNeeded = +(useDur * rate).toFixed(3);
+    if (srcDur + 1e-3 < sourceNeeded) {
+      throw new AllocationConflictError(
+        `approved asset ${f.assetId}: need ${sourceNeeded}s of source at ${rate}x for ${useDur}s on screen, but source is ${srcDur.toFixed(2)}s`,
       );
     }
 
     const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
+    // setpts stretches or compresses presentation time; no frames are dropped,
+    // duplicated, frozen or reversed. -t clamps the result to exact screen time.
+    const vf = (rate === 1 ? "" : `setpts=${(1 / rate).toFixed(6)}*PTS,`)
+      + `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,format=yuv420p`;
     await ff(
-      ["-i", rawPath, "-t", String(useDur),
-       "-vf", `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,format=yuv420p`,
+      ["-i", rawPath, "-t", String(useDur), "-vf", vf,
        "-r", String(FPS), "-c:v", "libx264", "-preset", "fast", "-an", clipPath],
       label,
     );
