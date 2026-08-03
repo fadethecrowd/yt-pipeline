@@ -307,6 +307,10 @@ export {
   planExhaustiveBeats, verifyExhaustive, splitSentences, beatCountFor,
 } from "./lib/exhaustiveBeats";
 export type { ExhaustiveBeat } from "./lib/exhaustiveBeats";
+export {
+  beatSpansForUnit, beatSpansForNarration, AlignmentError,
+} from "./lib/narrationAlignment";
+export type { BeatRange, BeatSpan, UnitInput } from "./lib/narrationAlignment";
 export type {
   ApprovedAllocation, ApprovedBeat, ApprovedFragment,
   RealizedTimeline, RealizedFragment,
