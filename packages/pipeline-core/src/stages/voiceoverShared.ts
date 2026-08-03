@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { TestStage } from "@prisma/client";
 import { env } from "../config";
 import { buildNarrationTrack } from "../lib/ffmpeg";
+import { buildSpokenUnits } from "../lib/spokenUnits";
 import { synthesizeSegment } from "../lib/elevenlabs";
 import type { Alignment } from "../lib/elevenlabs";
 import type { PipelineContext, StageResult, VoiceoverResult } from "../types";
@@ -114,15 +115,23 @@ export async function runVoiceover(
   const segmentPaths: string[] = [];
   const synth: Awaited<ReturnType<typeof synthesizeSegment>>[] = [];
 
-  for (const segment of ctx.script.segments) {
+  // What actually gets spoken. Synthesising `segment.narration` directly left
+  // a hand-edited script's hook and CTA unspoken whenever the editorial pass
+  // rewrote the segment bodies without folding them back in. Both this path
+  // and visual planning now read the same builder, so they cannot disagree.
+  const units = buildSpokenUnits(ctx.script);
+
+  for (const unit of units) {
+    const segment = ctx.script.segments[unit.index]!;
     console.log(
-      `[${label}] segment ${segment.segmentIndex} (${segment.narration.length} chars): "${segment.title}"`,
+      `[${label}] unit ${unit.index} (${unit.text.length} chars, ` +
+      `${unit.parts.map((p) => p.field).join("+")}): "${segment.title}"`,
     );
     const r = await synthesizeSegment({
       channel: deps.channel,
       videoId: ctx.video.id,
       segmentIndex: segment.segmentIndex,
-      text: segment.narration,
+      text: unit.text,
       voiceId,
       apiKey: config.ELEVENLABS_API_KEY,
       speed: deps.speed,

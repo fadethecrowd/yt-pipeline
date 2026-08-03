@@ -299,6 +299,14 @@ export {
   validateTimingEnvelope, assertRealizedMatchesApproved, AllocationConflictError,
   MIN_PLAYBACK_RATE, MAX_PLAYBACK_RATE, solvePlaybackRates,
 } from "./lib/approvedAllocation";
+export {
+  buildSpokenUnits, spokenScriptText, spokenCharacterCount, SPOKEN_UNIT_SEPARATOR,
+} from "./lib/spokenUnits";
+export type { SpokenUnit, SpokenUnitPart } from "./lib/spokenUnits";
+export {
+  planExhaustiveBeats, verifyExhaustive, splitSentences, beatCountFor,
+} from "./lib/exhaustiveBeats";
+export type { ExhaustiveBeat } from "./lib/exhaustiveBeats";
 export type {
   ApprovedAllocation, ApprovedBeat, ApprovedFragment,
   RealizedTimeline, RealizedFragment,
