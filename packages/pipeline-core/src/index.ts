@@ -307,6 +307,8 @@ export {
   planExhaustiveBeats, verifyExhaustive, splitSentences, beatCountFor,
 } from "./lib/exhaustiveBeats";
 export type { ExhaustiveBeat } from "./lib/exhaustiveBeats";
+export { solveApprovedStrip, MAX_CLIP_S } from "./lib/approvedStrip";
+export type { StripAsset, StripBeat } from "./lib/approvedStrip";
 export {
   beatSpansForUnit, beatSpansForNarration, AlignmentError,
 } from "./lib/narrationAlignment";

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { TestStage } from "@prisma/client";
 import { env } from "../config";
 import {
@@ -53,6 +54,14 @@ function escapeFilterPath(p: string): string {
 }
 
 async function downloadTo(url: string, dest: string): Promise<void> {
+  // An approved allocation may resolve to media already held locally — the
+  // very files a reviewer looked at. fetch() cannot read file: URLs, and
+  // re-fetching from the provider to obtain bytes we already have would be a
+  // fresh acquisition of footage that is supposed to be frozen.
+  if (url.startsWith("file://")) {
+    await copyFile(fileURLToPath(url), dest);
+    return;
+  }
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   await writeFile(dest, Buffer.from(await res.arrayBuffer()));
