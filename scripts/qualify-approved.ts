@@ -267,20 +267,24 @@ async function main() {
   console.log(`\n  rendered: ${out.videoPath} (${out.videoDurationS.toFixed(2)}s)`);
 
   // ── QA ──────────────────────────────────────────────────────────────────
-  const qa = await runQa({
+  const qaInput = {
     channel: CHANNEL, videoId: video.id, assetKind: "LONGFORM" as const,
     videoPath: out.videoPath, narrationPath: out.narrationPath,
     narrationStartS: out.narrationStartS,
     cues: out.captions.cues, words: out.captions.words,
     expectedWidth: 1920, expectedHeight: 1080, expectedFps: 30,
     testStage: "QUALIFICATION" as const,
-  });
+  };
+  const qa = await runQa(qaInput);
   console.log(`\n${formatQa(qa)}`);
   const rt = checkRuntime(qa.metrics.videoDurationS ?? 0, CHANNEL, "LONGFORM", "QUALIFICATION");
   console.log(`  runtime: ${rt.detail}`);
   console.log(formatAnchors(extractSyncAnchors(out.captions.words, out.captions.cues)));
-  const qaRow = await persistQa(qa);
-  if (!qa.pass) fail(`QA failed — not uploading. ${qa.failures?.join("; ") ?? ""}`);
+  const qaRow = await persistQa(qaInput, qa);
+  if (qa.overall !== "PASS") {
+    const failed = qa.checks.filter((c) => !c.passed).map((c) => `${c.name}: ${c.detail}`);
+    fail(`QA failed — not uploading.\n    ${failed.join("\n    ")}`);
+  }
   if (!rt.ok) fail(`runtime outside range: ${rt.detail}`);
 
   if (noUpload) {
@@ -344,10 +348,16 @@ async function main() {
   console.log(`  title      : ${v?.snippet?.title}`);
   console.log(`  privacy    : ${v?.status?.privacyStatus}`);
   console.log(`  publishAt  : ${v?.status?.publishAt ?? "(none)"}`);
-  console.log(`  qa row     : ${qaRow?.id ?? "(none)"}`);
+  console.log(`  qa row     : ${qaRow}`);
   if (v?.status?.privacyStatus !== "private") fail(`video is ${v?.status?.privacyStatus}, expected private`);
   if (v?.snippet?.channelId !== CHANNELS[CHANNEL].id) fail(`wrong channel ${v?.snippet?.channelId}`);
   if (v?.status?.publishAt) fail(`publishAt is set: ${v.status.publishAt}`);
+
+  // Move the row out of the resumable range. ASSEMBLY_DONE is a mid-pipeline
+  // state, so a finished asset left sitting there reads as work still to do
+  // and a resumer would try to upload it a second time.
+  await repo.updateVideo(video.id, { status: VideoStatus.UPLOADED });
+  console.log(`  row status : ${VideoStatus.UPLOADED} (terminal — not resumable)`);
 
   await disconnect();
 }
