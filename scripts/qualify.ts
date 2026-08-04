@@ -30,10 +30,12 @@ import {
   sha256File, sha256Manifest, storeApproval, verifyApproved,
   BEAT_MAX_S,
   assessVisualFeasibility, pexelsOnlySource, formatFeasibility,
+  buildSpokenUnits, spokenCharacterCount, spokenOutlineSegments,
   guardedUpload, createGoogleYouTubePort, prismaIntentStore,
   reconcileAll, UploadBlockedError, buildYouTubeClient,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script } from "@yt-pipeline/pipeline-core";
+import type { TestStage } from "@prisma/client";
 import "dotenv/config";
 
 type ChannelKey = "ai-doom-scroll" | "wet-circuit";
@@ -281,12 +283,13 @@ async function findOrCreateRow(spec: AssetSpec) {
   return { topic, video, reused: false };
 }
 
+/** Characters that will actually be submitted — the same count that is billed. */
 function scriptChars(s: Script): number {
-  return s.segments.reduce((a, x) => a + x.narration.length, 0);
+  return spokenCharacterCount(buildSpokenUnits(s));
 }
 
 /** Reject anything that must never reach a qualification asset. */
-function validateScript(s: Script, targetChars: number, channel: ChannelKey): string[] {
+function validateScript(s: Script, targetChars: number, channel: ChannelKey, stage: TestStage): string[] {
   const problems: string[] = [];
   const all = s.segments.map((x) => x.narration).join(" ");
 
@@ -307,7 +310,7 @@ function validateScript(s: Script, targetChars: number, channel: ChannelKey): st
   // multiplier. A ±45% band let a 7,071-char script through against a 5,736
   // target; at 12.45 chars/s that renders 9:32, well past the 8:00 ceiling.
   const chars = scriptChars(s);
-  const range = runtimeRange(channel, "LONGFORM", "QUALIFICATION");
+  const range = runtimeRange(channel, "LONGFORM", stage);
   const minChars = Math.round((range.minS - TITLE_CARD_S) * CHARS_PER_SECOND[channel]);
   const maxChars = Math.round((range.maxS - TITLE_CARD_S) * CHARS_PER_SECOND[channel]);
   if (chars < minChars) problems.push(`${chars} chars renders under ${fmtRuntime(range.minS)} (need ≥ ${minChars})`);
@@ -339,7 +342,14 @@ async function main() {
   }
 
   const stage = currentTestStage();
-  if (stage !== "QUALIFICATION") fail(`TEST_STAGE is ${stage}, expected QUALIFICATION`);
+  // A canary is normal production work and must not be charged as
+  // qualification spend, so it runs at — and is accounted under — PRODUCTION.
+  // Credit reservation keys on (channel, stage), so the stage IS the
+  // accounting boundary; nothing else needs to change to keep the two apart.
+  const expectedStage = spec!.canary ? "PRODUCTION" : "QUALIFICATION";
+  if (stage !== expectedStage) {
+    fail(`TEST_STAGE is ${stage}, expected ${expectedStage} for ${spec!.canary ? "canary" : "qualification"} asset "${spec!.key}"`);
+  }
 
   const tripped = (await breakerStatus()).filter((b) => b.tripped);
   if (tripped.length) fail(`circuit breaker open: ${tripped.map((t) => `${t.channel}=${t.trigger}`).join(", ")}`);
@@ -356,6 +366,7 @@ async function main() {
 }
 
 async function runLongform(spec: AssetSpec, noUpload: boolean) {
+  const stage = currentTestStage();
   const repo = repoFor(spec.channel);
   const { topic, video, reused } = await findOrCreateRow(spec);
   console.log(`  row    : ${video.id}${reused ? " (reusing existing — narration will be reused)" : ""}`);
@@ -379,7 +390,7 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
       fail(`script generation failed (${(gen as { failureType?: string }).failureType ?? "unknown"}): ${gen.error}`);
     }
     script = gen.script;
-    const problems = validateScript(script!, targetChars, spec.channel);
+    const problems = validateScript(script!, targetChars, spec.channel, stage);
     if (problems.length) fail(`script rejected before TTS:\n    - ${problems.join("\n    - ")}`);
 
     await repo.updateVideo(video.id, { scriptJson: script as never, status: VideoStatus.SCRIPT_DONE });
@@ -405,7 +416,11 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
         channel: spec.channel,
         topicTitle: spec.topicTitle,
         targetRuntimeS: spec.targetS,
-        segments: script!.segments.map((s) => ({
+        // The bytes narration will actually speak, not the raw segments.
+        // Feasibility sizes the runtime from character counts and builds its
+        // queries from narration, so reading segments directly makes it
+        // describe a different video whenever a hook or CTA is not folded in.
+        segments: spokenOutlineSegments(script!).map((s) => ({
           segmentIndex: s.segmentIndex,
           title: s.title,
           narration: s.narration,
@@ -451,7 +466,7 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
   const before = await creditsChargedFor(video.id);
   const ctx = { topic, video, script } as unknown as PipelineContext;
   const vo = await runVoiceover(ctx, {
-    channel: spec.channel, label: `qual:${spec.key}:voiceover`, testStage: "QUALIFICATION",
+    channel: spec.channel, label: `qual:${spec.key}:voiceover`, testStage: stage,
     updateVideo: repo.updateVideo, setStatus: repo.setStatus,
   });
   if (!vo.success) fail(`voiceover failed: ${vo.error}`);
@@ -460,7 +475,7 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
 
   // ── 3. Assembly ─────────────────────────────────────────────────────
   const asm = await runAssembly(ctx, {
-    channel: spec.channel, label: `qual:${spec.key}:assembly`, testStage: "QUALIFICATION", ...repo,
+    channel: spec.channel, label: `qual:${spec.key}:assembly`, testStage: stage, ...repo,
   });
   if (!asm.success || !asm.data) fail(`assembly failed: ${asm.error}`);
   const out = asm.data;
@@ -472,12 +487,12 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
     narrationStartS: out.narrationStartS,
     cues: out.captions.cues, words: out.captions.words,
     expectedWidth: 1920, expectedHeight: 1080, expectedFps: 30,
-    testStage: "QUALIFICATION" as const,
+    testStage: stage,
   };
   const qa = await runQa(qaInput);
   console.log(`\n${formatQa(qa)}`);
 
-  const rt = checkRuntime(qa.metrics.videoDurationS ?? 0, spec.channel, "LONGFORM", "QUALIFICATION");
+  const rt = checkRuntime(qa.metrics.videoDurationS ?? 0, spec.channel, "LONGFORM", stage);
   console.log(`\n  runtime: ${rt.detail}`);
 
   const anchors = extractSyncAnchors(out.captions.words, out.captions.cues);

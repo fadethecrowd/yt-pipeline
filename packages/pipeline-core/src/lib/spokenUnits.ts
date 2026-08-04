@@ -104,3 +104,27 @@ export function spokenScriptText(units: SpokenUnit[]): string {
 export function spokenCharacterCount(units: SpokenUnit[]): number {
   return units.reduce((a, u) => a + u.text.length, 0);
 }
+
+/**
+ * The script as visual planning should see it: exactly the spoken text.
+ *
+ * Feasibility sizes a runtime from character counts and builds its search
+ * queries from each segment's narration. Reading `script.segments` directly
+ * makes it describe a different video from the one narration will speak,
+ * whenever the two disagree — which is precisely the divergence that left a
+ * hand-edited script's hook and CTA unspoken while the planner had counted
+ * them. Titles and visual prompts are carried through untouched; only the
+ * narration is replaced with the bytes that will actually be submitted.
+ */
+export function spokenOutlineSegments<T extends { segmentIndex: number; narration: string }>(
+  script: ScriptLike & { segments: T[] },
+): T[] {
+  const units = buildSpokenUnits(script);
+  const byIndex = new Map(units.map((u, i) => [script.segments[i]!.segmentIndex, u.text]));
+  // Only `narration` is replaced; every other field is carried through, so the
+  // result is the same shape it came in as. TypeScript cannot prove that of a
+  // spread over an open generic, hence the assertion.
+  return script.segments.map(
+    (s) => ({ ...s, narration: byIndex.get(s.segmentIndex) ?? s.narration }) as T,
+  );
+}

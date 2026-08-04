@@ -300,7 +300,8 @@ export {
   MIN_PLAYBACK_RATE, MAX_PLAYBACK_RATE, solvePlaybackRates,
 } from "./lib/approvedAllocation";
 export {
-  buildSpokenUnits, spokenScriptText, spokenCharacterCount, SPOKEN_UNIT_SEPARATOR,
+  buildSpokenUnits, spokenScriptText, spokenCharacterCount, spokenOutlineSegments,
+  SPOKEN_UNIT_SEPARATOR,
 } from "./lib/spokenUnits";
 export type { SpokenUnit, SpokenUnitPart } from "./lib/spokenUnits";
 export {
