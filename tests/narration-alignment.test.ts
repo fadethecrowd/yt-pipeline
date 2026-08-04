@@ -223,6 +223,18 @@ describe("the whole narration concatenates exactly", () => {
     assert.throws(() => beatSpansForNarration(bad, ranges), /does not follow the previous unit/);
   });
 
+  test("microsecond float noise at a unit join is tolerated", () => {
+    // Real case: beat 8 ended at 153.437461s and beat 9 began at 153.437460s.
+    const nudged = units.map((u) => (u.index === 1 ? { ...u, offsetS: u.offsetS! + 1e-6 } : u));
+    const spans = beatSpansForNarration(nudged, ranges);
+    assert.equal(spans.length, 5);
+  });
+
+  test("a real gap at a unit join is still rejected", () => {
+    const gapped = units.map((u) => (u.index === 1 ? { ...u, offsetS: u.offsetS! + 0.04 } : u));
+    assert.throws(() => beatSpansForNarration(gapped, ranges), AlignmentError);
+  });
+
   test("requires no second ElevenLabs call", () => {
     // Everything above is computed from the persisted alignment sidecars only.
     const spans = beatSpansForNarration(units, ranges);

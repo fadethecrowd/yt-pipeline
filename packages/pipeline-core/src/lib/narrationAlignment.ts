@@ -202,9 +202,13 @@ export function beatSpansForNarration(
     clock = base + spans[spans.length - 1]!.endS;
   }
   out.sort((a, b) => a.beat - b.beat);
-  // Contiguity across the whole track, proven rather than assumed.
+  // Contiguity across the whole track, proven rather than assumed. The
+  // tolerance is a millisecond: spans are rounded to microseconds on both
+  // sides of a unit join, so an exact comparison rejects float noise a
+  // thousand times smaller than a single video frame.
+  const JOIN_TOLERANCE_S = 1e-3;
   for (let i = 1; i < out.length; i++) {
-    if (Math.abs(out[i]!.startS - out[i - 1]!.endS) > 1e-6) {
+    if (Math.abs(out[i]!.startS - out[i - 1]!.endS) > JOIN_TOLERANCE_S) {
       throw new AlignmentError(
         `beat ${out[i]!.beat} starts at ${out[i]!.startS}s but beat ${out[i - 1]!.beat} ended at ${out[i - 1]!.endS}s`,
       );

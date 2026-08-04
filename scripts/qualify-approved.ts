@@ -126,19 +126,17 @@ async function main() {
 
   // ── Narration, inside a bounded credit window ───────────────────────────
   const before = await creditsChargedFor(video.id);
-  const rep0 = (await budgetReport()).find((b) => b.channel === CHANNEL && b.testStage === "QUALIFICATION");
+  const rep0 = (await budgetReport()).rows.find((b) => b.channel === CHANNEL && b.stage === "QUALIFICATION");
   if (!rep0) fail("no QUALIFICATION credit budget for ai-doom-scroll");
-  const priorLimit = rep0.limitChars;
-  console.log(`  budget     : limit ${priorLimit}, charged ${rep0.chargedChars}, reserved ${rep0.reservedChars}`);
+  const priorLimit = rep0.limit;
+  console.log(`  budget     : limit ${priorLimit}, charged ${rep0.charged}, reserved ${rep0.reserved}`);
 
   const ctx = { topic, video, script } as unknown as PipelineContext;
-  const openedTo = rep0.chargedChars + chars;
-  const priorDisable = process.env.DISABLE_ELEVEN;
+  const openedTo = rep0.charged + chars;
   try {
     // Headroom is opened for exactly this job and closed again in `finally`,
     // whatever happens — a crash must not leave spendable credit behind.
     await setBudgetLimit(CHANNEL, "QUALIFICATION", openedTo);
-    process.env.DISABLE_ELEVEN = "false";
     console.log(`  opened headroom to ${openedTo} (exactly ${chars} chars) — generating narration…`);
     const vo = await runVoiceover(ctx, {
       channel: CHANNEL, label: "qual:approved:voiceover", testStage: "QUALIFICATION",
@@ -148,10 +146,11 @@ async function main() {
     });
     if (!vo.success) fail(`voiceover failed: ${vo.error}`);
   } finally {
-    process.env.DISABLE_ELEVEN = priorDisable;
+    // The credit limit returns to zero the instant narration finishes, so
+    // nothing later in this run can buy anything, whatever else happens.
     await setBudgetLimit(CHANNEL, "QUALIFICATION", priorLimit);
-    const rep1 = (await budgetReport()).find((b) => b.channel === CHANNEL && b.testStage === "QUALIFICATION");
-    console.log(`  budget relocked: limit ${rep1?.limitChars}, charged ${rep1?.chargedChars}, reserved ${rep1?.reservedChars}`);
+    const rep1 = (await budgetReport()).rows.find((b) => b.channel === CHANNEL && b.stage === "QUALIFICATION");
+    console.log(`  budget relocked: limit ${rep1?.limit}, charged ${rep1?.charged}, reserved ${rep1?.reserved}`);
   }
   const afterTts = await creditsChargedFor(video.id);
   console.log(`  credits    : ${afterTts} for this row (+${afterTts - before} this run)`);
@@ -221,7 +220,11 @@ async function main() {
   for (const b of alignedBeats) {
     const src = approved.beats.find((x) => x.beat === b.beat)!;
     const rates = b.fragments.map((f) => (f.playbackRate ?? 1).toFixed(4));
-    const cover = b.fragments.reduce((a, f) => a + f.plannedDurationS, 0) + (b.cardSecondsS ?? 0);
+    // A fragment's plannedDurationS is its WHOLE screen time, including any
+    // seconds it spends in later beats. This beat owns only the part that
+    // does not carry out, plus whatever the previous clip carried in.
+    const own = b.fragments.reduce((a, f) => a + f.plannedDurationS - (f.continuationSeconds ?? 0), 0);
+    const cover = own + (b.continuedFrom?.seconds ?? 0) + (b.cardSecondsS ?? 0);
     const okCover = Math.abs(cover - actual.get(b.beat)!) < 0.05;
     const okRate = b.fragments.every((f) => (f.playbackRate ?? 1) >= 0.92 - 1e-9 && (f.playbackRate ?? 1) <= 1.08 + 1e-9);
     const okSrc = b.fragments.every((f) => f.plannedDurationS * (f.playbackRate ?? 1) <= f.sourceDurationS + 1e-3);
@@ -229,7 +232,7 @@ async function main() {
     console.log(
       `  ${String(b.beat).padStart(4)} | ${String(src.unitIndex).padStart(4)} | ` +
       `${actual.get(b.beat)!.toFixed(3).padStart(7)} | ${String(b.cardSecondsS ?? "—").padStart(4)} | ` +
-      `${b.fragments.map((f) => f.assetId).join(",").padStart(17)} | ${rates.join(",")} | ${verdict}`);
+      `${(b.fragments.map((f) => f.assetId).join(",") || "(carried)").padStart(20)} | ${rates.join(",") || "—"} | ${verdict}`);
     if (verdict !== "PASS") {
       fail(`beat ${b.beat} cannot be covered legally (cover=${cover.toFixed(3)} rate/src ok=${okRate}/${okSrc})`);
     }
@@ -349,8 +352,21 @@ async function main() {
   await disconnect();
 }
 
-main().catch(async (e) => {
-  console.error(e instanceof Error ? e.message : e);
-  await disconnect().catch(() => {});
-  process.exit(1);
-});
+/**
+ * DISABLE_ELEVEN is a coarse "do no expensive work" switch: voiceover AND
+ * assembly refuse to run under it, though assembly never calls ElevenLabs. It
+ * is lifted for THIS PROCESS ONLY — .env is never written — and the real
+ * spend guard is the credit limit, which is returned to zero the moment
+ * narration completes and gates every charge after that.
+ */
+const priorDisable = process.env.DISABLE_ELEVEN;
+process.env.DISABLE_ELEVEN = "false";
+main()
+  .catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    process.env.DISABLE_ELEVEN = priorDisable;
+    await disconnect().catch(() => {});
+  });

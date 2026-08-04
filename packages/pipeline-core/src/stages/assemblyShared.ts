@@ -2,16 +2,17 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import type { TestStage } from "@prisma/client";
 import { env } from "../config";
 import {
-  buildNarrationTrack, decodedDuration, ff, ffRaw, mediaInfo, videoDuration,
+  buildNarrationTrack, decodedDuration, ff, ffRaw, hasDrawtext, mediaInfo, videoDuration,
 } from "../lib/ffmpeg";
 import { buildLongformCaptions } from "../lib/captions";
 import type { BuiltCaptions } from "../lib/captions";
 import {
   AssetLedger, recordScene, searchPexelsCandidates,
-  validateCandidateMeta, validateDownloadedClip, writeCardTextFile,
+  validateCandidateMeta, validateDownloadedClip, wrapCardText, writeCardTextFile,
 } from "../lib/visuals";
 import { scoreRelevance, VisualPlan, buildSearchQueries } from "../lib/visualRelevance";
 import { planVisualBeats, summarizeBeats, minimumBeatsFor, BEAT_MAX_S, MIN_FRAGMENT_S, fitFragment } from "../lib/visualBeats";
@@ -65,6 +66,64 @@ async function downloadTo(url: string, dest: string): Promise<void> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   await writeFile(dest, Buffer.from(await res.arrayBuffer()));
+}
+
+/**
+ * Build one card clip.
+ *
+ * Where ffmpeg has `drawtext` the filter graph is exactly what it always was,
+ * so production output is unchanged. Where it does not — a build without
+ * libfreetype fails the whole render on the first card — the same wrapped
+ * text, colours and badge are composited to a still and held for the same
+ * duration.
+ */
+async function renderCardClip(o: {
+  text: string; channel: string; durationS: number;
+  clipPath: string; titleFile: string; tmpDir: string; sceneNumber: number; label: string;
+}): Promise<void> {
+  const badge = o.channel === "wet-circuit" ? "WET CIRCUIT" : "AI DOOM SCROLL";
+  if (await hasDrawtext()) {
+    await ff(
+      ["-f", "lavfi", "-i", `color=c=#243257:s=${WIDTH}x${HEIGHT}:d=${o.durationS}:r=${FPS}`,
+       "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(o.titleFile)}':fontsize=64:fontcolor=white:x=(w-tw)/2:y=(h-th)/2-40:line_spacing=14,`
+         + `drawtext=text='${badge}':fontsize=30:fontcolor=0x8899ff:x=(w-tw)/2:y=h-140`,
+       "-c:v", "libx264", "-preset", "fast", "-t", String(o.durationS), o.clipPath],
+      o.label,
+    );
+    return;
+  }
+  await renderTextStillClip({
+    text: o.text, background: "#243257", fontSize: 64, lineSpacing: 14, offsetY: -40,
+    badge, durationS: o.durationS,
+    stillPath: join(o.tmpDir, `card-${o.sceneNumber}.png`), clipPath: o.clipPath, label: o.label,
+  });
+}
+
+/** Composite centred, wrapped text to a still and hold it for `durationS`. */
+async function renderTextStillClip(o: {
+  text: string; background: string; fontSize: number; lineSpacing: number; offsetY: number;
+  badge?: string; durationS: number; stillPath: string; clipPath: string; label: string;
+}): Promise<void> {
+  const lines = wrapCardText(o.text).split("\n");
+  const lineH = o.fontSize + o.lineSpacing;
+  const top = HEIGHT / 2 + o.offsetY - ((lines.length - 1) * lineH) / 2;
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">`
+    + `<rect width="100%" height="100%" fill="${o.background}"/>`
+    + lines.map((l, i) =>
+        `<text x="${WIDTH / 2}" y="${top + i * lineH}" text-anchor="middle" dominant-baseline="middle" `
+        + `font-family="Helvetica,Arial,sans-serif" font-size="${o.fontSize}" fill="#ffffff">${esc(l)}</text>`).join("")
+    + (o.badge
+        ? `<text x="${WIDTH / 2}" y="${HEIGHT - 140}" text-anchor="middle" dominant-baseline="middle" `
+          + `font-family="Helvetica,Arial,sans-serif" font-size="30" fill="#8899ff">${esc(o.badge)}</text>`
+        : "")
+    + `</svg>`;
+  await sharp(Buffer.from(svg)).png().toFile(o.stillPath);
+  await ff(
+    ["-loop", "1", "-i", o.stillPath, "-t", String(o.durationS), "-r", String(FPS),
+     "-vf", "format=yuv420p", "-c:v", "libx264", "-preset", "fast", o.clipPath],
+    o.label,
+  );
 }
 
 export interface AssemblyDeps {
@@ -201,13 +260,10 @@ async function renderApprovedBeat(
     const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
     const titleFile = join(tmpDir, `card-${sceneNumber}.txt`);
     await writeCardTextFile(titleFile, beat.cardText ?? seg.title);
-    await ff(
-      ["-f", "lavfi", "-i", `color=c=#243257:s=${WIDTH}x${HEIGHT}:d=${dur}:r=${FPS}`,
-       "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleFile)}':fontsize=64:fontcolor=white:x=(w-tw)/2:y=(h-th)/2-40:line_spacing=14,`
-         + `drawtext=text='${channel === "wet-circuit" ? "WET CIRCUIT" : "AI DOOM SCROLL"}':fontsize=30:fontcolor=0x8899ff:x=(w-tw)/2:y=h-140`,
-       "-c:v", "libx264", "-preset", "fast", "-t", String(dur), clipPath],
-      label,
-    );
+    await renderCardClip({
+      text: beat.cardText ?? seg.title, channel, durationS: dur,
+      clipPath, titleFile, tmpDir, sceneNumber, label,
+    });
     await recordScene({
       channel, videoId, sceneNumber, narration: beat.narration,
       startTimeS: TITLE_CARD_DURATION + cursor, endTimeS: TITLE_CARD_DURATION + cursor + dur,
@@ -689,12 +745,20 @@ async function finishAssembly(
   const titleTextFile = join(tmpDir, "title.txt");
   await writeCardTextFile(titleTextFile, ctx.topic.title);
   const titlePath = join(tmpDir, "title.mp4");
-  await ff(
-    ["-f", "lavfi", "-i", `color=c=#1a1a2e:s=${WIDTH}x${HEIGHT}:d=${TITLE_CARD_DURATION}:r=${FPS}`,
-     "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleTextFile)}':fontsize=54:fontcolor=white:x=(w-tw)/2:y=(h-th)/2:line_spacing=10`,
-     "-c:v", "libx264", "-preset", "fast", "-t", String(TITLE_CARD_DURATION), titlePath],
-    label,
-  );
+  if (await hasDrawtext()) {
+    await ff(
+      ["-f", "lavfi", "-i", `color=c=#1a1a2e:s=${WIDTH}x${HEIGHT}:d=${TITLE_CARD_DURATION}:r=${FPS}`,
+       "-vf", `format=yuv420p,drawtext=textfile='${escapeFilterPath(titleTextFile)}':fontsize=54:fontcolor=white:x=(w-tw)/2:y=(h-th)/2:line_spacing=10`,
+       "-c:v", "libx264", "-preset", "fast", "-t", String(TITLE_CARD_DURATION), titlePath],
+      label,
+    );
+  } else {
+    await renderTextStillClip({
+      text: ctx.topic.title, background: "#1a1a2e", fontSize: 54, lineSpacing: 10,
+      offsetY: 0, durationS: TITLE_CARD_DURATION,
+      stillPath: join(tmpDir, "title.png"), clipPath: titlePath, label,
+    });
+  }
 
   // ── 5. Concat visual track ───────────────────────────────────────────
   const concatFile = join(tmpDir, "concat.txt");

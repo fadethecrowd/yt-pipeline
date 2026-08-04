@@ -12,6 +12,26 @@ export const FFPROBE = existsSync(FFPROBE_FULL) ? FFPROBE_FULL : "ffprobe";
 
 const BIG = 128 * 1024 * 1024;
 
+/**
+ * Whether this ffmpeg can draw text.
+ *
+ * `drawtext` needs libfreetype, which not every build ships. A build without
+ * it fails the entire render on the first title card, so callers that need
+ * text check here and composite a still instead. Probed once per process.
+ */
+let drawtextSupport: boolean | null = null;
+export async function hasDrawtext(): Promise<boolean> {
+  if (drawtextSupport === null) {
+    try {
+      const { stdout } = await execFile(FFMPEG, ["-hide_banner", "-filters"], { maxBuffer: BIG });
+      drawtextSupport = /\bdrawtext\b/.test(stdout);
+    } catch {
+      drawtextSupport = false;
+    }
+  }
+  return drawtextSupport;
+}
+
 export async function ff(args: string[], label = "ffmpeg"): Promise<void> {
   console.log(`[${label}] ffmpeg ${args.slice(0, 6).join(" ")}…`);
   await execFile(FFMPEG, ["-y", "-loglevel", "error", ...args], { maxBuffer: BIG });
