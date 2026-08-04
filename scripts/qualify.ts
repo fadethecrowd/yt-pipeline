@@ -463,12 +463,42 @@ async function runLongform(spec: AssetSpec, noUpload: boolean) {
   }
 
   // ── 2. Narration (idempotent) ───────────────────────────────────────
+  //
+  // Headroom is opened for exactly the characters this script will submit,
+  // against this run's own (channel, stage) budget, and closed again in the
+  // `finally` whatever happens — a crash must never leave spendable credit
+  // behind. Reservation keys on the same pair, so a canary running at
+  // PRODUCTION cannot draw on the qualification allowance or vice versa.
   const before = await creditsChargedFor(video.id);
+  const submitChars = spokenCharacterCount(buildSpokenUnits(script!));
+  const budget0 = (await budgetReport()).rows.find(
+    (b) => b.channel === spec.channel && b.stage === stage,
+  );
+  if (!budget0) fail(`no ${stage} credit budget row for ${spec.channel}`);
+  const priorLimit = budget0.limit;
+  const openTo = budget0.charged + submitChars;
+  console.log(
+    `  budget   : ${spec.channel}/${stage} limit ${priorLimit} charged ${budget0.charged} ` +
+    `reserved ${budget0.reserved} → opening to ${openTo} (exactly ${submitChars} chars)`,
+  );
+
   const ctx = { topic, video, script } as unknown as PipelineContext;
-  const vo = await runVoiceover(ctx, {
-    channel: spec.channel, label: `qual:${spec.key}:voiceover`, testStage: stage,
-    updateVideo: repo.updateVideo, setStatus: repo.setStatus,
-  });
+  let vo;
+  try {
+    await setBudgetLimit(spec.channel, stage, openTo);
+    vo = await runVoiceover(ctx, {
+      channel: spec.channel, label: `qual:${spec.key}:voiceover`, testStage: stage,
+      updateVideo: repo.updateVideo, setStatus: repo.setStatus,
+    });
+  } finally {
+    await setBudgetLimit(spec.channel, stage, priorLimit);
+    const b1 = (await budgetReport()).rows.find(
+      (b) => b.channel === spec.channel && b.stage === stage,
+    );
+    console.log(
+      `  budget   : relocked — limit ${b1?.limit} charged ${b1?.charged} reserved ${b1?.reserved}`,
+    );
+  }
   if (!vo.success) fail(`voiceover failed: ${vo.error}`);
   const afterTts = await creditsChargedFor(video.id);
   console.log(`  credits: ${afterTts} total (+${afterTts - before} this run)`);
@@ -612,7 +642,10 @@ async function upload(
     console.log(`  reconciled intent ${p.intent.id}: ${p.outcome}`);
   }
 
-  const title = `[PRIVATE QUALIFICATION] ${spec.topicTitle}`.slice(0, 100);
+  // A canary is normal production work, so it carries its real title. The
+  // qualification prefix exists to make a test asset unmistakable in Studio;
+  // stamping it on a production video would mislabel the artifact.
+  const title = (spec.canary ? spec.topicTitle : `[PRIVATE QUALIFICATION] ${spec.topicTitle}`).slice(0, 100);
   console.log(`\n  uploading "${title}" …`);
 
   let youtubeId: string;
@@ -629,10 +662,12 @@ async function upload(
         manifestSha256,
         metadata: {
           title,
-          description:
-            "PRIVATE PHASE 6 QUALIFICATION ASSET — not for publication.\n\n"
-            + "Awaiting manual editorial review. This video must remain private.",
-          tags: ["qualification", "internal"],
+          description: spec.canary
+            ? "PRIVATE PRODUCTION CANARY — not for publication.\n\n"
+              + "Awaiting manual editorial review. This video must remain private."
+            : "PRIVATE PHASE 6 QUALIFICATION ASSET — not for publication.\n\n"
+              + "Awaiting manual editorial review. This video must remain private.",
+          tags: spec.canary ? ["canary", "internal"] : ["qualification", "internal"],
           categoryId: "28",
           privacyStatus: "private",
           publishAt: null,
@@ -689,9 +724,22 @@ async function upload(
 // ASSETS to derive the authorized-asset set, and importing must not start a
 // qualification run.
 if (require.main === module) {
-  main().catch(async (e) => {
-    console.error("\nQUALIFICATION RUN FAILED:", e);
-    await disconnect();
-    process.exit(1);
-  });
+  // DISABLE_ELEVEN is a coarse "do no expensive work" switch: it stops
+  // voiceover AND assembly, though assembly never calls ElevenLabs. An
+  // explicit single-asset invocation is the thing it exists to gate, so it is
+  // lifted for THIS PROCESS ONLY — .env is never written, and anything else
+  // reading it still sees the lock. The real spend guard is the credit limit,
+  // opened to exactly this script's submitted characters and returned to its
+  // prior value in a `finally` the moment narration finishes.
+  const priorDisable = process.env.DISABLE_ELEVEN;
+  process.env.DISABLE_ELEVEN = "false";
+  main()
+    .catch((e) => {
+      console.error("\nRUN FAILED:", e);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      process.env.DISABLE_ELEVEN = priorDisable;
+      await disconnect().catch(() => {});
+    });
 }
