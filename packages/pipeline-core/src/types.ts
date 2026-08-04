@@ -59,6 +59,11 @@ export interface StageDefinition {
   name: string;
   execute: StageFn;
   retries: number;
+  /**
+   * Skipped while a bounded production pilot is running. A Short is a second
+   * video, narration and upload — none of which a three-video pilot authorises.
+   */
+  skipDuringPilot?: boolean;
 }
 
 // ── Topic Discovery ────────────────────────────────────────────────────────

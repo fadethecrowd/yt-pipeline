@@ -7,6 +7,16 @@ import {
   confirmUploadState,
   assertNoDuplicateUploadRecord,
 } from "../lib/uploadSafety";
+import {
+  currentPilot, uploadPolicyFor, assertPilotUploadAllowed,
+  claimPilotSlot, releasePilotSlot, confirmPilotSlot,
+} from "../lib/pilot";
+import {
+  guardedUpload, createGoogleYouTubePort, prismaIntentStore, UploadBlockedError,
+} from "../lib/uploadIntent";
+import { sha256File, sha256Manifest } from "../lib/approvedArtifact";
+import { sceneRecordsFor } from "../lib/visuals";
+import { currentTestStage } from "../lib/testStage";
 import type { PipelineContext, StageResult, UploadResult } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -109,11 +119,19 @@ export async function youtubeUpload(
 
   // Verify channel, enforce private-on-test, and refuse a second upload of an
   // asset that already has a YouTube ID.
+  // Pilot runs are private with no publish time. The restriction is scoped to
+  // the pilot: ordinary production still receives its scheduled slot, so this
+  // does not quietly redefine all PRODUCTION uploads as private forever.
+  const pilot = await currentPilot();
+  const policy = uploadPolicyFor(pilot, getNextPublishSlot());
+  if (policy.source === "pilot") {
+    console.log(`[youtubeUpload] pilot ${pilot!.pilotId}: private, no publishAt, guarded intent`);
+  }
   const decision = await prepareUpload({
     channelKey: "ai-doom-scroll",
     serviceLabel: "youtubeUpload",
     existingYoutubeId: video.youtubeId,
-    scheduledSlot: getNextPublishSlot(),
+    scheduledSlot: policy.scheduledSlot,
   });
 
   if (decision.alreadyUploaded) {
@@ -134,12 +152,76 @@ export async function youtubeUpload(
     data: { status: VideoStatus.UPLOAD_PENDING },
   });
 
-  const scheduledAt = decision.publishAt;
+  const scheduledAt = policy.source === "pilot" ? null : decision.publishAt;
+  // Refuse rather than upload if anything reintroduced a publish time.
+  assertPilotUploadAllowed(policy, scheduledAt);
   console.log(
     `[youtubeUpload] privacy=private publishAt=${scheduledAt?.toISOString() ?? "none (fully private)"}`,
   );
   console.log(`[youtubeUpload] Title: ${ctx.seo.title}`);
   console.log(`[youtubeUpload] Video file: ${video.videoPath}`);
+
+  // ── Pilot: guarded, durable, reconcilable upload ─────────────────────
+  //
+  // The direct insert below has no upload intent, so a crash between the API
+  // call and the local write orphans a video nobody has a record of — the
+  // failure that once required retrospective adoption. A pilot never reaches
+  // it: the slot is claimed before any bytes move and released if the upload
+  // does not complete, so an abandoned attempt cannot burn one of the three.
+  if (policy.source === "pilot" && policy.requireGuardedUpload) {
+    const fileSha256 = await sha256File(video.videoPath);
+    const manifestSha256 = sha256Manifest(await sceneRecordsFor(ctx.video.id) as never);
+    const port = createGoogleYouTubePort();
+    const persistYoutubeId = async (_i: unknown, id: string) => {
+      await prisma.video.update({ where: { id: ctx.video.id }, data: { youtubeId: id } });
+    };
+    const slot = await claimPilotSlot(pilot!.pilotId);
+    console.log(`[youtubeUpload] pilot slot ${slot}/${pilot!.maxSuccesses} claimed`);
+    let youtubeIdGuarded: string;
+    try {
+      const r = await guardedUpload(
+        {
+          channelKey: "ai-doom-scroll", assetKey: pilot!.pilotId, videoId: ctx.video.id,
+          testStage: currentTestStage(), format: "LONGFORM",
+          filePath: video.videoPath, fileSha256, manifestSha256,
+          metadata: {
+            title: ctx.seo.title, description: ctx.seo.description, tags: ctx.seo.tags,
+            categoryId: "28", privacyStatus: "private", publishAt: null,
+          },
+          existingYoutubeId: video.youtubeId ?? null,
+          verifiedChannelId: decision.verifiedChannelId,
+          actualFileSha256: fileSha256, actualManifestSha256: manifestSha256,
+        },
+        { port, store: prismaIntentStore, persistYoutubeId },
+      );
+      youtubeIdGuarded = r.youtubeId;
+      console.log(`[youtubeUpload] pilot upload ${r.status} (intent ${r.intent.id})`);
+    } catch (err) {
+      await releasePilotSlot(pilot!.pilotId);
+      console.error(`[youtubeUpload] pilot slot released — upload did not complete`);
+      if (err instanceof UploadBlockedError) {
+        return { success: false, error: `upload blocked [${err.code}]: ${err.message}`, durationMs: Date.now() - start };
+      }
+      throw err;
+    }
+    await prisma.video.update({
+      where: { id: ctx.video.id },
+      data: { youtubeId: youtubeIdGuarded, scheduledAt: null, status: VideoStatus.UPLOADED },
+    });
+    const after = await confirmPilotSlot(pilot!.pilotId, ctx.video.id);
+    console.log(`[youtubeUpload] pilot ${after.pilotId}: ${after.successVideoIds.length}/${after.maxSuccesses} confirmed, status ${after.status}`);
+    await confirmUploadState({
+      channelKey: "ai-doom-scroll", serviceLabel: "youtubeUpload",
+      youtubeId: youtubeIdGuarded, expectPrivate: true, videoId: ctx.video.id,
+    });
+    await assertNoDuplicateUploadRecord(youtubeIdGuarded, "ai-doom-scroll", ctx.video.id);
+    ctx.youtubeId = youtubeIdGuarded;
+    return {
+      success: true,
+      data: { youtubeId: youtubeIdGuarded, scheduledAt: new Date() },
+      durationMs: Date.now() - start,
+    };
+  }
 
   const youtube = getYouTubeClient();
 

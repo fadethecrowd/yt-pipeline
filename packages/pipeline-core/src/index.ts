@@ -309,6 +309,17 @@ export {
 } from "./lib/exhaustiveBeats";
 export type { ExhaustiveBeat } from "./lib/exhaustiveBeats";
 export { solveApprovedStrip, MAX_CLIP_S } from "./lib/approvedStrip";
+export {
+  activePilotId, getPilot, currentPilot, assertRunnable, remainingSlots,
+  claimPilotSlot, releasePilotSlot, confirmPilotSlot,
+  uploadPolicyFor, assertPilotUploadAllowed, PilotBlockedError,
+} from "./lib/pilot";
+export type { PilotConfig, PilotStatus, UploadPolicy } from "./lib/pilot";
+export {
+  zonedParts, offsetMinutes, isDst, zonedTimeToUtc, isWindowDay, isInWindow,
+  nextWindowStart, formatZoned, EASTERN,
+  DEFAULT_WINDOW_DAYS, DEFAULT_WINDOW_START_HOUR, DEFAULT_WINDOW_END_HOUR,
+} from "./lib/easternWindow";
 export type { StripAsset, StripBeat } from "./lib/approvedStrip";
 export {
   beatSpansForUnit, beatSpansForNarration, AlignmentError,

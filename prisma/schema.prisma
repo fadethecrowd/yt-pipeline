@@ -594,3 +594,55 @@ model UploadIntent {
   @@index([videoId])
   @@map("upload_intent")
 }
+
+/// A bounded, private-only production pilot.
+///
+/// The three-video limit must survive a crash, a redeploy and two processes
+/// racing, so it lives here rather than in memory: `successCount` is claimed
+/// by a conditional UPDATE that only succeeds while the count is below
+/// `maxSuccesses`, exactly as credit reservation works. A slot is claimed
+/// before the upload and released if the upload does not complete, so an
+/// abandoned attempt never consumes one of the three.
+///
+/// Rollback: this table is additive and referenced only by pilot-mode code
+/// paths. Dropping it disables pilot mode and leaves every other behaviour
+/// untouched; no existing column or row is modified by its introduction.
+model ProductionPilot {
+  id            String       @id @default(cuid())
+  /// Stable human-facing identifier, e.g. "ai-doom-private-pilot-1".
+  pilotId       String       @unique
+  channel       String
+  channelId     String
+  status        PilotStatus  @default(PREPARED)
+  maxSuccesses  Int          @default(3)
+  /// Slots claimed. Never decremented below the number of confirmed uploads.
+  successCount  Int          @default(0)
+  /// Video ids that reached terminal UPLOADED under this pilot.
+  successVideoIds String[]   @default([])
+  /// Only candidates created after this instant may count toward the pilot.
+  activatedAt   DateTime?
+  completedAt   DateTime?
+  privacyStatus String       @default("private")
+  allowPublishAt Boolean     @default(false)
+  shortsEnabled Boolean      @default(false)
+  requireFeasibility Boolean @default(true)
+  requireGuardedUpload Boolean @default(true)
+  /// Execution window, in `timezone`. NOT a YouTube publish schedule.
+  windowDays    Int[]        @default([1, 3, 5])
+  windowStartHour Int        @default(17)
+  windowEndHour Int          @default(20)
+  timezone      String       @default("America/New_York")
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@map("production_pilot")
+}
+
+enum PilotStatus {
+  PREPARED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  FAILED
+}
