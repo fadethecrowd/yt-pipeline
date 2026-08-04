@@ -63,6 +63,13 @@ interface AssetSpec {
    * rather than an exception buried in the checker.
    */
   phase6Authorized?: boolean;
+  /**
+   * A production canary: the normal path, run once, under the same private
+   * upload rules as qualification. Distinct from phase6Authorized, which marks
+   * qualification assets — the invariant checker derives its authorized set
+   * from that flag and a canary must not be mistaken for one.
+   */
+  canary?: boolean;
 }
 
 // ── The six Phase 6 assets ────────────────────────────────────────────────
@@ -72,6 +79,42 @@ interface AssetSpec {
 // One per channel sits near the upper end, one near the middle.
 
 export const ASSETS: AssetSpec[] = [
+  {
+    // ── PRODUCTION CANARY ────────────────────────────────────────────────
+    // The first asset run through the normal path after qualification. Not a
+    // qualification asset: it reuses nothing from the approved benchmark —
+    // different topic, script, narration, footage, row and upload intent.
+    //
+    // Selected by the normal screening process. It passes the gate at the
+    // STRICT thresholds, not the relaxed finite-credit profile: 217 accepted
+    // unique assets (158 without brand risk), 4,181 usable seconds against a
+    // 356s timeline, 0% predicted fallback cards, seven distinct visual
+    // categories, largest concept 36% against a 40% cap.
+    //
+    // Deliberately physical. The topics that failed the gate before — retail
+    // surveillance, warehouse robots, humanoids — were about behaviour and
+    // software, which stock libraries do not depict. This sits in the same
+    // visual register that qualification proved out (power, construction,
+    // heavy industry) while sharing no beat with the approved video.
+    key: "canary1",
+    channel: "ai-doom-scroll",
+    format: "LONGFORM",
+    canary: true,
+    targetS: 360, // 6:00 — mid-range for 5:00–8:00
+    topicTitle: "What Happens to the Servers When the Model Gets Old",
+    topicUrl: "https://production.local/ai-doom/ai-hardware-refresh-waste",
+    summary:
+      "AI accelerators have a three-to-five year service life before they are displaced on "
+      + "performance per watt. The racks come out, the building stays, and the hardware becomes a "
+      + "waste stream: stripped, shredded and sorted into circuit boards, aluminium chassis and "
+      + "copper wiring, with whatever cannot be separated economically landfilled or exported. "
+      + "Recovery rates for gold, palladium and rare earths sit far below the mining equivalent, so "
+      + "the shortfall is made up at the front of the supply chain in open pits and smelters. "
+      + "Simultaneous refresh cycles across hundreds of facilities arrive faster than recycling "
+      + "capacity is being built, and the disposal cost is not in the falling cost per token. "
+      + "Concrete, visual subject matter: server racks, electronic waste, scrap and recycling "
+      + "plants, open-pit mining, smelters, freight logistics, landfill sites.",
+  },
   {
     key: "ai1",
     channel: "ai-doom-scroll",
@@ -617,6 +660,14 @@ async function upload(
   console.log(`  privacy  : ${privacy} ${privacy === "private" ? "✓" : "✗"}`);
   console.log(`  publishAt: ${publishAt ?? "none ✓"}`);
   console.log(`  db rows  : ${dupA + dupW} ${dupA + dupW === 1 ? "✓" : "✗"}`);
+
+  // Move the row out of the resumable range now YouTube has confirmed the
+  // upload. ASSEMBLY_DONE is mid-pipeline, so a finished asset left there
+  // reads as work still to do and a resumer would select it again — it would
+  // then be refused as ALREADY_UPLOADED, but only after being picked up,
+  // and the row would keep showing as pending forever.
+  await repo.updateVideo(videoId, { status: VideoStatus.UPLOADED });
+  console.log(`  row      : ${VideoStatus.UPLOADED} (terminal — not resumable)`);
 }
 
 // Only run when invoked directly. scripts/verify-phase6-state.ts imports
