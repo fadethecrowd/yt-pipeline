@@ -17,6 +17,7 @@ import {
   isUnresolved, CHANNELS,
 } from "@yt-pipeline/pipeline-core";
 import type { RemoteVideo } from "@yt-pipeline/pipeline-core";
+import type { TestStage } from "@prisma/client";
 import { ASSETS } from "./qualify";
 import "dotenv/config";
 
@@ -31,8 +32,30 @@ const HBM = "cms9970di0002mbti2m9avpui";
 /** Title fragment the HBM asset was uploaded under, for remote matching. */
 const HBM_EXPECTED_TITLE = "The AI Chip Shortage Moved From GPUs to Memory";
 
-/** Ledger total at the point Phase 6 was paused. */
-const EXPECTED_LEDGER = 11_569;
+/**
+ * Assets whose ElevenLabs spend is sanctioned, and what each was authorized to
+ * charge. The ledger total is DERIVED from this rather than frozen at a
+ * constant: a hardcoded figure reports a violation after every authorized run,
+ * which trains the reader to ignore it — and an alarm nobody reads is worse
+ * than no alarm. What matters is not that the total never moves, but that
+ * every character on it belongs to something that was allowed to spend.
+ */
+const SANCTIONED_SPEND: { videoId: string; stage: TestStage; chars: number; what: string }[] = [
+  { videoId: "cms9970di0002mbti2m9avpui", stage: "QUALIFICATION", chars: 7_071, what: "HBM (withdrawn, quarantined)" },
+  { videoId: "cmsdrtafn0002mbdzwpmndnix", stage: "QUALIFICATION", chars: 4_574, what: "qualification benchmark rrb0A_piLEM" },
+  { videoId: "cmsexx3n80002mb1gd988zvee", stage: "PRODUCTION", chars: 5_017, what: "production canary AMrrTvdL2tI" },
+];
+
+/**
+ * Stages whose every charge must map to a named asset above. DIAGNOSTIC spend
+ * predates these controls and is reconciled by total only — enumerating it
+ * would freeze history without protecting anything.
+ */
+const CONTROLLED_STAGES: TestStage[] = ["QUALIFICATION", "PRODUCTION", "RETEST", "REPEATABILITY"];
+
+function budgetsWithReservations(rep: { rows: { channel: string; stage: string; reserved: number }[] }): string[] {
+  return rep.rows.filter((r) => r.reserved > 0).map((r) => `${r.channel}/${r.stage}=${r.reserved}`);
+}
 
 const failures: string[] = [];
 function check(ok: boolean, label: string, detail: string) {
@@ -52,10 +75,47 @@ async function main() {
   // ── Credit ledger ───────────────────────────────────────────────────
   const ledger = await prisma.elevenLabsUsage.aggregate({ _sum: { chargedChars: true } });
   const total = ledger._sum.chargedChars ?? 0;
-  check(total === EXPECTED_LEDGER, "ElevenLabs ledger unchanged", `${total} (expected ${EXPECTED_LEDGER})`);
+  // The budgets are the durable accounting. Usage rows and budget rows are
+  // written by the same settle call, so a divergence means a charge was
+  // recorded against no budget — or a budget moved without a charge.
+  const budgetsAll = await budgetReport();
+  const budgetCharged = budgetsAll.rows.reduce((a, r) => a + r.charged, 0);
+  check(total === budgetCharged, "usage rows reconcile to budget rows",
+    `usage ${total} vs budgets ${budgetCharged}`);
+
+  // Every charged row must belong to a sanctioned asset at the stage it was
+  // sanctioned for. An unknown videoId here is spend nobody authorized.
+  const rows = await prisma.elevenLabsUsage.findMany({
+    where: { chargedChars: { gt: 0 }, testStage: { in: CONTROLLED_STAGES } },
+    select: { videoId: true, testStage: true, chargedChars: true, segmentIndex: true },
+  });
+  const byAsset = new Map<string, { stage: string; charged: number }>();
+  for (const r of rows) {
+    const k = `${r.videoId}/${r.testStage}`;
+    const cur = byAsset.get(k) ?? { stage: r.testStage, charged: 0 };
+    cur.charged += r.chargedChars ?? 0;
+    byAsset.set(k, cur);
+  }
+  const unknown: string[] = [];
+  const mismatched: string[] = [];
+  for (const [k, v] of byAsset) {
+    const [videoId, stage] = k.split("/");
+    const s = SANCTIONED_SPEND.find((x) => x.videoId === videoId && x.stage === stage);
+    if (!s) { unknown.push(`${k}=${v.charged}`); continue; }
+    if (v.charged !== s.chars) mismatched.push(`${s.what}: charged ${v.charged}, sanctioned ${s.chars}`);
+  }
+  check(unknown.length === 0, "no unsanctioned controlled-stage spend",
+    unknown.length === 0 ? `${byAsset.size} asset(s), all sanctioned` : unknown.join(", "));
+  check(mismatched.length === 0, "each asset charged exactly what was sanctioned",
+    mismatched.length === 0 ? "all exact" : mismatched.join("; "));
+
+  // A charged row with an open reservation means a transaction never settled.
+  const unsettled = budgetsWithReservations(budgetsAll);
+  check(unsettled.length === 0, "no unsettled narration transaction",
+    unsettled.length === 0 ? "0 chars reserved anywhere" : unsettled.join(", "));
 
   // ── Budgets ─────────────────────────────────────────────────────────
-  const budgets = await budgetReport();
+  const budgets = budgetsAll;
   const open = budgets.rows.filter((r) => r.remaining > 0);
   check(
     open.length === 0,
