@@ -9,17 +9,21 @@ import {
   quarantinedVideoIds,
   env,
   RunSummary,
+  currentPilot, assertRunnable, remainingSlots, PilotBlockedError,
+  formatZoned, isInWindow,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
 
 import { topicDiscovery } from "./stages/topicDiscovery";
 import { scriptGenerator } from "./stages/scriptGenerator";
 import { qualityGate } from "./stages/qualityGate";
+import { wcVisualFeasibilityGate } from "./stages/visualFeasibilityGate";
 import { seoGenerator } from "./stages/seoGenerator";
 import { wcThumbnailGenerator } from "./stages/thumbnailGenerator";
 import { wcThumbnailHeadlineGenerator } from "./stages/thumbnailHeadlineGenerator";
 import { wcVoiceover } from "./stages/voiceover";
 import { wcVideoAssembly } from "./stages/videoAssembly";
+import { wcFinalVideoQa } from "./stages/finalVideoQa";
 import { wcYoutubeUpload } from "./stages/youtubeUpload";
 import { wcShortsGenerator } from "./stages/shortsGenerator";
 import { wcNotify } from "./stages/notify";
@@ -34,38 +38,69 @@ const WC_LOCK_ID = 789012;
 
 // ── Stage definitions (sequential) ────────────────────────────────────────
 //
-// Order: discover → script → quality gate → SEO → thumbnail → voiceover → assembly → upload → notify
+// Order: discover → script → quality gate → visual feasibility → SEO →
+//        thumbnail → voiceover → assembly → upload → shorts → notify
 // SEO + thumbnails run before voiceover because they only need the script, not audio.
 
 const STAGES: StageDefinition[] = [
   { name: "topicDiscovery",               execute: topicDiscovery,               retries: 2 },
   { name: "scriptGenerator",              execute: scriptGenerator,              retries: 2 },
   { name: "qualityGate",                  execute: qualityGate,                  retries: 0 },
+  // Before ANY ElevenLabs budget opens. A retry here would re-query the stock
+  // library for the same verdict, so it gets none.
+  { name: "visualFeasibilityGate",        execute: wcVisualFeasibilityGate,      retries: 0 },
   { name: "seoGenerator",                 execute: seoGenerator,                 retries: 2 },
   { name: "wcThumbnailHeadlineGenerator", execute: wcThumbnailHeadlineGenerator, retries: 2 },
   { name: "wcThumbnailGenerator",         execute: wcThumbnailGenerator,         retries: 2 },
   { name: "voiceover",                    execute: wcVoiceover,                  retries: 3 },
   { name: "videoAssembly",                execute: wcVideoAssembly,              retries: 3 },
+  // Validates the assembled video and its captions, and binds the verdict to
+  // the artifact's hash. A retry would re-measure the same bytes for the same
+  // answer, so it gets none.
+  { name: "finalVideoQa",                 execute: wcFinalVideoQa,               retries: 0 },
   { name: "youtubeUpload",                execute: wcYoutubeUpload,              retries: 3 },
-  { name: "shortsGenerator",              execute: wcShortsGenerator,            retries: 1 },
+  // Skipped during a pilot: a Short is a second video and a second upload,
+  // neither of which a one-video canary authorises. Gated by the durable pilot
+  // config rather than by commenting the stage out, so ordinary production
+  // keeps it.
+  { name: "shortsGenerator",              execute: wcShortsGenerator,            retries: 1, skipDuringPilot: true },
   { name: "notify",                       execute: wcNotify,                     retries: 2 },
 ];
 
-// Map video status → stage index to resume from.
-// Only statuses that indicate a stage completed but the next one hasn't started.
-// Indices shifted +1 for everything after seoGenerator because
-// wcThumbnailHeadlineGenerator was inserted at index 4.
-const RESUME_FROM: Partial<Record<VideoStatus, number>> = {
-  [VideoStatus.SEO_DONE]:         4, // SEO done → resume at wcThumbnailHeadlineGenerator (then thumbnail)
-  [VideoStatus.VOICEOVER_DONE]:   7, // voiceover done → resume at videoAssembly (was 6)
-  [VideoStatus.ASSEMBLY_DONE]:    8, // assembly done → resume at youtubeUpload (was 7)
-  // Mid-stage crash recovery (container died between status update and stage completion).
-  // Safe to auto-retry: these stages don't make external paid API calls.
-  [VideoStatus.ASSEMBLY_PENDING]: 7, // assembly crashed mid-flight → retry videoAssembly (was 6)
-  [VideoStatus.UPLOAD_PENDING]:   8, // upload crashed mid-flight → retry youtubeUpload (was 7)
-  // Deliberately NOT included: VOICEOVER_PENDING / SCRIPT_PENDING / SEO_PENDING.
-  // Auto-resuming those would re-spend ElevenLabs / Anthropic credits — operator must decide.
+/**
+ * Where a stuck video resumes, BY STAGE NAME.
+ *
+ * These used to be numeric indices into STAGES, carrying a comment tracking how
+ * far they had shifted the last time a stage was inserted. Adding
+ * visualFeasibilityGate would have shifted every one of them again, silently
+ * resuming a narrated video at the wrong stage — and a pilot run, which filters
+ * shortsGenerator out, shifts them differently again. Names cannot drift.
+ *
+ * Deliberately NOT included: VOICEOVER_PENDING / SCRIPT_PENDING / SEO_PENDING.
+ * Auto-resuming those would re-spend ElevenLabs / Anthropic credits — the
+ * operator must decide.
+ */
+const RESUME_FROM: Partial<Record<VideoStatus, string>> = {
+  [VideoStatus.SEO_DONE]:         "wcThumbnailHeadlineGenerator",
+  [VideoStatus.VOICEOVER_DONE]:   "videoAssembly",
+  // Assembly finished but upload had not started: re-run QA against whatever
+  // artifact is on disk now, rather than trusting a verdict from a previous
+  // render. Resuming straight to youtubeUpload would be refused anyway, since
+  // the upload gate compares the artifact's hash to the persisted one.
+  [VideoStatus.ASSEMBLY_DONE]:    "finalVideoQa",
+  // Mid-stage crash recovery (container died between status update and stage
+  // completion). Safe to auto-retry: these stages make no paid API calls.
+  [VideoStatus.ASSEMBLY_PENDING]: "videoAssembly",
+  [VideoStatus.UPLOAD_PENDING]:   "youtubeUpload",
 };
+
+/** Fails closed rather than resuming at an arbitrary stage. */
+function resumeIndex(stages: StageDefinition[], status: VideoStatus): number {
+  const name = RESUME_FROM[status];
+  const idx = name ? stages.findIndex((s) => s.name === name) : -1;
+  if (idx < 0) throw new Error(`no resume stage named "${name}" for status ${status}`);
+  return idx;
+}
 
 // ── Halt-on-failure guard ───────────────────────────────────────────────
 // Window beyond which an unacknowledged FAILED row stops blocking new work.
@@ -194,6 +229,62 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
   await withAdvisoryLock(prisma, WC_LOCK_ID, async () => {
     console.log(`${LOG} Advisory lock acquired (id: ${WC_LOCK_ID})`);
 
+    // ── Pilot gate ────────────────────────────────────────────────────
+    //
+    // Every check reads the durable row, so a redeploy or a crash cannot reset
+    // what the pilot has already used. The advisory lock above is the first
+    // concurrency defence; the cap below fails closed independently of it,
+    // because a lock that is somehow not held must not become permission to
+    // exceed the limit.
+    const pilot = await currentPilot();
+    if (pilot) {
+      if (pilot.channel !== "wet-circuit" || pilot.channelId !== WC_CHANNEL_ID) {
+        throw new PilotBlockedError(
+          "PILOT_WRONG_CHANNEL",
+          `pilot ${pilot.pilotId} is for ${pilot.channel} (${pilot.channelId}), ` +
+          `not wet-circuit (${WC_CHANNEL_ID}) — refusing to run it here`,
+        );
+      }
+      console.log(
+        `${LOG} PILOT ${pilot.pilotId}: status=${pilot.status} ` +
+        `${pilot.successVideoIds.length}/${pilot.maxSuccesses} confirmed, ` +
+        `${pilot.successCount} claimed, shorts=${pilot.shortsEnabled ? "on" : "off"}, ` +
+        `publishAt=${pilot.allowPublishAt ? "permitted" : "forbidden"}`,
+      );
+      assertRunnable(pilot);
+      const left = await remainingSlots(pilot.pilotId);
+      if (left <= 0) {
+        throw new PilotBlockedError("PILOT_CAP_REACHED",
+          `pilot ${pilot.pilotId} has no slots left — refusing to create a candidate`);
+      }
+      if (!isInWindow(new Date(), {
+        days: pilot.windowDays, startHour: pilot.windowStartHour,
+        endHour: pilot.windowEndHour, timeZone: pilot.timezone,
+      })) {
+        console.log(
+          `${LOG} outside the pilot execution window ` +
+          `(${pilot.windowStartHour}:00-${pilot.windowEndHour}:00 ${pilot.timezone}); ` +
+          `now is ${formatZoned(new Date(), pilot.timezone)}`,
+        );
+      }
+      // An unresolved upload from a prior pilot candidate must be reconciled by
+      // a human before another candidate is created: it may already be a video
+      // on the channel.
+      const unresolved = await prisma.uploadIntent.count({
+        where: { NOT: { state: { in: ["PERSISTED", "RECONCILED_HISTORICAL_UPLOAD"] } } },
+      });
+      if (unresolved > 0) {
+        throw new PilotBlockedError("UNRESOLVED_INTENT",
+          `${unresolved} unresolved upload intent(s) — reconcile before another pilot run`);
+      }
+      console.log(`${LOG} pilot slots remaining: ${left}`);
+    }
+    const stages = STAGES.filter((s) => !(pilot && s.skipDuringPilot));
+    if (pilot) {
+      const skipped = STAGES.filter((s) => s.skipDuringPilot).map((s) => s.name);
+      if (skipped.length) console.log(`${LOG} pilot skips: ${skipped.join(", ")}`);
+    }
+
     // ── Halt-on-failure guard ────────────────────────────────────────
     // Refuse to start any new work (resume OR topicDiscovery) while there
     // are unacknowledged recent LIVE FAILED videos. DRY_RUN failures are
@@ -250,8 +341,7 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
     });
 
     if (stuckVideo) {
-      const resumeIdx = RESUME_FROM[stuckVideo.status]!;
-      const resumeStages = STAGES.slice(resumeIdx);
+      const resumeStages = stages.slice(resumeIndex(stages, stuckVideo.status));
       console.log(
         `${LOG} Resuming video ${stuckVideo.id} (stuck at ${stuckVideo.status}) from ${resumeStages[0].name}`,
       );
@@ -286,7 +376,7 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
 
     // ── Stage 1: Topic Discovery (seeds the context) ──────────────────
 
-    const discoveryStage = STAGES[0];
+    const discoveryStage = stages[0];
     const discoveryStart = Date.now();
     console.log(`${LOG} ▸ ${discoveryStage.name} started at ${ts()}`);
 
@@ -342,7 +432,7 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
 
     // ── Stages 2–8 (scriptGenerator → notify) ─────────────────────────
 
-    const ok = await runStages(STAGES.slice(1), ctx, summary);
+    const ok = await runStages(stages.slice(1), ctx, summary);
     if (ok) {
       await cleanupTmpDir(ctx.video.id);
       await finalizeSummary(summary, ctx.video.id);

@@ -124,6 +124,75 @@ export async function setBudgetLimit(
   });
 }
 
+/** Current limit for a budget row, or 0 when the row does not exist yet. */
+export async function currentBudgetLimit(
+  channel: string,
+  stage: TestStage,
+): Promise<number> {
+  const b = await prisma.creditBudget.findUnique({
+    where: { channel_testStage: { channel, testStage: stage } },
+  });
+  return b?.limitChars ?? 0;
+}
+
+/**
+ * Open exactly enough headroom for one candidate, then close it again.
+ *
+ * A (channel, stage) limit is a stage-wide allowance: with the limit set for a
+ * run, ANY candidate on that channel and stage may draw the whole of it. That
+ * is not a per-candidate budget, and a runaway script would consume the lot
+ * before anything noticed.
+ *
+ * So the window is opened to `charged + reserved + exactly the characters this
+ * candidate will submit`, and restored to its prior value in a `finally`
+ * whatever happens — including a throw, a refusal, or a partial narration. The
+ * headroom is therefore finite, per-candidate, and gone the moment the
+ * candidate finishes.
+ *
+ * `submitChars` must come from `spokenCharacterCount(buildSpokenUnits(script))`
+ * — the bytes actually submitted to ElevenLabs — not from raw segment text,
+ * which omits a folded hook and CTA and would under-open the window.
+ *
+ * The window is scoped to ONE (channel, stage) row, so a Wet Circuit candidate
+ * at PRODUCTION cannot reach the AI Doom allowance, or the qualification one,
+ * and neither can reach it.
+ */
+export async function withBudgetWindow<T>(
+  channel: string,
+  stage: TestStage,
+  submitChars: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!Number.isFinite(submitChars) || submitChars < 0) {
+    throw new Error(`withBudgetWindow: submitChars must be a non-negative number, got ${submitChars}`);
+  }
+  await ensureBudget(channel, stage);
+  const before = await prisma.creditBudget.findUnique({
+    where: { channel_testStage: { channel, testStage: stage } },
+  });
+  const priorLimit = before?.limitChars ?? 0;
+  const openTo = (before?.chargedChars ?? 0) + (before?.reservedChars ?? 0) + submitChars;
+
+  console.log(
+    `[budget] ${channel}/${stage}: limit ${priorLimit} charged ${before?.chargedChars ?? 0} ` +
+    `reserved ${before?.reservedChars ?? 0} → opening to ${openTo} (exactly ${submitChars} chars)`,
+  );
+
+  try {
+    await setBudgetLimit(channel, stage, openTo);
+    return await fn();
+  } finally {
+    await setBudgetLimit(channel, stage, priorLimit);
+    const after = await prisma.creditBudget.findUnique({
+      where: { channel_testStage: { channel, testStage: stage } },
+    });
+    console.log(
+      `[budget] ${channel}/${stage}: relocked — limit ${after?.limitChars} ` +
+      `charged ${after?.chargedChars} reserved ${after?.reservedChars}`,
+    );
+  }
+}
+
 export interface BudgetReport {
   rows: {
     channel: string;

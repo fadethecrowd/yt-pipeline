@@ -108,6 +108,8 @@ export {
   reserveCredits,
   settleCredits,
   setBudgetLimit,
+  currentBudgetLimit,
+  withBudgetWindow,
   budgetReport,
   BudgetExceededError,
   TOTAL_TARGET_CHARS,

@@ -4,8 +4,11 @@ import { VideoStatus } from "@prisma/client";
 import {
   prisma, env,
   prepareUpload, confirmUploadState, assertNoDuplicateUploadRecord,
+  currentPilot, uploadPolicyFor, assertPilotUploadAllowed,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult, UploadResult } from "@yt-pipeline/pipeline-core";
+import { runWcPilotUpload, completeWcPilotUpload, WcPilotUploadRefused } from "./pilotUpload";
+import { assertWcFinalQaPassed, WcQaBlockedError } from "./finalVideoQa";
 
 // ── Launch gate ─────────────────────────────────────────────────────────────
 
@@ -133,12 +136,46 @@ export async function wcYoutubeUpload(
     return { success: false, error: "Missing SEO metadata in context", durationMs: Date.now() - start };
   }
 
+  // ── Final-video QA is a precondition for ANY upload ──────────────────
+  //
+  // Deliberately before the pilot branch and before prepareUpload, so it
+  // governs ordinary Wet Circuit production too. Stage ordering alone would
+  // not do it: a resumed run, a hand-edited status or a re-render after QA all
+  // reach this point without QA having seen the current bytes. The check is
+  // against the artifact's hash, so a stale pass cannot satisfy it.
+  let qaEvidence: { qaId: string; sha256: string };
+  try {
+    qaEvidence = await assertWcFinalQaPassed(ctx.video.id, video.videoPath);
+  } catch (err) {
+    if (err instanceof WcQaBlockedError) {
+      return {
+        success: false,
+        error: `upload blocked [${err.code}]: ${err.message}`,
+        durationMs: Date.now() - start,
+      };
+    }
+    throw err;
+  }
+  console.log(
+    `[wc:youtubeUpload] final-video QA PASS ${qaEvidence.qaId} bound to ` +
+    `sha256 ${qaEvidence.sha256.slice(0, 16)}…`,
+  );
+
+  // Pilot runs are private with no publish time, and reach YouTube only through
+  // a guarded, durable, reconcilable intent. The restriction is scoped to the
+  // pilot: ordinary Wet Circuit production keeps its launch gate and its
+  // scheduled slot below, so this does not redefine WC publishing forever.
   const preLaunch = isBeforeLaunch();
+  const pilot = await currentPilot();
+  const policy = uploadPolicyFor(pilot, preLaunch ? null : getNextPublishSlot());
+  if (policy.source === "pilot") {
+    console.log(`[wc:youtubeUpload] pilot ${pilot!.pilotId}: private, no publishAt, guarded intent`);
+  }
   const decision = await prepareUpload({
     channelKey: "wet-circuit",
     serviceLabel: "wc:youtubeUpload",
     existingYoutubeId: video.youtubeId,
-    scheduledSlot: preLaunch ? null : getNextPublishSlot(),
+    scheduledSlot: policy.scheduledSlot,
   });
 
   if (decision.alreadyUploaded) {
@@ -159,7 +196,9 @@ export async function wcYoutubeUpload(
     data: { status: VideoStatus.UPLOAD_PENDING },
   });
 
-  const scheduledAt = decision.publishAt;
+  const scheduledAt = policy.source === "pilot" ? null : decision.publishAt;
+  // Refuse rather than upload if anything reintroduced a publish time.
+  assertPilotUploadAllowed(policy, scheduledAt);
   console.log(
     `[wc:youtubeUpload] privacy=private publishAt=${scheduledAt?.toISOString() ?? "none (fully private)"}` +
       ` (preLaunch=${preLaunch}, launchDate=${LAUNCH_DATE})`,
@@ -167,9 +206,55 @@ export async function wcYoutubeUpload(
   console.log(`[wc:youtubeUpload] Title: ${ctx.seo.title}`);
   console.log(`[wc:youtubeUpload] Video file: ${video.videoPath}`);
 
-  const youtube = getYouTubeClient();
-
   const safeTags = sanitizeTags(ctx.seo.tags);
+
+  // ── Pilot: guarded, durable, reconcilable upload ─────────────────────
+  //
+  // The direct insert below has no upload intent, so a crash between the API
+  // call and the local write orphans a video nobody has a record of. That has
+  // already happened four times on this channel — four rows sit at UPLOADED
+  // with a null youtubeId and no intent. A pilot never reaches it.
+  if (policy.source === "pilot" && policy.requireGuardedUpload) {
+    let youtubeIdGuarded: string;
+    try {
+      const r = await runWcPilotUpload(pilot!, policy, {
+        videoId: ctx.video.id,
+        videoPath: video.videoPath,
+        existingYoutubeId: video.youtubeId ?? null,
+        verifiedChannelId: decision.verifiedChannelId,
+        metadata: {
+          title: ctx.seo.title, description: ctx.seo.description,
+          tags: safeTags, categoryId: "28",
+        },
+        persistYoutubeId: (id) =>
+          prisma.wcVideo.update({ where: { id: ctx.video.id }, data: { youtubeId: id } }),
+      });
+      youtubeIdGuarded = r.youtubeId;
+    } catch (err) {
+      if (err instanceof WcPilotUploadRefused) {
+        return { success: false, error: `upload blocked [${err.code}]: ${err.message}`, durationMs: Date.now() - start };
+      }
+      throw err;
+    }
+    await prisma.wcVideo.update({
+      where: { id: ctx.video.id },
+      data: { youtubeId: youtubeIdGuarded, scheduledAt: null, status: VideoStatus.UPLOADED },
+    });
+    await completeWcPilotUpload(pilot!, ctx.video.id);
+    await confirmUploadState({
+      channelKey: "wet-circuit", serviceLabel: "wc:youtubeUpload",
+      youtubeId: youtubeIdGuarded, expectPrivate: true, videoId: ctx.video.id,
+    });
+    await assertNoDuplicateUploadRecord(youtubeIdGuarded, "wet-circuit", ctx.video.id);
+    ctx.youtubeId = youtubeIdGuarded;
+    return {
+      success: true,
+      data: { youtubeId: youtubeIdGuarded, scheduledAt: new Date() },
+      durationMs: Date.now() - start,
+    };
+  }
+
+  const youtube = getYouTubeClient();
   console.log(`[wc:youtubeUpload] Sanitized tags (${safeTags.length}): ${safeTags.join(", ")}`);
 
   const res = await youtube.videos.insert({
