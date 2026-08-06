@@ -75,7 +75,14 @@ export const AI_SUBJECTS: Record<string, string[]> = {
 };
 
 /** Subjects that make a visual clearly on-topic for Wet Circuit. */
-const MARINE_SUBJECTS: Record<string, string[]> = {
+/**
+ * Exported read-only so a diagnostic caller can re-run `classifyConcept`
+ * against the SAME taxonomy the gate used, and so distinguish a genuine
+ * no-term-match from an `ambiguous` tie that `scoreRelevance` remaps to
+ * "none". Nothing here reads it back; exporting a const changes no behaviour
+ * and no call site.
+ */
+export const MARINE_SUBJECTS: Record<string, string[]> = {
   vessel: ["boat", "yacht", "vessel", "hull", "kayak", "ship", "sailboat", "dinghy"],
   electronics: ["sonar", "radar", "chartplotter", "fishfinder", "transducer", "display",
                 "instrument", "gauge", "screen", "antenna", "gps"],

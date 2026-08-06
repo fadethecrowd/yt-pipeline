@@ -159,6 +159,7 @@ export {
   VisualPlan, REJECT_THRESHOLD, buildSearchQueries,
   classifyConcept,
   AI_SUBJECTS,
+  MARINE_SUBJECTS,
 } from "./lib/visualRelevance";
 export type { RelevanceInput, RelevanceResult, Verdict } from "./lib/visualRelevance";
 
