@@ -26,6 +26,59 @@ import { seoGenerator } from "./stages/seoGenerator";
 import { shortsGenerator } from "./stages/shortsGenerator";
 import { visualFeasibilityGate } from "./stages/visualFeasibilityGate";
 import { thumbnailHeadlineGenerator } from "./stages/thumbnailHeadlineGenerator";
+import { finalVideoQa, assertFinalQaPassed, QaBlockedError } from "./stages/finalVideoQa";
+
+/**
+ * Upload, refused unless the authoritative QA verdict passes for these exact
+ * bytes.
+ *
+ * Stage ordering alone is not a control. A resumed run, a hand-edited status,
+ * or a re-render after QA all reach upload without QA having seen the current
+ * artifact, so the gate is asked again here, at the moment of upload, rather
+ * than inferred from having walked through the stage earlier.
+ *
+ * Wraps the shared `youtubeUpload` instead of modifying it: pipeline-core must
+ * not import from `src/`, and Wet Circuit has its own upload stage that already
+ * carries its own equivalent gate. Neither channel's behaviour changes for the
+ * other.
+ */
+async function guardedYoutubeUpload(ctx: PipelineContext): Promise<StageResult> {
+  const start = Date.now();
+
+  if (process.env.DISABLE_ELEVEN === "true") {
+    // Dry runs assemble nothing real to measure; finalVideoQa skipped on the
+    // same switch, so there is no verdict to consult.
+    return youtubeUpload(ctx);
+  }
+
+  const video = await prisma.video.findUnique({ where: { id: ctx.video.id } });
+  const videoPath = video?.videoPath;
+  if (!videoPath) {
+    return {
+      success: false,
+      error: "upload refused: no assembled video on the record",
+      durationMs: Date.now() - start,
+    };
+  }
+
+  try {
+    const { qaId, sha256 } = await assertFinalQaPassed(ctx.video.id, videoPath);
+    console.log(
+      `[youtubeUpload] final-video QA ${qaId} PASS for sha256 ${sha256.slice(0, 16)}… — upload allowed`,
+    );
+  } catch (err) {
+    if (err instanceof QaBlockedError) {
+      return {
+        success: false,
+        error: `upload refused [${err.code}]: ${err.message}`,
+        durationMs: Date.now() - start,
+      };
+    }
+    throw err;
+  }
+
+  return youtubeUpload(ctx);
+}
 
 // ── Stage definitions (sequential) ────────────────────────────────────────
 
@@ -41,7 +94,12 @@ const STAGES: StageDefinition[] = [
   { name: "thumbnailHeadlineGenerator", execute: thumbnailHeadlineGenerator, retries: 2 },
   { name: "thumbnailGenerator", execute: thumbnailGenerator, retries: 2 },
   { name: "seoGenerator", execute: seoGenerator, retries: 2 },
-  { name: "youtubeUpload", execute: youtubeUpload, retries: 3 },
+  // Validates the assembled video and its captions, and binds the verdict to
+  // the artifact's hash. Placed immediately before upload so the smallest
+  // possible window exists between measuring the bytes and sending them. A
+  // retry would re-measure the same bytes for the same answer, so it gets none.
+  { name: "finalVideoQa", execute: finalVideoQa, retries: 0 },
+  { name: "youtubeUpload", execute: guardedYoutubeUpload, retries: 3 },
   // Skipped during a pilot: a Short is a second video, a second narration and a
   // second upload, none of which the pilot authorises. Gated by the durable
   // pilot config rather than by commenting the stage out, so ordinary
@@ -61,7 +119,12 @@ const STAGES: StageDefinition[] = [
 const RESUME_FROM: Partial<Record<VideoStatus, string>> = {
   [VideoStatus.VOICEOVER_DONE]: "videoAssembly",
   [VideoStatus.ASSEMBLY_DONE]: "thumbnailHeadlineGenerator",
-  [VideoStatus.SEO_DONE]: "youtubeUpload",
+  // SEO_DONE resumes into finalVideoQa, not youtubeUpload. Resuming straight
+  // to upload would be refused anyway — the upload gate compares the artifact's
+  // hash to the persisted one — but it would burn an upload attempt to discover
+  // that. Re-running QA against whatever artifact is on disk NOW is both
+  // cheaper and the only answer that is actually about the current bytes.
+  [VideoStatus.SEO_DONE]: "finalVideoQa",
 };
 
 /** Fails closed rather than resuming at an arbitrary stage. */
