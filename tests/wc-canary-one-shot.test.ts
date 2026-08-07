@@ -343,6 +343,15 @@ describe("the control tool is the only start path", () => {
     assert.ok(!armBlock.includes("runWcCanaryOnce"));
   });
 
+  test("the pre-flight is reachable in every phase it gates", () => {
+    // CHECK and ARM require narration disabled; RUN requires it enabled. If the
+    // DISABLE_ELEVEN check were unconditional, the clean-verdict guard would
+    // make RUN permanently unreachable — a control that can never fire.
+    assert.match(CONTROL, /PHASE === "RUN" \? !elevenOff : elevenOff/);
+    // Same shape for TEST_STAGE: PRODUCTION is required only once it matters.
+    assert.match(CONTROL, /currentTestStage\(\) === "PRODUCTION" \|\| PHASE === "CHECK"/);
+  });
+
   test("importing the control tool runs nothing", () => {
     assert.match(CONTROL, /const isDirectRun =/);
     assert.match(CONTROL, /if \(isDirectRun\) \{/);

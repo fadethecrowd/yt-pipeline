@@ -185,7 +185,13 @@ async function main() {
   ck((wcProd?.limit ?? -1) === 0, "wet-circuit/PRODUCTION budget locked at 0",
     `limit=${wcProd?.limit} charged=${wcProd?.charged} reserved=${wcProd?.reserved}`);
   ck(rep.totalReserved === 0, "zero reservations", String(rep.totalReserved));
-  ck(process.env.DISABLE_ELEVEN === "true", "DISABLE_ELEVEN=true (pre-arm safety)",
+  // Phase-aware, and it has to be: CHECK and ARM must not be able to narrate,
+  // but RUN cannot narrate with narration disabled. A single unconditional
+  // "DISABLE_ELEVEN=true" would make RUN unreachable behind the clean-verdict
+  // guard — a control that can never fire is not a control.
+  const elevenOff = process.env.DISABLE_ELEVEN === "true";
+  ck(PHASE === "RUN" ? !elevenOff : elevenOff,
+    PHASE === "RUN" ? "DISABLE_ELEVEN off (RUN narrates)" : "DISABLE_ELEVEN=true (pre-arm safety)",
     String(process.env.DISABLE_ELEVEN));
   ck((await prisma.pipelineRun.count({ where: { endTime: null } })) === 0, "no active run", "0");
   const locks = await prisma.$queryRawUnsafe<any[]>(
