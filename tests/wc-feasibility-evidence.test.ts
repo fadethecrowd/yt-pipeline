@@ -381,7 +381,10 @@ describe("the evidence artifact carries what a diagnosis needs", () => {
 
   test("thresholds are recorded, not redefined", () => {
     const src = readFileSync("packages/wc-pipeline/src/stages/feasibilityEvidence.ts", "utf8");
-    assert.match(src, /maxConceptShare: MAX_CONCEPT_SHARE/);
+    // The tolerance now comes from the resolved profile rather than being read
+    // straight off the module constant, so that an explicit finite-credit run
+    // records the value it actually applied.
+    assert.match(src, /maxConceptShare: accounting\.tolerance\.maxConceptShare/);
     assert.match(src, /runtimeRange\(CHANNEL, "LONGFORM", "PRODUCTION"\)/);
     assert.doesNotMatch(src, /0\.4[^0-9]|= *0\.4\b/, "the cap must be imported, never restated");
   });

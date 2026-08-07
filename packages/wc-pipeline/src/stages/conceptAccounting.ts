@@ -1,8 +1,11 @@
 import {
   classifyConcept, MARINE_SUBJECTS,
   MAX_CONCEPT_SHARE, MIN_DISTINCT_CONCEPTS,
+  qualityProfile,
 } from "@yt-pipeline/pipeline-core";
-import type { FeasibilityReport, FeasibilityCheck } from "@yt-pipeline/pipeline-core";
+import type {
+  FeasibilityReport, FeasibilityCheck, QualityProfileName,
+} from "@yt-pipeline/pipeline-core";
 
 /**
  * Tie-aware concept concentration for Wet Circuit.
@@ -38,6 +41,57 @@ import type { FeasibilityReport, FeasibilityCheck } from "@yt-pipeline/pipeline-
  * Wet Circuit only. AI Doom's gate is untouched and keeps its existing
  * behaviour; nothing here is reachable from it.
  */
+
+/**
+ * Which concept-share tolerance this evaluation used.
+ *
+ * STRICT is the default and is the repository's long-standing
+ * `MAX_CONCEPT_SHARE`, deliberately NOT the profile object's copy of the same
+ * number: a later edit to the profile must not silently move Wet Circuit's
+ * default.
+ *
+ * FINITE_CREDIT is opt-in per run and reads the tolerance the existing
+ * FINITE_CREDIT_BURN_ACCEPTABLE_QUALITY profile already owns. It relaxes ONE
+ * aesthetic tolerance and nothing else — the profile's other fields
+ * (card share, aerial share, shoot cluster, conceptual B-roll) are not read
+ * here, and are not consumed anywhere in production, so selecting this profile
+ * cannot quietly widen an unrelated quality control.
+ */
+export type ConceptShareMode = "STRICT" | "FINITE_CREDIT";
+
+export interface ConceptShareTolerance {
+  mode: ConceptShareMode;
+  /** The profile whose decision this is, or null when strict/default. */
+  profileName: QualityProfileName | null;
+  maxConceptShare: number;
+}
+
+export interface TieAwareOptions {
+  /**
+   * Opt in to a named quality profile for the concept-share tolerance only.
+   *
+   * Absent means strict. An unrecognised name throws via `qualityProfile`,
+   * so a typo refuses rather than silently falling back to relaxed behaviour.
+   */
+  qualityProfileName?: QualityProfileName;
+}
+
+/** Resolve the tolerance. Fails closed: unknown name throws, absence is strict. */
+export function resolveConceptShareTolerance(
+  opts: TieAwareOptions = {},
+): ConceptShareTolerance {
+  if (opts.qualityProfileName === undefined) {
+    return { mode: "STRICT", profileName: null, maxConceptShare: MAX_CONCEPT_SHARE };
+  }
+  // Throws on an unknown identifier — the fail-closed path.
+  const p = qualityProfile(opts.qualityProfileName);
+  return {
+    mode: p.name === "PREMIUM_AUTOMATED_VISUAL_QUALITY" ? "STRICT" : "FINITE_CREDIT",
+    profileName: p.name,
+    // The value belongs to the profile; it is never restated here.
+    maxConceptShare: p.maxConceptShare,
+  };
+}
 
 /** Labels that are not concrete visual categories a viewer would perceive. */
 const NON_CONCRETE = new Set(["none", "ambiguous", "generic-abstract", "card", "unknown", "human-performance"]);
@@ -83,6 +137,8 @@ export interface TieAwareAccounting {
   /** Largest bucket of any kind, which is what the cap is applied to. */
   dominantAnyConcept: string | null;
   dominantAnyShare: number;
+  /** Which tolerance this evaluation applied, and on whose authority. */
+  tolerance: ConceptShareTolerance;
   /** The two concept checks, recomputed. Same names, same thresholds. */
   checks: FeasibilityCheck[];
   /** Would the gate pass on the concept checks alone? */
@@ -96,7 +152,11 @@ export interface TieAwareAccounting {
  * `report.predictedBeats` — the gate's own output — so this cannot describe a
  * different video. Only the LABELLING of already-allocated seconds changes.
  */
-export function tieAwareConceptAccounting(report: FeasibilityReport): TieAwareAccounting {
+export function tieAwareConceptAccounting(
+  report: FeasibilityReport,
+  opts: TieAwareOptions = {},
+): TieAwareAccounting {
+  const tolerance = resolveConceptShareTolerance(opts);
   const fragments: FragmentAllocation[] = [];
   const conceptSeconds: Record<string, number> = {};
   const add = (concept: string, seconds: number) => {
@@ -185,11 +245,13 @@ export function tieAwareConceptAccounting(report: FeasibilityReport): TieAwareAc
     },
     {
       name: "no-dominant-concept",
-      ok: dominantAnyShare <= MAX_CONCEPT_SHARE,
+      ok: dominantAnyShare <= tolerance.maxConceptShare,
       detail: dominantAnyConcept
         ? `largest concept "${dominantAnyConcept}" holds ` +
-          `${(dominantAnyShare * 100).toFixed(0)}% of projected timeline; ` +
-          `cap ${MAX_CONCEPT_SHARE * 100}% (tie-aware accounting)`
+          `${(dominantAnyShare * 100).toFixed(1)}% of projected timeline; ` +
+          `cap ${(tolerance.maxConceptShare * 100).toFixed(0)}% ` +
+          `[${tolerance.mode}${tolerance.profileName ? ` ${tolerance.profileName}` : ""}] ` +
+          `(tie-aware accounting)`
         : "no concepts projected",
     },
   ];
@@ -207,6 +269,7 @@ export function tieAwareConceptAccounting(report: FeasibilityReport): TieAwareAc
     dominantShare,
     dominantAnyConcept,
     dominantAnyShare,
+    tolerance,
     checks,
     concentrationOk: checks.every((c) => c.ok),
   };

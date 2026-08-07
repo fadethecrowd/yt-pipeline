@@ -3,13 +3,15 @@ import { dirname, join } from "node:path";
 import {
   assessVisualFeasibility, pexelsOnlySource,
   classifyConcept, MARINE_SUBJECTS,
-  MAX_CONCEPT_SHARE, MIN_DISTINCT_CONCEPTS, TITLE_CARD_S, runtimeRange,
+  MIN_DISTINCT_CONCEPTS, TITLE_CARD_S, runtimeRange,
 } from "@yt-pipeline/pipeline-core";
 import type {
   FeasibilityInput, FeasibilityReport, FeasibilityDeps, Candidate, FeasibilityCheck,
 } from "@yt-pipeline/pipeline-core";
 import { tieAwareConceptAccounting, tieAwareChecks } from "./conceptAccounting";
-import type { TieAwareAccounting, FragmentOutcome } from "./conceptAccounting";
+import type {
+  TieAwareAccounting, FragmentOutcome, TieAwareOptions, ConceptShareTolerance,
+} from "./conceptAccounting";
 import { wcLocalMonotonyDiagnostics } from "./monotonyDiagnostics";
 import type { WcLocalMonotonyDiagnostics } from "./monotonyDiagnostics";
 
@@ -141,6 +143,11 @@ export interface WcFeasibilityEvidence {
   /** Largest bucket of any kind — what the cap is applied to. */
   dominantAnyConcept: string | null;
   dominantAnyShare: number;
+  /**
+   * Which concept-share tolerance was applied and on whose authority.
+   * STRICT unless a run explicitly opted into a named quality profile.
+   */
+  conceptShareTolerance: ConceptShareTolerance;
 
   /**
    * Measurement only. Carries no verdict and gates nothing; recorded so the
@@ -233,6 +240,11 @@ export interface CollectEvidenceOptions {
    * production and only its report is returned.
    */
   outPath?: string;
+  /**
+   * Opt in to a named quality profile for the concept-share tolerance only.
+   * Absent means strict; an unknown name throws.
+   */
+  tieAware?: TieAwareOptions;
 }
 
 /**
@@ -252,7 +264,7 @@ export async function collectWcFeasibilityEvidence(
   // The real gate. Unchanged behaviour, unchanged arithmetic.
   const report = await assessVisualFeasibility(opts.input, deps);
 
-  const accounting: TieAwareAccounting = tieAwareConceptAccounting(report);
+  const accounting: TieAwareAccounting = tieAwareConceptAccounting(report, opts.tieAware ?? {});
   const allocByFragment = new Map<string, TieAwareAccounting["fragments"][number]>();
   for (const fa of accounting.fragments) allocByFragment.set(`${fa.beatIndex}:${fa.assetId}`, fa);
 
@@ -318,7 +330,7 @@ export async function collectWcFeasibilityEvidence(
     titleCardS: TITLE_CARD_S,
     plannedVisualDurationS: report.plannedVisualDurationS,
     runtimeEnvelope: { minS: range.minS, maxS: range.maxS },
-    maxConceptShare: MAX_CONCEPT_SHARE,
+    maxConceptShare: accounting.tolerance.maxConceptShare,
     minDistinctConcepts: MIN_DISTINCT_CONCEPTS,
 
     searchQueries: report.searchQueries,
@@ -339,6 +351,7 @@ export async function collectWcFeasibilityEvidence(
     dominantShare: accounting.dominantShare,
     dominantAnyConcept: accounting.dominantAnyConcept,
     dominantAnyShare: accounting.dominantAnyShare,
+    conceptShareTolerance: accounting.tolerance,
 
     localMonotonyDiagnostics: wcLocalMonotonyDiagnostics(accounting.fragments),
 
