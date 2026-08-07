@@ -11,8 +11,9 @@ import {
   RunSummary,
   currentPilot, assertRunnable, remainingSlots, PilotBlockedError,
   formatZoned, isInWindow,
+  buildSpokenUnits, spokenCharacterCount,
 } from "@yt-pipeline/pipeline-core";
-import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
+import type { PilotConfig, PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
 
 import { topicDiscovery } from "./stages/topicDiscovery";
 import { scriptGenerator } from "./stages/scriptGenerator";
@@ -28,7 +29,7 @@ import { wcYoutubeUpload } from "./stages/youtubeUpload";
 import { wcShortsGenerator } from "./stages/shortsGenerator";
 import { wcNotify } from "./stages/notify";
 import {
-  findWcCanaryAuthorization, assertWcCanaryWindow,
+  findWcCanaryAuthorization, assertWcCanaryWindow, resolveWcCanaryAuthorization,
 } from "./canary/authorization";
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -222,6 +223,82 @@ async function finalizeSummary(
   });
 }
 
+// ── Pilot gate ─────────────────────────────────────────────────────────────
+//
+// Every check reads the durable row, so a redeploy or a crash cannot reset what
+// the pilot has already used. The advisory lock held by the caller is the first
+// concurrency defence; the cap below fails closed independently of it, because
+// a lock that is somehow not held must not become permission to exceed the
+// limit.
+//
+// Shared by both entry points. The ordinary runner and the explicit one-shot
+// canary runner must not be able to drift apart on what a pilot permits: a
+// second copy of these checks is a second place for one of them to be missed.
+// Callers must already hold WC_LOCK_ID.
+async function pilotGate(): Promise<PilotConfig | null> {
+  const pilot = await currentPilot();
+  if (!pilot) return null;
+
+  if (pilot.channel !== "wet-circuit" || pilot.channelId !== WC_CHANNEL_ID) {
+    throw new PilotBlockedError(
+      "PILOT_WRONG_CHANNEL",
+      `pilot ${pilot.pilotId} is for ${pilot.channel} (${pilot.channelId}), ` +
+      `not wet-circuit (${WC_CHANNEL_ID}) — refusing to run it here`,
+    );
+  }
+  console.log(
+    `${LOG} PILOT ${pilot.pilotId}: status=${pilot.status} ` +
+    `${pilot.successVideoIds.length}/${pilot.maxSuccesses} confirmed, ` +
+    `${pilot.successCount} claimed, shorts=${pilot.shortsEnabled ? "on" : "off"}, ` +
+    `publishAt=${pilot.allowPublishAt ? "permitted" : "forbidden"}`,
+  );
+  assertRunnable(pilot);
+  const left = await remainingSlots(pilot.pilotId);
+  if (left <= 0) {
+    throw new PilotBlockedError("PILOT_CAP_REACHED",
+      `pilot ${pilot.pilotId} has no slots left — refusing to create a candidate`);
+  }
+
+  // ── Execution window ──────────────────────────────────────────────
+  //
+  // An AUTHORISED canary is refused outside its window. This used to log and
+  // continue, which made the window advisory: a canary that may run at any hour
+  // is not bounded. The refusal happens here, before any candidate row is
+  // created or resumed, so it precedes budget reservation, narration, media
+  // acquisition, rendering and upload.
+  //
+  // A pilot with no canary authorisation keeps the previous advisory behaviour,
+  // so ordinary pilot use is unchanged.
+  const canaryAuth = findWcCanaryAuthorization(pilot.pilotId);
+  if (canaryAuth) {
+    // Throws WcCanaryAuthorizationError outside the window.
+    const decision = assertWcCanaryWindow(new Date(), canaryAuth);
+    console.log(`${LOG} execution window OK — ${decision.nowLocal} (${decision.reason})`);
+  } else if (!isInWindow(new Date(), {
+    days: pilot.windowDays, startHour: pilot.windowStartHour,
+    endHour: pilot.windowEndHour, timeZone: pilot.timezone,
+  })) {
+    console.log(
+      `${LOG} outside the pilot execution window ` +
+      `(${pilot.windowStartHour}:00-${pilot.windowEndHour}:00 ${pilot.timezone}); ` +
+      `now is ${formatZoned(new Date(), pilot.timezone)}`,
+    );
+  }
+
+  // An unresolved upload from a prior pilot candidate must be reconciled by a
+  // human before another candidate is created: it may already be a video on the
+  // channel.
+  const unresolved = await prisma.uploadIntent.count({
+    where: { NOT: { state: { in: ["PERSISTED", "RECONCILED_HISTORICAL_UPLOAD"] } } },
+  });
+  if (unresolved > 0) {
+    throw new PilotBlockedError("UNRESOLVED_INTENT",
+      `${unresolved} unresolved upload intent(s) — reconcile before another pilot run`);
+  }
+  console.log(`${LOG} pilot slots remaining: ${left}`);
+  return pilot;
+}
+
 // ── Orchestrator ───────────────────────────────────────────────────────────
 
 export async function runPipeline(summary?: RunSummary): Promise<void> {
@@ -232,71 +309,7 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
   await withAdvisoryLock(prisma, WC_LOCK_ID, async () => {
     console.log(`${LOG} Advisory lock acquired (id: ${WC_LOCK_ID})`);
 
-    // ── Pilot gate ────────────────────────────────────────────────────
-    //
-    // Every check reads the durable row, so a redeploy or a crash cannot reset
-    // what the pilot has already used. The advisory lock above is the first
-    // concurrency defence; the cap below fails closed independently of it,
-    // because a lock that is somehow not held must not become permission to
-    // exceed the limit.
-    const pilot = await currentPilot();
-    if (pilot) {
-      if (pilot.channel !== "wet-circuit" || pilot.channelId !== WC_CHANNEL_ID) {
-        throw new PilotBlockedError(
-          "PILOT_WRONG_CHANNEL",
-          `pilot ${pilot.pilotId} is for ${pilot.channel} (${pilot.channelId}), ` +
-          `not wet-circuit (${WC_CHANNEL_ID}) — refusing to run it here`,
-        );
-      }
-      console.log(
-        `${LOG} PILOT ${pilot.pilotId}: status=${pilot.status} ` +
-        `${pilot.successVideoIds.length}/${pilot.maxSuccesses} confirmed, ` +
-        `${pilot.successCount} claimed, shorts=${pilot.shortsEnabled ? "on" : "off"}, ` +
-        `publishAt=${pilot.allowPublishAt ? "permitted" : "forbidden"}`,
-      );
-      assertRunnable(pilot);
-      const left = await remainingSlots(pilot.pilotId);
-      if (left <= 0) {
-        throw new PilotBlockedError("PILOT_CAP_REACHED",
-          `pilot ${pilot.pilotId} has no slots left — refusing to create a candidate`);
-      }
-      // ── Execution window ──────────────────────────────────────────
-      //
-      // An AUTHORISED canary is refused outside its window. This used to log
-      // and continue, which made the window advisory: a canary that may run at
-      // any hour is not bounded. The refusal happens here, before any
-      // candidate row is created or resumed, so it precedes budget
-      // reservation, narration, media acquisition, rendering and upload.
-      //
-      // A pilot with no canary authorisation keeps the previous advisory
-      // behaviour, so ordinary pilot use is unchanged.
-      const canaryAuth = findWcCanaryAuthorization(pilot.pilotId);
-      if (canaryAuth) {
-        // Throws WcCanaryAuthorizationError outside the window.
-        const decision = assertWcCanaryWindow(new Date(), canaryAuth);
-        console.log(`${LOG} execution window OK — ${decision.nowLocal} (${decision.reason})`);
-      } else if (!isInWindow(new Date(), {
-        days: pilot.windowDays, startHour: pilot.windowStartHour,
-        endHour: pilot.windowEndHour, timeZone: pilot.timezone,
-      })) {
-        console.log(
-          `${LOG} outside the pilot execution window ` +
-          `(${pilot.windowStartHour}:00-${pilot.windowEndHour}:00 ${pilot.timezone}); ` +
-          `now is ${formatZoned(new Date(), pilot.timezone)}`,
-        );
-      }
-      // An unresolved upload from a prior pilot candidate must be reconciled by
-      // a human before another candidate is created: it may already be a video
-      // on the channel.
-      const unresolved = await prisma.uploadIntent.count({
-        where: { NOT: { state: { in: ["PERSISTED", "RECONCILED_HISTORICAL_UPLOAD"] } } },
-      });
-      if (unresolved > 0) {
-        throw new PilotBlockedError("UNRESOLVED_INTENT",
-          `${unresolved} unresolved upload intent(s) — reconcile before another pilot run`);
-      }
-      console.log(`${LOG} pilot slots remaining: ${left}`);
-    }
+    const pilot = await pilotGate();
     const stages = STAGES.filter((s) => !(pilot && s.skipDuringPilot));
     if (pilot) {
       const skipped = STAGES.filter((s) => s.skipDuringPilot).map((s) => s.name);
@@ -459,6 +472,165 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
   });
 
   console.log(`${LOG} ═══ Run finished at ${ts()} — total ${fmtDuration(Date.now() - pipelineStart)} ═══`);
+}
+
+// ── Explicit one-shot canary execution ─────────────────────────────────────
+
+/** Stage the one-shot canary starts from. Everything earlier is already done. */
+const CANARY_START_STAGE = "voiceover";
+
+/**
+ * Run ONE already-prepared candidate, addressed by id, exactly once.
+ *
+ * The ordinary runner cannot start the private canary, and must not be taught
+ * to. The prepared candidate sits at VOICEOVER_PENDING, which RESUME_FROM
+ * deliberately excludes, so runPipeline() does not select it — it falls through
+ * to topicDiscovery, spends the pilot's only slot on a NEW video, and leaves the
+ * prepared candidate untouched. That is a silent divergence, not a refusal,
+ * which is why the ordinary runner is the wrong instrument here.
+ *
+ * Widening RESUME_FROM would fix the selection and destroy the reason the
+ * exclusion exists: every future VOICEOVER_PENDING row would auto-resume
+ * straight into paid narration, on any container start. So execution is
+ * explicit and addressed instead — one video id, named by the caller, matched
+ * against the durable authorisation, run once.
+ *
+ * Deliberately NOT reachable from index.ts. A container boot, a Railway
+ * redeploy, or an ON_FAILURE restart runs index.ts, which only ever calls
+ * runPipeline(); none of them can reach this function. Starting the canary
+ * requires a human to invoke it by name and pass the candidate id.
+ */
+export async function runWcCanaryOnce(
+  videoId: string,
+  summary?: RunSummary,
+): Promise<void> {
+  console.log(`${LOG} ═══ One-shot canary execution — candidate ${videoId} ═══`);
+  console.log(`${LOG} Channel: Wet Circuit (${WC_CHANNEL_ID})`);
+
+  await withAdvisoryLock(prisma, WC_LOCK_ID, async () => {
+    console.log(`${LOG} Advisory lock acquired (id: ${WC_LOCK_ID})`);
+
+    // Same gate as the ordinary runner: channel, runnability, cap, window,
+    // unresolved intents.
+    const pilot = await pilotGate();
+    if (!pilot) {
+      throw new PilotBlockedError("CANARY_NO_PILOT",
+        "one-shot canary execution requires an active pilot — refusing to run uncapped");
+    }
+
+    // Quarantine is checked explicitly as well as by status, so restoring a
+    // row's status by hand cannot silently re-arm it.
+    const quarantined = await quarantinedVideoIds();
+    if (quarantined.includes(videoId)) {
+      throw new PilotBlockedError("CANARY_QUARANTINED",
+        `candidate ${videoId} is quarantined — refusing to run it`);
+    }
+
+    const video = await prisma.wcVideo.findUnique({
+      where: { id: videoId },
+      include: { topic: true },
+    });
+    if (!video) {
+      throw new PilotBlockedError("CANARY_CANDIDATE_MISSING",
+        `no wcVideo row with id ${videoId}`);
+    }
+
+    // The one-shot runner starts at narration, so the row must be exactly at
+    // the point narration begins. Any other status means either the work was
+    // not prepared or it has already started, and both are refusals: this
+    // function must never be a way to re-narrate.
+    if (video.status !== VideoStatus.VOICEOVER_PENDING) {
+      throw new PilotBlockedError("CANARY_WRONG_STATUS",
+        `candidate ${videoId} is ${video.status}, expected ${VideoStatus.VOICEOVER_PENDING} — refusing`);
+    }
+
+    // The row must describe the run about to happen. A candidate prepared under
+    // DISABLE_ELEVEN=true still says DRY_RUN, and the halt guard only blocks on
+    // `FAILED AND runMode = 'LIVE'` — so a DRY_RUN-tagged canary that failed
+    // after real spend would halt nothing, and the next run would start a
+    // brand-new video. ARM flips this; refuse if it did not.
+    if (video.runMode !== "LIVE") {
+      throw new PilotBlockedError("CANARY_RUNMODE_NOT_LIVE",
+        `candidate ${videoId} is tagged runMode=${video.runMode} — a failure would not arm the halt guard`);
+    }
+
+    // Re-entry guard. If a previous attempt got past narration, assembly or
+    // upload, these fields are populated and running from `voiceover` again
+    // would re-spend. Recovery from a partial attempt is the ordinary resume
+    // path's job, not this one's.
+    const spent: string[] = [];
+    if (video.voiceoverPath) spent.push("voiceoverPath");
+    if (video.voiceoverUrls.length > 0) spent.push("voiceoverUrls");
+    if (video.videoPath) spent.push("videoPath");
+    if (video.youtubeId) spent.push("youtubeId");
+    if (video.scheduledAt) spent.push("scheduledAt");
+    if (video.shortsUrl) spent.push("shortsUrl");
+    if (spent.length > 0) {
+      throw new PilotBlockedError("CANARY_ALREADY_STARTED",
+        `candidate ${videoId} already has ${spent.join(", ")} — refusing to re-run from ${CANARY_START_STAGE}`);
+    }
+
+    const script = video.scriptJson as unknown as Script | null;
+    if (!script) {
+      throw new PilotBlockedError("CANARY_NO_SCRIPT",
+        `candidate ${videoId} has no scriptJson — nothing to narrate`);
+    }
+
+    // Full authorisation resolve, not just the window: candidate identity,
+    // script hash, channel, narration ceiling, runtime envelope, and that the
+    // pilot's durable policy still matches what was authorised. Fails closed.
+    const resolved = resolveWcCanaryAuthorization({
+      pilot,
+      candidateId: videoId,
+      script,
+      submitChars: spokenCharacterCount(buildSpokenUnits(script)),
+    });
+    if (!resolved) {
+      throw new PilotBlockedError("CANARY_NOT_AUTHORIZED",
+        `pilot ${pilot.pilotId} has no canary authorisation — refusing one-shot execution`);
+    }
+    console.log(
+      `${LOG} authorisation OK — profile=${resolved.qualityProfileName} ` +
+      `maxConceptShare=${resolved.effectiveMaxConceptShare} ` +
+      `submitChars=${resolved.submitChars} script=${resolved.scriptSha256.slice(0, 12)}`,
+    );
+
+    const stages = STAGES.filter((s) => !s.skipDuringPilot);
+    const skipped = STAGES.filter((s) => s.skipDuringPilot).map((s) => s.name);
+    if (skipped.length) console.log(`${LOG} pilot skips: ${skipped.join(", ")}`);
+
+    const startIdx = stages.findIndex((s) => s.name === CANARY_START_STAGE);
+    if (startIdx < 0) {
+      throw new Error(`no stage named "${CANARY_START_STAGE}" — stage list drifted`);
+    }
+    const runFrom = stages.slice(startIdx);
+    console.log(`${LOG} running ${runFrom.length} stage(s) from ${runFrom[0].name}`);
+
+    summary?.setVideoId(video.id);
+    const ctx: PipelineContext = {
+      topic: video.topic,
+      video,
+      script,
+      voiceoverUrls: video.voiceoverUrls,
+      videoUrl: video.videoPath ?? undefined,
+      seo:
+        video.seoTitle && video.seoDescription
+          ? {
+              title: video.seoTitle,
+              description: video.seoDescription,
+              tags: video.seoTags,
+              chapters: (video.seoChapters as unknown as SEOMetadata["chapters"]) ?? [],
+            }
+          : undefined,
+    };
+
+    const ok = await runStages(runFrom, ctx, summary);
+    if (ok) {
+      await cleanupTmpDir(ctx.video.id);
+      await finalizeSummary(summary, ctx.video.id);
+      console.log(`${LOG} ✓ Canary complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`);
+    }
+  });
 }
 
 // ── Entry point (only when run directly) ──────────────────────────────────

@@ -444,13 +444,27 @@ describe("E. safety controls a profile or window can never relax", () => {
     const ctl = readFileSync("scripts/wc-canary-control.ts", "utf8");
     assert.match(ctl, /const PHASE = RUN \? "RUN" : ARM \? "ARM" : "CHECK"/);
     assert.match(ctl, /--i-understand-this-spends-credits/);
-    assert.match(ctl, /RUN is not implemented/);
-    // The tool PRINTS the operation ARM/RUN would perform; it must never
-    // import or invoke it.
-    assert.doesNotMatch(ctl, /import[^;]*setBudgetLimit/, "CHECK must not import the budget opener");
-    assert.doesNotMatch(ctl, /await setBudgetLimit\(/, "CHECK must not open a budget");
-    assert.doesNotMatch(ctl, /await prisma\.wcVideo\.update|await pilots\.update|\$executeRaw/,
-      "no mutation is reachable in this build");
+    assert.match(ctl, /\(ARM \|\| RUN\) && !CONFIRMED/);
+
+    // ARM and RUN are now implemented (the ordinary runner cannot start the
+    // canary, so this tool is the only start path). What must stay true is that
+    // CHECK reaches no mutation: it returns before any of them.
+    const checkIdx = ctl.indexOf('if (PHASE === "CHECK")');
+    const armIdx = ctl.indexOf("if (ARM) {");
+    assert.ok(checkIdx > 0 && armIdx > checkIdx, "CHECK must be handled before ARM");
+
+    const beforeCheckReturn = ctl.slice(0, armIdx);
+    assert.doesNotMatch(beforeCheckReturn, /\$executeRaw/, "CHECK must not mutate");
+    assert.doesNotMatch(beforeCheckReturn, /withBudgetWindow\(/, "CHECK must not open a budget");
+    assert.doesNotMatch(beforeCheckReturn, /setBudgetLimit\(\s*"/, "CHECK must not set a budget limit");
+
+    // The mutating phases refuse on a failed pre-flight.
+    assert.ok(
+      ctl.lastIndexOf("if (failed.length > 0)", armIdx) > checkIdx,
+      "a clean-verdict guard must sit between CHECK and ARM",
+    );
+    // Budget opening is request-scoped, not a bare limit raise left behind.
+    assert.doesNotMatch(ctl, /await setBudgetLimit\(/, "spend must go through withBudgetWindow");
   });
 });
 

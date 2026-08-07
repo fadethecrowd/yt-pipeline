@@ -2,29 +2,38 @@
  * Wet Circuit private-canary control.
  *
  *   npx tsx scripts/wc-canary-control.ts                 # CHECK (default)
- *   npx tsx scripts/wc-canary-control.ts --arm           # ARM  (not invoked yet)
- *   npx tsx scripts/wc-canary-control.ts --run           # RUN  (not invoked yet)
+ *   npx tsx scripts/wc-canary-control.ts --arm  --i-understand-this-spends-credits
+ *   npx tsx scripts/wc-canary-control.ts --run  --i-understand-this-spends-credits
  *
  * CHECK is read-only and is the default. ARM and RUN each require their own
  * explicit flag AND `--i-understand-this-spends-credits`, so no accidental
- * invocation can mutate anything or spend.
+ * invocation can mutate anything or spend. Both refuse unless every pre-flight
+ * check passes, and they are separate invocations on purpose: arming is
+ * reviewable before anything is spent.
  *
- * Nothing here embeds a credential, changes Railway, or opens a budget on its
- * own. ARM performs exactly one compare-and-set on the candidate row plus one
- * pilot activation; RUN is deliberately not implemented yet and refuses.
+ * Nothing here embeds a credential or changes Railway. ARM performs exactly one
+ * compare-and-set on the candidate row plus one pilot activation, and opens no
+ * budget. RUN opens a request-scoped PRODUCTION budget window and executes
+ * `runWcCanaryOnce`, which is addressed by candidate id.
+ *
+ * This tool is the ONLY way to start the canary. The deployed service's start
+ * command runs `dist/index.js` → `runPipeline()`, which cannot select a
+ * VOICEOVER_PENDING row, so no container boot, redeploy, or ON_FAILURE restart
+ * can execute the canary.
  */
 import { createHash } from "node:crypto";
 import { VideoStatus } from "@prisma/client";
 import {
   prisma, disconnect, budgetReport, resumableJobs, prismaIntentStore,
   buildSpokenUnits, spokenCharacterCount, currentTestStage, runtimeRange,
-  CHARS_PER_SECOND, TITLE_CARD_S,
+  CHARS_PER_SECOND, TITLE_CARD_S, withBudgetWindow, RunSummary,
 } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig, Script } from "@yt-pipeline/pipeline-core";
 import {
   WC_CANARY_AUTHORIZATIONS, resolveWcCanaryAuthorization,
   evaluateWcCanaryWindow, scriptSha256,
 } from "../packages/wc-pipeline/src/canary/authorization";
+import { runWcCanaryOnce } from "../packages/wc-pipeline/src/pipeline";
 import "dotenv/config";
 
 const ARM = process.argv.includes("--arm");
@@ -54,10 +63,18 @@ function ck(ok: boolean, label: string, detail: string) {
  * deliberately NOT in RESUME_FROM: adding it there would arm every
  * crashed-mid-narration row for an unattended re-spend. The canary is driven
  * explicitly by this tool instead, so A stays inert to ordinary runs.
+ *
+ * runMode also flips to LIVE. The candidate was prepared under
+ * DISABLE_ELEVEN=true, so its row still says DRY_RUN, and the halt guard only
+ * blocks on `status = FAILED AND runMode = 'LIVE'`. Left as DRY_RUN, a canary
+ * that failed after spending real credits would not halt anything: the next run
+ * would sail past the guard, find nothing resumable, and start a brand-new
+ * video. The row must describe the run that is about to happen.
  */
 export function armTransitionSql(): string {
   return `UPDATE "wc_video"
-     SET "status" = 'VOICEOVER_PENDING', "failReason" = NULL, "updatedAt" = NOW()
+     SET "status" = 'VOICEOVER_PENDING', "runMode" = 'LIVE',
+         "failReason" = NULL, "updatedAt" = NOW()
    WHERE "id" = $1
      AND "status" = 'QUALITY_FAILED'
      AND "qualityScore" = 88
@@ -80,13 +97,8 @@ async function main() {
   console.log(`  window       days ${JSON.stringify(AUTH.window.days)} ` +
     `${AUTH.window.startHour}:00-${AUTH.window.endHour}:00 ${AUTH.window.timezone} (end exclusive)`);
 
-  if (RUN) {
-    console.error("\n✗ RUN is not implemented. Executing the canary is a separate authorised step.");
-    process.exitCode = 2;
-    return;
-  }
-  if (ARM && !CONFIRMED) {
-    console.error("\n✗ ARM requires --i-understand-this-spends-credits. Refusing.");
+  if ((ARM || RUN) && !CONFIRMED) {
+    console.error(`\n✗ ${PHASE} requires --i-understand-this-spends-credits. Refusing.`);
     process.exitCode = 2;
     return;
   }
@@ -200,14 +212,79 @@ async function main() {
     console.log(armTransitionSql().split("\n").map((l) => `     ${l}`).join("\n"));
     console.log(`\n     params: $1 = ${AUTH.candidateId}`);
     console.log(`     plus: productionPilot ${AUTH.pilotId} PREPARED → ACTIVE with activatedAt=NOW()`);
-    console.log(`     plus: setBudgetLimit("wet-circuit","PRODUCTION",${submitChars}) at RUN, relocked after`);
+    console.log(`\n  RUN is a SEPARATE invocation. It opens a request-scoped budget window`);
+    console.log(`  of ${submitChars} chars around runWcCanaryOnce("${AUTH.candidateId}"),`);
+    console.log(`  and the window restores the previous limit on the way out.`);
+    console.log(`  The ordinary runner cannot start this candidate: VOICEOVER_PENDING is`);
+    console.log(`  deliberately not resumable, so it would create a NEW video instead.`);
     process.exitCode = failed.length === 0 ? 0 : 1;
     return;
   }
 
-  // ARM would mutate here. Deliberately unreachable in this pass.
-  console.error("\n✗ ARM is gated and was not executed in this build.");
-  process.exitCode = 2;
+  // Past this point every pre-flight check must have passed. ARM and RUN both
+  // mutate; neither proceeds on a partial verdict.
+  if (failed.length > 0) {
+    console.error(`\n✗ ${PHASE} refused — pre-flight is not clean.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (ARM) {
+    hr("ARM");
+    // One compare-and-set. Every precondition is in the WHERE clause, so a row
+    // that has drifted matches nothing and zero rows update.
+    const moved: number = await prisma.$executeRawUnsafe(armTransitionSql(), AUTH.candidateId);
+    if (moved !== 1) {
+      console.error(`\n✗ ARM matched ${moved} rows, expected 1 — candidate drifted. Nothing else was touched.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`  ✓ candidate ${AUTH.candidateId} → ${VideoStatus.VOICEOVER_PENDING}`);
+
+    // Activation is also a compare-and-set: only a PREPARED pilot activates, so
+    // a second ARM cannot re-activate or reset the cap.
+    const activated: number = await prisma.$executeRawUnsafe(
+      `UPDATE "production_pilot"
+          SET "status" = 'ACTIVE', "activatedAt" = NOW(), "updatedAt" = NOW()
+        WHERE "pilotId" = $1 AND "status" = 'PREPARED' AND "activatedAt" IS NULL`,
+      AUTH.pilotId,
+    );
+    if (activated !== 1) {
+      console.error(`\n✗ pilot activation matched ${activated} rows, expected 1.`);
+      console.error(`  The candidate IS armed. Re-run CHECK before RUN.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`  ✓ pilot ${AUTH.pilotId} PREPARED → ACTIVE`);
+    console.log(`\n  ARM complete. No budget was opened and nothing was spent.`);
+    console.log(`  RUN is a separate invocation:`);
+    console.log(`    npx tsx scripts/wc-canary-control.ts --run --i-understand-this-spends-credits`);
+    process.exitCode = 0;
+    return;
+  }
+
+  // ── RUN ────────────────────────────────────────────────────────────
+  //
+  // The ordinary root runner CANNOT execute this candidate: VOICEOVER_PENDING
+  // is deliberately absent from RESUME_FROM, so `node dist/index.js` would not
+  // select it — it would fall through to topicDiscovery and spend the pilot's
+  // only slot on a different, brand-new video. Execution therefore goes through
+  // runWcCanaryOnce(), which is addressed by id and has no discovery path.
+  hr("RUN");
+  const submitCharsForBudget = submitChars;
+  console.log(`  opening a PRODUCTION budget window of ${submitCharsForBudget} chars`);
+  const summary = new RunSummary("wet-circuit", "LIVE");
+  summary.setVerifiedChannel(AUTH.channel, AUTH.channelId);
+  try {
+    await withBudgetWindow(
+      { channel: "wet-circuit", testStage: "PRODUCTION", limit: submitCharsForBudget },
+      () => runWcCanaryOnce(AUTH.candidateId, summary),
+    );
+    console.log(`\n  ✓ RUN finished. Budget window closed and the limit was restored.`);
+  } finally {
+    await summary.persist();
+  }
+  process.exitCode = 0;
 }
 
 // Only when executed directly. Importing this module (tests import
