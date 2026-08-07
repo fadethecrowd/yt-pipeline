@@ -129,8 +129,8 @@ describe("the one-shot runner has no discovery fallthrough", () => {
     assert.ok(!body.includes("findMany"));
   });
 
-  test("it starts at voiceover, so nothing before the paid work re-runs", () => {
-    assert.match(PIPELINE, /const CANARY_START_STAGE = "voiceover"/);
+  test("it re-enters at visualFeasibilityGate, not at voiceover", () => {
+    assert.match(PIPELINE, /const CANARY_START_STAGE = "visualFeasibilityGate"/);
     assert.match(canaryBody(), /stages\.findIndex\(\(s\) => s\.name === CANARY_START_STAGE\)/);
   });
 
@@ -222,6 +222,104 @@ describe("the one-shot runner refuses anything but a clean armed candidate", () 
         `${code} must be thrown, not logged`,
       );
     }
+  });
+});
+
+describe("feasibility precedes every possible narration spend", () => {
+  const VOICEOVER = read("packages/wc-pipeline/src/stages/voiceover.ts");
+  const GATE = read("packages/wc-pipeline/src/stages/visualFeasibilityGate.ts");
+
+  /** The stage list the one-shot runner actually executes, in order. */
+  function canaryStages(): string[] {
+    const block = PIPELINE.slice(
+      PIPELINE.indexOf("const STAGES: StageDefinition[] = ["),
+      PIPELINE.indexOf("\n];"),
+    );
+    const all = [...block.matchAll(/\{ name: "([a-zA-Z]+)"[^}]*\}/g)]
+      .filter((m) => !m[0].includes("skipDuringPilot: true"))
+      .map((m) => m[1]);
+    const start = all.indexOf("visualFeasibilityGate");
+    assert.ok(start >= 0, "visualFeasibilityGate must be in the stage list");
+    return all.slice(start);
+  }
+
+  test("the executed sequence begins with feasibility and ends with notify", () => {
+    assert.deepEqual(canaryStages(), [
+      "visualFeasibilityGate", "seoGenerator", "wcThumbnailHeadlineGenerator",
+      "wcThumbnailGenerator", "voiceover", "videoAssembly", "finalVideoQa",
+      "youtubeUpload", "notify",
+    ]);
+  });
+
+  test("feasibility runs strictly before voiceover", () => {
+    const seq = canaryStages();
+    assert.ok(
+      seq.indexOf("visualFeasibilityGate") < seq.indexOf("voiceover"),
+      "a gate that runs after narration cannot prevent narration",
+    );
+  });
+
+  test("assembly, QA and upload all come after feasibility", () => {
+    const seq = canaryStages();
+    const gate = seq.indexOf("visualFeasibilityGate");
+    for (const later of ["videoAssembly", "finalVideoQa", "youtubeUpload"]) {
+      assert.ok(seq.indexOf(later) > gate, `${later} must follow feasibility`);
+    }
+  });
+
+  test("narration budget is opened inside the voiceover stage, nowhere earlier", () => {
+    // This is what makes the ordering a spend guarantee rather than a
+    // convention: the only window opener sits in a stage that feasibility gates.
+    assert.match(VOICEOVER, /withBudgetWindow\(\s*"wet-circuit"/);
+    assert.ok(!GATE.includes("withBudgetWindow"), "the gate must open no budget");
+    assert.ok(!canaryBody().includes("withBudgetWindow"),
+      "the one-shot runner must open no budget of its own");
+    assert.ok(!CONTROL.includes("withBudgetWindow"),
+      "RUN must not raise the limit before the gate has run");
+  });
+
+  test("the gate reserves and settles nothing", () => {
+    for (const forbidden of ["reserveCredits", "settleCredits", "setBudgetLimit"]) {
+      assert.ok(!GATE.includes(forbidden), `feasibility must not call ${forbidden}`);
+    }
+  });
+
+  test("runStages aborts on first failure, so a FAIL never reaches voiceover", () => {
+    // The sequencing only guarantees no spend if a failed stage stops the run.
+    const runStages = PIPELINE.slice(
+      PIPELINE.indexOf("async function runStages("),
+      PIPELINE.indexOf("async function finalizeSummary("),
+    );
+    assert.match(runStages, /return false/);
+  });
+
+  test("a feasibility failure is terminal, not resumable into a retry", () => {
+    // failCandidate parks the row at QUALITY_FAILED, which RESUME_FROM excludes.
+    assert.match(GATE, /status: VideoStatus\.QUALITY_FAILED/);
+    assert.ok(!resumeFromBody().includes("QUALITY_FAILED"));
+  });
+
+  test("the gate resolves the profile only through the exact authorisation", () => {
+    assert.match(GATE, /resolveWcCanaryAuthorization\(\{/);
+    assert.match(GATE, /candidateId: ctx\.video\.id/);
+    // The relaxed number is never restated at the call site.
+    assert.ok(!GATE.includes("0.6"), "the tolerance must come from the profile");
+    assert.match(GATE, /tieAware = \{ qualityProfileName: resolved\.qualityProfileName \}/);
+  });
+
+  test("with no authorisation the gate stays strict", () => {
+    assert.match(GATE, /let tieAware: TieAwareOptions = \{\}/);
+  });
+
+  test("the monotony run is logged and never consulted for the verdict", () => {
+    assert.match(GATE, /longestNoNewConceptRun\(accounting\.fragments\)/);
+    assert.match(GATE, /diagnostic, not a gate/);
+    const verdict = GATE.slice(GATE.indexOf("if (failed.length > 0)"));
+    assert.ok(!verdict.includes("longestNoNewConceptRun"));
+  });
+
+  test("all eight tie-aware checks are logged, not only the failures", () => {
+    assert.match(GATE, /for \(const c of checks\) console\.log/);
   });
 });
 
@@ -327,11 +425,18 @@ describe("the control tool is the only start path", () => {
     assert.ok(!CONTROL.includes("import { runPipeline"));
   });
 
-  test("RUN's budget window is scoped to the measured narration size", () => {
-    assert.match(
-      CONTROL,
-      /withBudgetWindow\(\s*\{ channel: "wet-circuit", testStage: "PRODUCTION", limit: submitCharsForBudget \}/,
-    );
+  test("RUN opens no budget window of its own", () => {
+    // An outer window would raise the PRODUCTION limit before
+    // visualFeasibilityGate runs, which is exactly what the gate exists to
+    // prevent. The voiceover stage opens one, sized to the spoken units, and
+    // only if the gate passed.
+    assert.ok(!CONTROL.includes("withBudgetWindow"));
+    assert.ok(!CONTROL.includes("setBudgetLimit("));
+  });
+
+  test("RUN states the pre-spend ordering it relies on", () => {
+    const runBlock = CONTROL.slice(CONTROL.indexOf("// ── RUN"));
+    assert.match(runBlock, /visualFeasibilityGate/);
   });
 
   test("ARM and RUN are separate invocations", () => {
@@ -355,6 +460,35 @@ describe("the control tool is the only start path", () => {
   test("importing the control tool runs nothing", () => {
     assert.match(CONTROL, /const isDirectRun =/);
     assert.match(CONTROL, /if \(isDirectRun\) \{/);
+  });
+
+  test("CHECK reports feasibility as PASS / FAIL / NOT YET VERIFIED", () => {
+    assert.match(CONTROL, /NOT YET VERIFIED/);
+    assert.match(CONTROL, /feasibility CURRENTLY VERIFIED/);
+  });
+
+  test("an old or foreign verification cannot stand in for a current one", () => {
+    // Sourcing drifts, so a replayed verdict is not evidence about today's pool.
+    assert.match(CONTROL, /FEASIBILITY_MAX_AGE_H/);
+    assert.match(CONTROL, /verification\.candidateId !== AUTH\.candidateId/);
+    assert.match(CONTROL, /verification\.scriptSha256 !== AUTH\.scriptSha256/);
+    assert.match(CONTROL, /verification\.profile !== AUTH\.qualityProfileName/);
+    assert.match(CONTROL, /verification\.result === "PASS" && fresh/);
+  });
+
+  test("the verification record is a local artifact, never a production row", () => {
+    assert.match(CONTROL, /const VERIFICATION_PATH = "tmp\/wc-feasibility-verification\.json"/);
+    const reader = CONTROL.slice(
+      CONTROL.indexOf("export function readFeasibilityVerification"),
+      CONTROL.indexOf("async function main("),
+    );
+    assert.ok(!reader.includes("prisma"), "reading a verification must not touch the DB");
+  });
+
+  test("CHECK reports the window separately from authorisation", () => {
+    assert.match(CONTROL, /EXECUTION WINDOW \(Mon\/Wed\/Fri 17:00-20:00 America\/New_York, end-exclusive\)/);
+    // Out-of-window is not a CHECK failure but is one at ARM/RUN.
+    assert.match(CONTROL, /wNow\.allowed \|\| PHASE === "CHECK"/);
   });
 
   test("the tool drives the candidate named in the durable authorisation", () => {

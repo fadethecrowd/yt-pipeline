@@ -13,8 +13,9 @@
  *
  * Nothing here embeds a credential or changes Railway. ARM performs exactly one
  * compare-and-set on the candidate row plus one pilot activation, and opens no
- * budget. RUN opens a request-scoped PRODUCTION budget window and executes
- * `runWcCanaryOnce`, which is addressed by candidate id.
+ * budget. RUN opens no budget either: it executes `runWcCanaryOnce`, which
+ * re-enters at `visualFeasibilityGate`, and the `voiceover` stage opens its own
+ * window only if that gate passes. A feasibility failure costs zero characters.
  *
  * This tool is the ONLY way to start the canary. The deployed service's start
  * command runs `dist/index.js` → `runPipeline()`, which cannot select a
@@ -22,11 +23,12 @@
  * can execute the canary.
  */
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { VideoStatus } from "@prisma/client";
 import {
   prisma, disconnect, budgetReport, resumableJobs, prismaIntentStore,
   buildSpokenUnits, spokenCharacterCount, currentTestStage, runtimeRange,
-  CHARS_PER_SECOND, TITLE_CARD_S, withBudgetWindow, RunSummary,
+  CHARS_PER_SECOND, TITLE_CARD_S, RunSummary,
 } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig, Script } from "@yt-pipeline/pipeline-core";
 import {
@@ -84,6 +86,47 @@ export function armTransitionSql(): string {
      AND "youtubeId" IS NULL
      AND "scheduledAt" IS NULL
      AND "shortsUrl" IS NULL`;
+}
+
+/**
+ * How long a feasibility verification stays current.
+ *
+ * Stock-library sourcing drifts: the pool that cleared the gate last week is
+ * not the pool narration will be rendered against. A day keeps a verification
+ * and its ARM in the same sitting without letting a stale PASS authorise spend.
+ */
+const FEASIBILITY_MAX_AGE_H = 24;
+
+const VERIFICATION_PATH = "tmp/wc-feasibility-verification.json";
+
+export interface FeasibilityVerification {
+  candidateId: string;
+  scriptSha256: string;
+  profile: string;
+  effectiveMaxConceptShare: number;
+  dominantConcept: string;
+  dominantShare: number;
+  checksPassed: number;
+  checksTotal: number;
+  longestNoNewConceptRunS: number | null;
+  result: "PASS" | "FAIL";
+  verifiedAt: string;
+  provenance: string;
+}
+
+/**
+ * The most recent live feasibility verification, or null.
+ *
+ * Deliberately a local artifact, not a production DB row: this pass is not
+ * authorised to write to the database, and a verification is evidence about a
+ * moment, not durable candidate state.
+ */
+export function readFeasibilityVerification(): FeasibilityVerification | null {
+  try {
+    return JSON.parse(readFileSync(VERIFICATION_PATH, "utf8")) as FeasibilityVerification;
+  } catch {
+    return null;
+  }
 }
 
 async function main() {
@@ -171,12 +214,8 @@ async function main() {
     ck(false, "authorisation resolves", e instanceof Error ? e.message : String(e));
   }
 
-  // ── Execution window ───────────────────────────────────────────────
-  hr("EXECUTION WINDOW");
-  const now = new Date();
-  const w = evaluateWcCanaryWindow(now, AUTH);
-  ck(w.allowed, "inside the authorised execution window", w.reason);
-  console.log(`     now (local): ${w.nowLocal}`);
+  // The execution window is reported in its own section below, after global
+  // safety, so that "authorised" and "may run right now" stay visibly separate.
 
   // ── Global safety ──────────────────────────────────────────────────
   hr("GLOBAL SAFETY");
@@ -202,6 +241,53 @@ async function main() {
   ck(currentTestStage() === "PRODUCTION" || PHASE === "CHECK",
     "TEST_STAGE", `${currentTestStage()} (PRODUCTION required only at RUN)`);
 
+  // ── Execution window (M/W/F), reported separately from everything else ──
+  //
+  // "Authorised" and "may run right now" are different questions, and a report
+  // that blends them lets an out-of-window operator read a green pre-flight as
+  // permission. The window is not a pre-flight failure at CHECK — CHECK is a
+  // read-only inspection you may run any day — but it IS one at ARM and RUN.
+  hr("EXECUTION WINDOW (Mon/Wed/Fri 17:00-20:00 America/New_York, end-exclusive)");
+  const wNow = evaluateWcCanaryWindow(new Date(), AUTH);
+  console.log(`  now (local)  ${wNow.nowLocal}`);
+  console.log(`  authorised   days ${JSON.stringify(AUTH.window.days)} (1=Mon 3=Wed 5=Fri)`);
+  ck(wNow.allowed || PHASE === "CHECK",
+    wNow.allowed ? "INSIDE the execution window" : "OUTSIDE the execution window",
+    `${wNow.reason}${wNow.allowed ? "" : " — ARM/RUN would refuse"}`);
+
+  // ── Feasibility provenance ─────────────────────────────────────────
+  //
+  // The candidate has never passed feasibility in its own durable record: it
+  // sits at QUALITY_FAILED precisely because the strict gate refused it. A
+  // preserved evidence file from an earlier pass is NOT a current verdict, and
+  // CHECK must never let one stand in for a live one — sourcing drifts, and the
+  // question is whether TODAY's asset pool clears the gate.
+  hr("FEASIBILITY VERIFICATION");
+  const verification = readFeasibilityVerification();
+  if (!verification) {
+    ck(false, "feasibility CURRENTLY VERIFIED", "NOT YET VERIFIED — run wc-feasibility-verify.ts");
+  } else if (verification.candidateId !== AUTH.candidateId) {
+    ck(false, "feasibility CURRENTLY VERIFIED",
+      `NOT YET VERIFIED — record is for ${verification.candidateId}`);
+  } else if (verification.scriptSha256 !== AUTH.scriptSha256) {
+    ck(false, "feasibility CURRENTLY VERIFIED",
+      `NOT YET VERIFIED — script drifted since verification`);
+  } else if (verification.profile !== AUTH.qualityProfileName) {
+    ck(false, "feasibility CURRENTLY VERIFIED",
+      `NOT YET VERIFIED — verified under ${verification.profile}`);
+  } else {
+    const ageH = (Date.now() - Date.parse(verification.verifiedAt)) / 3600000;
+    const fresh = ageH <= FEASIBILITY_MAX_AGE_H;
+    ck(verification.result === "PASS" && fresh,
+      "feasibility CURRENTLY VERIFIED",
+      `${verification.result} at ${verification.verifiedAt} (${ageH.toFixed(1)}h old, ` +
+      `max ${FEASIBILITY_MAX_AGE_H}h)${fresh ? "" : " — STALE, re-verify"}`);
+    console.log(`     dominant ${verification.dominantConcept} ${(verification.dominantShare * 100).toFixed(1)}%` +
+      ` vs tolerance ${(verification.effectiveMaxConceptShare * 100).toFixed(0)}%`);
+    console.log(`     ${verification.checksPassed}/${verification.checksTotal} checks passed`);
+    console.log(`     provenance: ${verification.provenance}`);
+  }
+
   // ── Verdict ────────────────────────────────────────────────────────
   hr("VERDICT");
   const failed = results.filter((r) => !r.ok);
@@ -218,9 +304,11 @@ async function main() {
     console.log(armTransitionSql().split("\n").map((l) => `     ${l}`).join("\n"));
     console.log(`\n     params: $1 = ${AUTH.candidateId}`);
     console.log(`     plus: productionPilot ${AUTH.pilotId} PREPARED → ACTIVE with activatedAt=NOW()`);
-    console.log(`\n  RUN is a SEPARATE invocation. It opens a request-scoped budget window`);
-    console.log(`  of ${submitChars} chars around runWcCanaryOnce("${AUTH.candidateId}"),`);
-    console.log(`  and the window restores the previous limit on the way out.`);
+    console.log(`\n  RUN is a SEPARATE invocation. It opens NO budget window itself:`);
+    console.log(`  runWcCanaryOnce("${AUTH.candidateId}") re-enters at`);
+    console.log(`  visualFeasibilityGate, and only if that gate passes does the voiceover`);
+    console.log(`  stage open its own ${submitChars}-char window and relock it afterwards.`);
+    console.log(`  A feasibility failure therefore costs zero characters.`);
     console.log(`  The ordinary runner cannot start this candidate: VOICEOVER_PENDING is`);
     console.log(`  deliberately not resumable, so it would create a NEW video instead.`);
     process.exitCode = failed.length === 0 ? 0 : 1;
@@ -276,17 +364,22 @@ async function main() {
   // select it — it would fall through to topicDiscovery and spend the pilot's
   // only slot on a different, brand-new video. Execution therefore goes through
   // runWcCanaryOnce(), which is addressed by id and has no discovery path.
+  // RUN opens NO budget window of its own. The `voiceover` stage opens one,
+  // sized to the exact spoken units, and relocks it in a finally. Opening an
+  // outer window here would raise the PRODUCTION limit before
+  // visualFeasibilityGate has run — precisely the pre-spend ordering this path
+  // exists to guarantee. A feasibility failure must cost zero characters, and
+  // it does only if nothing has been opened by the time it fails.
   hr("RUN");
-  const submitCharsForBudget = submitChars;
-  console.log(`  opening a PRODUCTION budget window of ${submitCharsForBudget} chars`);
+  console.log(`  candidate    ${AUTH.candidateId}`);
+  console.log(`  re-enters at visualFeasibilityGate — narration is unreachable until it passes`);
+  console.log(`  wet-circuit/PRODUCTION stays at limit 0 until the voiceover stage opens`);
+  console.log(`  its own ${submitChars}-char window, and relocks it on the way out.`);
   const summary = new RunSummary("wet-circuit", "LIVE");
   summary.setVerifiedChannel(AUTH.channel, AUTH.channelId);
   try {
-    await withBudgetWindow(
-      { channel: "wet-circuit", testStage: "PRODUCTION", limit: submitCharsForBudget },
-      () => runWcCanaryOnce(AUTH.candidateId, summary),
-    );
-    console.log(`\n  ✓ RUN finished. Budget window closed and the limit was restored.`);
+    await runWcCanaryOnce(AUTH.candidateId, summary);
+    console.log(`\n  ✓ RUN finished.`);
   } finally {
     await summary.persist();
   }

@@ -147,7 +147,14 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
     ` | genuine none ${(accounting.genuineNoneShare * 100).toFixed(1)}%` +
     ` | ${accounting.distinctConcreteConcepts} concrete`,
   );
-  for (const c of failed) console.log(`${LOG}   ✗ ${c.name}: ${c.detail}`);
+  // Every tie-aware check, not just the failures. The shared report printed
+  // above evaluates concept share under strict accounting, so when the two
+  // disagree the log otherwise showed a ✗ next to a PASS verdict with nothing
+  // explaining it. These are the checks the verdict is actually taken from.
+  console.log(`${LOG} tie-aware checks (authoritative — tolerance ` +
+    `${(accounting.tolerance.maxConceptShare * 100).toFixed(0)}%, ` +
+    `${accounting.tolerance.profileName ?? "strict default"}):`);
+  for (const c of checks) console.log(`${LOG}   ${c.ok ? "✓" : "✗"} ${c.name}: ${c.detail}`);
 
   // Measurement only — logged for comparison, never consulted for the verdict.
   const run = longestNoNewConceptRun(accounting.fragments);

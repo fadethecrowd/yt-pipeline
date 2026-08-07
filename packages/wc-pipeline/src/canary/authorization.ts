@@ -71,7 +71,10 @@ export const WC_CANARY_AUTHORIZATIONS: readonly WcCanaryAuthorization[] = [
     publishAt: null,
     maxSuccesses: 1,
     assetKind: "LONGFORM",
-    window: { days: [2, 4], startHour: 17, endHour: 20, timezone: "America/New_York" },
+    // Mon/Wed/Fri, matching the historical Wet Circuit cadence and the AI Doom
+    // pilot's own [1,3,5]. An earlier pass wrote Tue/Thu here on a mistaken
+    // restart assumption; nothing was ever run under it.
+    window: { days: [1, 3, 5], startHour: 17, endHour: 20, timezone: "America/New_York" },
     rationale:
       "One bounded private render to obtain the human visual-quality evidence the " +
       "project has never had: no Wet Circuit video has ever been human-reviewed for " +

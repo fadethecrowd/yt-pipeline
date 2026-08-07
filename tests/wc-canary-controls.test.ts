@@ -42,14 +42,14 @@ const WC_CANARY: PilotConfig = {
   shortsEnabled: false,
   requireFeasibility: true,
   requireGuardedUpload: true,
-  windowDays: [2, 4], // Tue, Thu
+  windowDays: [1, 3, 5], // Mon, Wed, Fri
   windowStartHour: 17,
   windowEndHour: 20,
   timezone: "America/New_York",
 };
 
 const active = (over: Partial<PilotConfig> = {}): PilotConfig => ({
-  ...WC_CANARY, status: "ACTIVE", activatedAt: new Date("2026-08-04T21:00:00Z"), ...over,
+  ...WC_CANARY, status: "ACTIVE", activatedAt: new Date("2026-08-03T21:00:00Z"), ...over,
 });
 
 const WC_WINDOW = {
@@ -348,54 +348,62 @@ describe("WC canary — duration envelope before spend", () => {
 
 // ── Timezone / execution window (Phase 5) ─────────────────────────────────
 
-describe("WC canary — execution window is Tue/Thu 17:00-20:00 America/New_York", () => {
-  test("the canary declares Tuesday and Thursday", () => {
-    assert.deepEqual(WC_CANARY.windowDays, [2, 4]);
+describe("WC canary — execution window is Mon/Wed/Fri 17:00-20:00 America/New_York", () => {
+  test("the canary declares Monday, Wednesday and Friday", () => {
+    assert.deepEqual(WC_CANARY.windowDays, [1, 3, 5]);
     assert.equal(WC_CANARY.windowStartHour, 17);
     assert.equal(WC_CANARY.windowEndHour, 20);
     assert.equal(WC_CANARY.timezone, "America/New_York");
   });
 
   // EDT (UTC-4): 17:00 local == 21:00 UTC
-  test("EDT — Tuesday 17:00 local is inside the window", () => {
-    const d = new Date("2026-08-04T21:00:00Z"); // Tue 5:00 PM EDT
+  test("EDT — Monday 17:00 local is inside the window", () => {
+    const d = new Date("2026-08-03T21:00:00Z"); // Mon 5:00 PM EDT
     assert.equal(zonedParts(d, "America/New_York").hour, 17);
     assert.ok(isDst(d, "America/New_York"), "August is daylight time");
     assert.ok(isInWindow(d, WC_WINDOW));
   });
 
-  test("EDT — Tuesday 16:59 local is outside", () => {
-    assert.equal(isInWindow(new Date("2026-08-04T20:59:00Z"), WC_WINDOW), false);
+  test("EDT — Monday 16:59 local is outside", () => {
+    assert.equal(isInWindow(new Date("2026-08-03T20:59:00Z"), WC_WINDOW), false);
   });
 
-  test("EDT — Tuesday 20:00 local is outside (end hour is exclusive)", () => {
-    const d = new Date("2026-08-05T00:00:00Z"); // Tue 8:00 PM EDT
+  test("EDT — Monday 20:00 local is outside (end hour is exclusive)", () => {
+    const d = new Date("2026-08-04T00:00:00Z"); // Mon 8:00 PM EDT
     assert.equal(zonedParts(d, "America/New_York").hour, 20);
     assert.equal(isInWindow(d, WC_WINDOW), false);
   });
 
-  test("EDT — Thursday 19:59 local is inside", () => {
-    const d = new Date("2026-08-06T23:59:00Z"); // Thu 7:59 PM EDT
-    assert.equal(zonedParts(d, "America/New_York").weekday, 4);
+  test("EDT — Wednesday 19:59 local is inside", () => {
+    const d = new Date("2026-08-05T23:59:00Z"); // Wed 7:59 PM EDT
+    assert.equal(zonedParts(d, "America/New_York").weekday, 3);
     assert.ok(isInWindow(d, WC_WINDOW));
   });
 
-  test("EDT — Wednesday 17:00 local is outside: not a window day", () => {
-    const d = new Date("2026-08-05T21:00:00Z"); // Wed 5 PM EDT
+  test("EDT — Friday 17:00 local is inside", () => {
+    const d = new Date("2026-08-07T21:00:00Z"); // Fri 5 PM EDT
+    assert.equal(zonedParts(d, "America/New_York").weekday, 5);
+    assert.ok(isInWindow(d, WC_WINDOW));
+  });
+
+  test("EDT — Tuesday 17:00 local is outside: not a window day", () => {
+    const d = new Date("2026-08-04T21:00:00Z"); // Tue 5 PM EDT
     assert.equal(zonedParts(d, "America/New_York").hour, 17);
     assert.equal(isInWindow(d, WC_WINDOW), false);
   });
 
-  test("EDT — Monday, Wednesday and Friday are all outside the WC window", () => {
-    // Mon 2026-08-03, Wed 2026-08-05, Fri 2026-08-07, each 17:00 EDT.
-    for (const iso of ["2026-08-03T21:00:00Z", "2026-08-05T21:00:00Z", "2026-08-07T21:00:00Z"]) {
+  test("EDT — Tuesday, Thursday, Saturday and Sunday are all outside", () => {
+    // The superseded schedule allowed Tue/Thu; those days must now refuse.
+    // Tue 2026-08-04, Thu 2026-08-06, Sat 2026-08-08, Sun 2026-08-09, 17:00 EDT.
+    for (const iso of ["2026-08-04T21:00:00Z", "2026-08-06T21:00:00Z",
+                       "2026-08-08T21:00:00Z", "2026-08-09T21:00:00Z"]) {
       assert.equal(isInWindow(new Date(iso), WC_WINDOW), false, `${iso} must be outside`);
     }
   });
 
   // EST (UTC-5): 17:00 local == 22:00 UTC
-  test("EST — Tuesday 17:00 local is inside the window", () => {
-    const d = new Date("2026-01-06T22:00:00Z"); // Tue 5:00 PM EST
+  test("EST — Monday 17:00 local is inside the window", () => {
+    const d = new Date("2026-01-05T22:00:00Z"); // Mon 5:00 PM EST
     assert.equal(zonedParts(d, "America/New_York").hour, 17);
     assert.equal(isDst(d, "America/New_York"), false, "January is standard time");
     assert.ok(isInWindow(d, WC_WINDOW));
@@ -404,50 +412,52 @@ describe("WC canary — execution window is Tue/Thu 17:00-20:00 America/New_York
   test("EST — the EDT instant is NOT inside in winter: a fixed offset would be wrong", () => {
     // 21:00 UTC is 5 PM in EDT but 4 PM in EST. A hardcoded UTC hour silently
     // moves the local window by an hour twice a year.
-    const winter = new Date("2026-01-06T21:00:00Z"); // Tue 4:00 PM EST
+    const winter = new Date("2026-01-05T21:00:00Z"); // Mon 4:00 PM EST
     assert.equal(zonedParts(winter, "America/New_York").hour, 16);
     assert.equal(isInWindow(winter, WC_WINDOW), false);
   });
 
-  test("EST — Thursday 17:00 local is inside", () => {
-    const d = new Date("2026-01-08T22:00:00Z");
-    assert.equal(zonedParts(d, "America/New_York").weekday, 4);
+  test("EST — Friday 17:00 local is inside", () => {
+    const d = new Date("2026-01-09T22:00:00Z");
+    assert.equal(zonedParts(d, "America/New_York").weekday, 5);
     assert.ok(isInWindow(d, WC_WINDOW));
   });
 
   // DST transitions
   test("DST spring-forward — the window is still 17:00-20:00 local", () => {
-    // 2026-03-08 is the spring transition (a Sunday). The following Tuesday is
-    // the 10th, already on EDT.
-    const tue = new Date("2026-03-10T21:00:00Z"); // Tue 5 PM EDT
-    assert.ok(isDst(tue, "America/New_York"));
-    assert.equal(zonedParts(tue, "America/New_York").hour, 17);
-    assert.ok(isInWindow(tue, WC_WINDOW));
+    // 2026-03-08 is the spring transition (a Sunday). The following Monday is
+    // the 9th, already on EDT.
+    const mon = new Date("2026-03-09T21:00:00Z"); // Mon 5 PM EDT
+    assert.ok(isDst(mon, "America/New_York"));
+    assert.equal(zonedParts(mon, "America/New_York").hour, 17);
+    assert.ok(isInWindow(mon, WC_WINDOW));
   });
 
   test("DST fall-back — the window is still 17:00-20:00 local", () => {
-    // 2026-11-01 is the autumn transition (a Sunday). The following Tuesday is
-    // the 3rd, back on EST.
-    const tue = new Date("2026-11-03T22:00:00Z"); // Tue 5 PM EST
-    assert.equal(isDst(tue, "America/New_York"), false);
-    assert.equal(zonedParts(tue, "America/New_York").hour, 17);
-    assert.ok(isInWindow(tue, WC_WINDOW));
+    // 2026-11-01 is the autumn transition (a Sunday). The following Monday is
+    // the 2nd, back on EST.
+    const mon = new Date("2026-11-02T22:00:00Z"); // Mon 5 PM EST
+    assert.equal(isDst(mon, "America/New_York"), false);
+    assert.equal(zonedParts(mon, "America/New_York").hour, 17);
+    assert.ok(isInWindow(mon, WC_WINDOW));
   });
 
-  test("the Tuesday either side of each transition lands on the same local hour", () => {
-    for (const iso of ["2026-03-03T22:00:00Z", "2026-03-10T21:00:00Z",
-                       "2026-10-27T21:00:00Z", "2026-11-03T22:00:00Z"]) {
+  test("the window day either side of each transition lands on the same local hour", () => {
+    // Fri 2026-03-06 (EST), Mon 2026-03-09 (EDT),
+    // Fri 2026-10-30 (EDT), Mon 2026-11-02 (EST).
+    for (const iso of ["2026-03-06T22:00:00Z", "2026-03-09T21:00:00Z",
+                       "2026-10-30T21:00:00Z", "2026-11-02T22:00:00Z"]) {
       const d = new Date(iso);
       assert.equal(zonedParts(d, "America/New_York").hour, 17, `${iso} must read 17:00 local`);
       assert.ok(isInWindow(d, WC_WINDOW), `${iso} must be inside the window`);
     }
   });
 
-  test("nextWindowStart lands on a Tuesday or Thursday at 17:00 local", () => {
+  test("nextWindowStart lands on a Monday, Wednesday or Friday at 17:00 local", () => {
     for (const from of ["2026-08-03T12:00:00Z", "2026-01-01T12:00:00Z", "2026-11-02T12:00:00Z"]) {
       const next = nextWindowStart(new Date(from), WC_WINDOW);
       const p = zonedParts(next, "America/New_York");
-      assert.ok([2, 4].includes(p.weekday), `${from} → ${formatZoned(next)} must be Tue or Thu`);
+      assert.ok([1, 3, 5].includes(p.weekday), `${from} → ${formatZoned(next)} must be Mon, Wed or Fri`);
       assert.equal(p.hour, 17, `${from} → ${formatZoned(next)} must open at 17:00 local`);
       assert.ok(next > new Date(from), "the next window must be in the future");
     }
@@ -456,7 +466,7 @@ describe("WC canary — execution window is Tue/Thu 17:00-20:00 America/New_York
   test("an execution window instant is never handed to the upload as a publish time", () => {
     // The window says WHEN THE PIPELINE MAY RUN. The upload policy for a pilot
     // carries no slot regardless of when the run happens.
-    const insideWindow = new Date("2026-08-04T21:00:00Z");
+    const insideWindow = new Date("2026-08-03T21:00:00Z");
     assert.ok(isInWindow(insideWindow, WC_WINDOW));
     const policy = uploadPolicyFor(active(), nextWindowStart(insideWindow, WC_WINDOW));
     assert.equal(policy.scheduledSlot, null,

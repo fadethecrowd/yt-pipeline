@@ -30,7 +30,7 @@ const PILOT: PilotConfig = {
   activatedAt: null, completedAt: null,
   privacyStatus: "private", allowPublishAt: false, shortsEnabled: false,
   requireFeasibility: true, requireGuardedUpload: true,
-  windowDays: [2, 4], windowStartHour: 17, windowEndHour: 20,
+  windowDays: [1, 3, 5], windowStartHour: 17, windowEndHour: 20,
   timezone: "America/New_York",
 };
 
@@ -54,97 +54,125 @@ describe("A. execution window is fail-closed", () => {
   const at = (iso: string) => new Date(iso);
   const allow = (iso: string) => evaluateWcCanaryWindow(at(iso), AUTH).allowed;
 
-  // EDT (UTC-4): 17:00 local == 21:00 UTC. Aug 11 2026 is a Tuesday.
-  test("Tuesday 16:59:59 ET → refuse", () => {
-    assert.equal(allow("2026-08-11T20:59:59Z"), false);
+  // The authorised cadence is Monday/Wednesday/Friday, matching the historical
+  // Wet Circuit schedule and the AI Doom pilot's own [1,3,5]. An earlier pass
+  // wrote Tue/Thu on a mistaken restart assumption; nothing ever ran under it.
+  test("the manifest declares Mon/Wed/Fri", () => {
+    assert.deepEqual([...AUTH.window.days].sort(), [1, 3, 5]);
+    assert.equal(AUTH.window.startHour, 17);
+    assert.equal(AUTH.window.endHour, 20);
+    assert.equal(AUTH.window.timezone, "America/New_York");
   });
-  test("Tuesday 17:00:00 ET → allow", () => {
-    const d = at("2026-08-11T21:00:00Z");
+
+  // EDT (UTC-4): 17:00 local == 21:00 UTC. Aug 10 2026 is a Monday.
+  test("Monday 16:59:59 ET → refuse", () => {
+    assert.equal(allow("2026-08-10T20:59:59Z"), false);
+  });
+  test("Monday 17:00:00 ET → allow", () => {
+    const d = at("2026-08-10T21:00:00Z");
     assert.equal(zonedParts(d, "America/New_York").hour, 17);
-    assert.equal(allow("2026-08-11T21:00:00Z"), true);
+    assert.equal(allow("2026-08-10T21:00:00Z"), true);
   });
-  test("Tuesday mid-window 18:30 ET → allow", () => {
-    assert.equal(allow("2026-08-11T22:30:00Z"), true);
+  test("Monday mid-window 18:30 ET → allow", () => {
+    assert.equal(allow("2026-08-10T22:30:00Z"), true);
   });
-  test("Tuesday 19:59:59 ET → allow (end hour exclusive, existing convention)", () => {
-    const d = at("2026-08-11T23:59:59Z");
+  test("Monday 19:59:59 ET → allow (end hour exclusive, existing convention)", () => {
+    const d = at("2026-08-10T23:59:59Z");
     assert.equal(zonedParts(d, "America/New_York").hour, 19);
-    assert.equal(allow("2026-08-11T23:59:59Z"), true);
+    assert.equal(allow("2026-08-10T23:59:59Z"), true);
   });
-  test("Tuesday 20:00:00 ET → refuse (end boundary is exclusive)", () => {
-    const d = at("2026-08-12T00:00:00Z");
+  test("Monday 20:00:00 ET → refuse (end boundary is exclusive)", () => {
+    const d = at("2026-08-11T00:00:00Z");
     assert.equal(zonedParts(d, "America/New_York").hour, 20);
-    assert.equal(allow("2026-08-12T00:00:00Z"), false);
+    assert.equal(allow("2026-08-11T00:00:00Z"), false);
   });
-  test("Tuesday 20:00:01 ET → refuse", () => {
-    assert.equal(allow("2026-08-12T00:00:01Z"), false);
+  test("Monday 20:00:01 ET → refuse", () => {
+    assert.equal(allow("2026-08-11T00:00:01Z"), false);
   });
 
-  // Thursday 2026-08-13
-  test("Thursday 16:59 ET → refuse", () => assert.equal(allow("2026-08-13T20:59:00Z"), false));
-  test("Thursday 17:00 ET → allow", () => assert.equal(allow("2026-08-13T21:00:00Z"), true));
-  test("Thursday 19:59 ET → allow", () => assert.equal(allow("2026-08-13T23:59:00Z"), true));
-  test("Thursday 20:00 ET → refuse", () => assert.equal(allow("2026-08-14T00:00:00Z"), false));
+  // Wednesday 2026-08-12
+  test("Wednesday 16:59 ET → refuse", () => assert.equal(allow("2026-08-12T20:59:00Z"), false));
+  test("Wednesday 17:00 ET → allow", () => assert.equal(allow("2026-08-12T21:00:00Z"), true));
+  test("Wednesday 19:59 ET → allow", () => assert.equal(allow("2026-08-12T23:59:00Z"), true));
+  test("Wednesday 20:00 ET → refuse", () => assert.equal(allow("2026-08-13T00:00:00Z"), false));
 
-  test("every non-window weekday at 18:00 ET refuses", () => {
-    // Mon 10th, Wed 12th, Fri 14th, Sat 15th, Sun 16th August 2026, 18:00 EDT.
+  // Friday 2026-08-14
+  test("Friday 16:59 ET → refuse", () => assert.equal(allow("2026-08-14T20:59:00Z"), false));
+  test("Friday 17:00 ET → allow", () => assert.equal(allow("2026-08-14T21:00:00Z"), true));
+  test("Friday 19:59 ET → allow", () => assert.equal(allow("2026-08-14T23:59:00Z"), true));
+  test("Friday 20:00 ET → refuse", () => assert.equal(allow("2026-08-15T00:00:00Z"), false));
+
+  test("the days the previous mistaken schedule allowed are now refused", () => {
+    // Tuesday 11th and Thursday 13th August 2026, 18:00 EDT — mid-window hours
+    // on days that are no longer authorised.
+    assert.equal(allow("2026-08-11T22:00:00Z"), false, "Tuesday must refuse");
+    assert.equal(allow("2026-08-13T22:00:00Z"), false, "Thursday must refuse");
+  });
+
+  test("every non-window day at 18:00 ET refuses", () => {
+    // Tue 11th, Thu 13th, Sat 15th, Sun 16th August 2026, 18:00 EDT.
     const days: [string, string][] = [
-      ["Monday", "2026-08-10T22:00:00Z"], ["Wednesday", "2026-08-12T22:00:00Z"],
-      ["Friday", "2026-08-14T22:00:00Z"], ["Saturday", "2026-08-15T22:00:00Z"],
-      ["Sunday", "2026-08-16T22:00:00Z"],
+      ["Tuesday", "2026-08-11T22:00:00Z"], ["Thursday", "2026-08-13T22:00:00Z"],
+      ["Saturday", "2026-08-15T22:00:00Z"], ["Sunday", "2026-08-16T22:00:00Z"],
     ];
     for (const [name, iso] of days) {
       assert.equal(allow(iso), false, `${name} must refuse`);
     }
   });
 
-  test("today (Friday 7 August 2026) refuses", () => {
-    assert.equal(allow("2026-08-07T22:00:00Z"), false);
+  test("today (Friday 7 August 2026) 18:00 ET is inside the window", () => {
+    // Friday is authorised, so today differs from the Tue/Thu schedule: the
+    // hour still decides.
+    assert.equal(allow("2026-08-07T22:00:00Z"), true);
+    assert.equal(allow("2026-08-07T20:59:59Z"), false, "16:59:59 ET refuses");
+    assert.equal(allow("2026-08-08T00:00:00Z"), false, "20:00 ET refuses");
   });
 
-  test("winter EST Tuesday 17:00 → allow; the EDT instant does NOT", () => {
-    // 2026-01-06 is a Tuesday. EST is UTC-5, so 17:00 local == 22:00 UTC.
-    assert.equal(zonedParts(at("2026-01-06T22:00:00Z"), "America/New_York").hour, 17);
-    assert.equal(allow("2026-01-06T22:00:00Z"), true);
+  test("winter EST Monday 17:00 → allow; the EDT instant does NOT", () => {
+    // 2026-01-05 is a Monday. EST is UTC-5, so 17:00 local == 22:00 UTC.
+    assert.equal(zonedParts(at("2026-01-05T22:00:00Z"), "America/New_York").hour, 17);
+    assert.equal(allow("2026-01-05T22:00:00Z"), true);
     // 21:00 UTC is 16:00 EST — a fixed offset would wrongly admit it.
-    assert.equal(zonedParts(at("2026-01-06T21:00:00Z"), "America/New_York").hour, 16);
-    assert.equal(allow("2026-01-06T21:00:00Z"), false);
+    assert.equal(zonedParts(at("2026-01-05T21:00:00Z"), "America/New_York").hour, 16);
+    assert.equal(allow("2026-01-05T21:00:00Z"), false);
   });
 
-  test("summer EDT Tuesday 17:00 → allow", () => {
-    assert.equal(allow("2026-08-11T21:00:00Z"), true);
+  test("summer EDT Friday 17:00 → allow", () => {
+    assert.equal(allow("2026-08-14T21:00:00Z"), true);
   });
 
   test("both 2026 DST transitions keep the window at 17:00-20:00 local", () => {
-    // Spring forward 2026-03-08; following Tuesday is the 10th (EDT).
-    assert.equal(zonedParts(at("2026-03-10T21:00:00Z"), "America/New_York").hour, 17);
-    assert.equal(allow("2026-03-10T21:00:00Z"), true);
-    // Tuesday before the transition, 2026-03-03, is EST.
-    assert.equal(zonedParts(at("2026-03-03T22:00:00Z"), "America/New_York").hour, 17);
-    assert.equal(allow("2026-03-03T22:00:00Z"), true);
-    // Fall back 2026-11-01; following Tuesday is the 3rd (EST).
-    assert.equal(zonedParts(at("2026-11-03T22:00:00Z"), "America/New_York").hour, 17);
-    assert.equal(allow("2026-11-03T22:00:00Z"), true);
-    // Tuesday before, 2026-10-27, is EDT.
-    assert.equal(zonedParts(at("2026-10-27T21:00:00Z"), "America/New_York").hour, 17);
-    assert.equal(allow("2026-10-27T21:00:00Z"), true);
+    // Spring forward 2026-03-08; following Monday is the 9th (EDT).
+    assert.equal(zonedParts(at("2026-03-09T21:00:00Z"), "America/New_York").hour, 17);
+    assert.equal(allow("2026-03-09T21:00:00Z"), true);
+    // Friday before the transition, 2026-03-06, is EST.
+    assert.equal(zonedParts(at("2026-03-06T22:00:00Z"), "America/New_York").hour, 17);
+    assert.equal(allow("2026-03-06T22:00:00Z"), true);
+    // Fall back 2026-11-01; following Monday is the 2nd (EST).
+    assert.equal(zonedParts(at("2026-11-02T22:00:00Z"), "America/New_York").hour, 17);
+    assert.equal(allow("2026-11-02T22:00:00Z"), true);
+    // Friday before, 2026-10-30, is EDT.
+    assert.equal(zonedParts(at("2026-10-30T21:00:00Z"), "America/New_York").hour, 17);
+    assert.equal(allow("2026-10-30T21:00:00Z"), true);
   });
 
   test("the host's own timezone cannot change the decision", () => {
-    const inside = at("2026-08-11T21:00:00Z");
+    const inside = at("2026-08-10T21:00:00Z"); // Monday 17:00 EDT
     const before = process.env.TZ;
     for (const tz of ["UTC", "America/Los_Angeles", "Asia/Tokyo", "Europe/London"]) {
       process.env.TZ = tz;
       assert.equal(evaluateWcCanaryWindow(inside, AUTH).allowed, true, `TZ=${tz}`);
-      assert.equal(evaluateWcCanaryWindow(at("2026-08-10T22:00:00Z"), AUTH).allowed, false, `TZ=${tz}`);
+      // Tuesday 18:00 EDT — an authorised hour on an unauthorised day.
+      assert.equal(evaluateWcCanaryWindow(at("2026-08-11T22:00:00Z"), AUTH).allowed, false, `TZ=${tz}`);
     }
     if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
   });
 
   test("assert form throws with CANARY_OUTSIDE_WINDOW", () => {
-    assert.equal(codeOf(() => assertWcCanaryWindow(at("2026-08-07T22:00:00Z"), AUTH)),
+    // Tuesday 18:00 ET — right hour, wrong day.
+    assert.equal(codeOf(() => assertWcCanaryWindow(at("2026-08-11T22:00:00Z"), AUTH)),
       "CANARY_OUTSIDE_WINDOW");
-    assert.doesNotThrow(() => assertWcCanaryWindow(at("2026-08-11T21:00:00Z"), AUTH));
+    assert.doesNotThrow(() => assertWcCanaryWindow(at("2026-08-10T21:00:00Z"), AUTH));
   });
 
   test("malformed window configuration fails closed", () => {
@@ -250,7 +278,9 @@ describe("B. authorization binds one candidate and fails closed", () => {
 
   test("a pilot window that drifts from the authorisation → refuse", () => {
     assert.equal(codeOf(() => resolveWcCanaryAuthorization({
-      ...base(), pilot: { ...PILOT, windowDays: [1, 3, 5] },
+      // [2,4] is the superseded Tue/Thu schedule — a durable pilot row still
+      // carrying it must refuse rather than run on the wrong days.
+      ...base(), pilot: { ...PILOT, windowDays: [2, 4] },
     })), "CANARY_WINDOW_MISMATCH");
     assert.equal(codeOf(() => resolveWcCanaryAuthorization({
       ...base(), pilot: { ...PILOT, timezone: "UTC" },
@@ -432,7 +462,9 @@ describe("E. safety controls a profile or window can never relax", () => {
   test("Shorts stay skipped during the canary", () => {
     assert.match(pipeline, /skipDuringPilot: true/);
     assert.match(pipeline, /STAGES\.filter\(\(s\) => !\(pilot && s\.skipDuringPilot\)\)/);
-    assert.equal(AUTH.window.days.length, 2);
+    // The window stays a bounded subset of the week, not "any day".
+    assert.deepEqual([...AUTH.window.days].sort(), [1, 3, 5]);
+    assert.ok(AUTH.window.days.length < 7);
   });
 
   test("the narration budget window is independent of the profile", () => {

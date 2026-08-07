@@ -476,8 +476,22 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
 
 // ── Explicit one-shot canary execution ─────────────────────────────────────
 
-/** Stage the one-shot canary starts from. Everything earlier is already done. */
-const CANARY_START_STAGE = "voiceover";
+/**
+ * Stage the one-shot canary re-enters at.
+ *
+ * `visualFeasibilityGate`, NOT `voiceover`. The armed candidate is exactly where
+ * `qualityGate` leaves a passing script — the gate sets VOICEOVER_PENDING and
+ * feasibility runs next — so feasibility is the first stage that has not yet run
+ * for it, and re-entering later would skip it.
+ *
+ * This ordering is the whole pre-spend contract. Narration budget is opened
+ * inside the `voiceover` stage itself, so a gate that runs before `voiceover`
+ * runs before any window can open: a feasibility failure costs zero characters,
+ * because nothing has been reserved yet when it fails. Starting at `voiceover`
+ * would have skipped feasibility, SEO and both thumbnail stages and gone
+ * straight into the stage that opens the budget.
+ */
+const CANARY_START_STAGE = "visualFeasibilityGate";
 
 /**
  * Run ONE already-prepared candidate, addressed by id, exactly once.
