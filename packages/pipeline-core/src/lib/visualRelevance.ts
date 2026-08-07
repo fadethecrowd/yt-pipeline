@@ -211,6 +211,21 @@ export interface ConceptMatch {
   matched: string[];
   /** Terms matched across ALL concepts — feeds the relevance score. */
   totalMatched: number;
+  /**
+   * Every concrete concept that tied for top, present ONLY when `concept` is
+   * "ambiguous". Additive: existing fields keep the values they always had,
+   * and no existing caller reads this, so behaviour is unchanged for anyone
+   * who does not ask for it.
+   *
+   * It exists because "ambiguous" discards the one fact that makes a tie
+   * actionable — which concepts tied. A caller doing duration accounting can
+   * then divide the fragment between them instead of filing genuinely marine
+   * footage under "none". Ties of three or more are possible, so this is a
+   * list rather than a pair.
+   */
+  tied?: string[];
+  /** Specificity (longest matched phrase, in tokens) of the top concept. */
+  longest?: number;
 }
 
 /**
@@ -246,9 +261,20 @@ export function classifyConcept(
   const top = scored[0]!;
   const next = scored[1];
   if (next && next.score === top.score && next.longest === top.longest) {
-    return { concept: "ambiguous", score: top.score, matched: top.matched, totalMatched };
+    // Every concept sharing the top (score, specificity), not just the first
+    // two — a three-way tie was previously indistinguishable from a two-way one.
+    const tied = scored
+      .filter((c) => c.score === top.score && c.longest === top.longest)
+      .map((c) => c.concept);
+    return {
+      concept: "ambiguous", score: top.score, matched: top.matched, totalMatched,
+      tied, longest: top.longest,
+    };
   }
-  return { concept: top.concept, score: top.score, matched: top.matched, totalMatched };
+  return {
+    concept: top.concept, score: top.score, matched: top.matched, totalMatched,
+    longest: top.longest,
+  };
 }
 
 /** Extract the human-written description from a Pexels page URL slug. */

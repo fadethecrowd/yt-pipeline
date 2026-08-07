@@ -6,6 +6,7 @@ import {
   CHARS_PER_SECOND, TITLE_CARD_S, runtimeRange, currentTestStage,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult, Script } from "@yt-pipeline/pipeline-core";
+import { tieAwareConceptAccounting, tieAwareChecks } from "./conceptAccounting";
 
 const CHANNEL = "wet-circuit" as const;
 const LOG = "[wc:visualFeasibilityGate]";
@@ -96,8 +97,27 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
   );
   console.log(formatFeasibility(report));
 
-  if (!report.pass) {
-    const reason = report.failureReason ?? "feasibility failed";
+  // Concept concentration is re-evaluated with tie-aware accounting. The
+  // shared gate files a tie as "none", which reported genuinely marine
+  // footage as an unnameable subject; here a tie is divided between the
+  // concepts that tied. Every other check, and the entire allocation, is the
+  // gate's own — only the labelling of already-allocated seconds changes.
+  const accounting = tieAwareConceptAccounting(report);
+  const checks = tieAwareChecks(report, accounting);
+  const failed = checks.filter((c) => !c.ok);
+  console.log(
+    `${LOG} tie-aware concepts: ` +
+    Object.entries(accounting.conceptShares)
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, s]) => `${c}=${(s * 100).toFixed(1)}%`)
+      .join(" ") +
+    ` | genuine none ${(accounting.genuineNoneShare * 100).toFixed(1)}%` +
+    ` | ${accounting.distinctConcreteConcepts} concrete`,
+  );
+  for (const c of failed) console.log(`${LOG}   ✗ ${c.name}: ${c.detail}`);
+
+  if (failed.length > 0) {
+    const reason = failed.map((c) => `${c.name}: ${c.detail}`).join("; ");
     await failCandidate(ctx.video.id, reason);
     return {
       success: false,

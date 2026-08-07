@@ -6,8 +6,10 @@ import {
   MAX_CONCEPT_SHARE, MIN_DISTINCT_CONCEPTS, TITLE_CARD_S, runtimeRange,
 } from "@yt-pipeline/pipeline-core";
 import type {
-  FeasibilityInput, FeasibilityReport, FeasibilityDeps, Candidate,
+  FeasibilityInput, FeasibilityReport, FeasibilityDeps, Candidate, FeasibilityCheck,
 } from "@yt-pipeline/pipeline-core";
+import { tieAwareConceptAccounting, tieAwareChecks } from "./conceptAccounting";
+import type { TieAwareAccounting, FragmentOutcome } from "./conceptAccounting";
 
 /**
  * Opt-in diagnostic evidence for Wet Circuit visual feasibility.
@@ -71,6 +73,20 @@ export interface EvidenceFragment {
   brandRisk: boolean;
   /** Projected allocation, or relevant-pool-only. */
   inProjectedAllocation: true;
+
+  // ── Tie-aware accounting ───────────────────────────────────────────
+  /** SINGLE, TIE, GENUINE_NONE or NON_CONCRETE. */
+  outcome: FragmentOutcome;
+  /** True when two or more concrete concepts tied. */
+  tie: boolean;
+  /** Every concrete concept that tied. Empty unless `tie`. */
+  tiedConcepts: string[];
+  /** Weighted evidence score behind the decision. */
+  score: number;
+  /** Specificity (longest matched phrase, in tokens) behind the decision. */
+  longest: number;
+  /** Seconds this fragment gives each concept. Sums to projectedSeconds. */
+  allocation: Record<string, number>;
 }
 
 export interface WcFeasibilityEvidence {
@@ -108,15 +124,31 @@ export interface WcFeasibilityEvidence {
     fragments: EvidenceFragment[];
   }[];
 
+  /** Seconds per concept AFTER tie splitting. Includes genuine "none". */
   conceptSeconds: Record<string, number>;
   denominatorSeconds: number;
   conceptShares: Record<string, number>;
+  /** Seconds where no concept matched at all — a real absence, not a tie. */
+  genuineNoneSeconds: number;
+  genuineNoneShare: number;
   distinctConcreteConcepts: number;
+  concreteConcepts: string[];
+  /** Largest CONCRETE concept. */
   dominantConcept: string | null;
   dominantShare: number;
+  /** Largest bucket of any kind — what the cap is applied to. */
+  dominantAnyConcept: string | null;
+  dominantAnyShare: number;
 
+  /** The gate's own checks, with the two concept checks recomputed. */
   checks: { name: string; ok: boolean; detail: string }[];
+  /** The shared gate's untouched checks, for comparison. */
+  sharedChecks: { name: string; ok: boolean; detail: string }[];
+  /** The shared gate's own concept breakdown, before tie-aware accounting. */
+  sharedConceptBreakdown: { concept: string; assets: number; projectedSeconds: number; share: number }[];
   pass: boolean;
+  /** The shared gate's verdict, before tie-aware accounting. */
+  sharedPass: boolean;
   failureReason: string | null;
 }
 
@@ -211,6 +243,10 @@ export async function collectWcFeasibilityEvidence(
   // The real gate. Unchanged behaviour, unchanged arithmetic.
   const report = await assessVisualFeasibility(opts.input, deps);
 
+  const accounting: TieAwareAccounting = tieAwareConceptAccounting(report);
+  const allocByFragment = new Map<string, TieAwareAccounting["fragments"][number]>();
+  for (const fa of accounting.fragments) allocByFragment.set(`${fa.beatIndex}:${fa.assetId}`, fa);
+
   const beats = report.predictedBeats.map((b) => ({
     index: b.index,
     segmentIndex: b.segmentIndex,
@@ -223,6 +259,7 @@ export async function collectWcFeasibilityEvidence(
     fragments: b.fragments.map((f): EvidenceFragment => {
       const seen = byAsset.get(f.assetId);
       const { conceptRaw, noneReason } = explainNone(f.description, f.concept, f.verdict);
+      const fa = allocByFragment.get(`${b.index}:${f.assetId}`);
       return {
         beatIndex: b.index,
         segmentIndex: b.segmentIndex,
@@ -242,23 +279,18 @@ export async function collectWcFeasibilityEvidence(
         noneReason,
         brandRisk: f.brandRisk,
         inProjectedAllocation: true,
+        outcome: fa?.outcome ?? "GENUINE_NONE",
+        tie: (fa?.tiedConcepts.length ?? 0) > 1,
+        tiedConcepts: fa?.tiedConcepts ?? [],
+        score: fa?.score ?? 0,
+        longest: fa?.longest ?? 0,
+        allocation: fa?.allocation ?? {},
       };
     }),
   }));
 
-  // Recomputed from the SAME fragments the gate summed, so the totals below
-  // must reproduce report.conceptBreakdown exactly. The tests assert that.
-  const conceptSeconds: Record<string, number> = {};
-  for (const b of beats) {
-    for (const f of b.fragments) {
-      conceptSeconds[f.conceptFinal] = (conceptSeconds[f.conceptFinal] ?? 0) + f.projectedSeconds;
-    }
-  }
-  const denominatorSeconds = Object.values(conceptSeconds).reduce((a, s) => a + s, 0);
-  const conceptShares: Record<string, number> = {};
-  for (const [c, s] of Object.entries(conceptSeconds)) {
-    conceptShares[c] = denominatorSeconds > 0 ? s / denominatorSeconds : 0;
-  }
+  const checks: FeasibilityCheck[] = tieAwareChecks(report, accounting);
+  const failed = checks.filter((c) => !c.ok);
   const range = runtimeRange(CHANNEL, "LONGFORM", "PRODUCTION");
 
   const evidence: WcFeasibilityEvidence = {
@@ -287,16 +319,24 @@ export async function collectWcFeasibilityEvidence(
 
     beats,
 
-    conceptSeconds,
-    denominatorSeconds,
-    conceptShares,
-    distinctConcreteConcepts: report.distinctConcepts,
-    dominantConcept: report.conceptBreakdown[0]?.concept ?? null,
-    dominantShare: report.conceptBreakdown[0]?.share ?? 0,
+    conceptSeconds: accounting.conceptSeconds,
+    denominatorSeconds: accounting.denominatorSeconds,
+    conceptShares: accounting.conceptShares,
+    genuineNoneSeconds: accounting.genuineNoneSeconds,
+    genuineNoneShare: accounting.genuineNoneShare,
+    distinctConcreteConcepts: accounting.distinctConcreteConcepts,
+    concreteConcepts: accounting.concreteConcepts,
+    dominantConcept: accounting.dominantConcept,
+    dominantShare: accounting.dominantShare,
+    dominantAnyConcept: accounting.dominantAnyConcept,
+    dominantAnyShare: accounting.dominantAnyShare,
 
-    checks: report.checks.map((c) => ({ name: c.name, ok: c.ok, detail: c.detail })),
-    pass: report.pass,
-    failureReason: report.failureReason,
+    checks: checks.map((c) => ({ name: c.name, ok: c.ok, detail: c.detail })),
+    sharedChecks: report.checks.map((c) => ({ name: c.name, ok: c.ok, detail: c.detail })),
+    sharedConceptBreakdown: report.conceptBreakdown,
+    pass: failed.length === 0,
+    sharedPass: report.pass,
+    failureReason: failed.length === 0 ? null : failed.map((c) => `${c.name}: ${c.detail}`).join("; "),
   };
 
   if (opts.outPath) writeAtomic(opts.outPath, evidence);
