@@ -1,0 +1,646 @@
+{
+  "A": {
+    "label": "AIRMAR TriSonic",
+    "pillar": "NEW_DROP",
+    "timelineSeconds": 277,
+    "fragments": [
+      {
+        "beat": 1,
+        "dur": 16.93,
+        "set": [
+          "fishing"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a1"
+      },
+      {
+        "beat": 2,
+        "dur": 16.93,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a2"
+      },
+      {
+        "beat": 3,
+        "dur": 10,
+        "set": [
+          "electronics"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a3"
+      },
+      {
+        "beat": 3,
+        "dur": 6.93,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a4"
+      },
+      {
+        "beat": 4,
+        "dur": 16.93,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a5"
+      },
+      {
+        "beat": 5,
+        "dur": 19.2472,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a6"
+      },
+      {
+        "beat": 6,
+        "dur": 13.2472,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a7"
+      },
+      {
+        "beat": 6,
+        "dur": 6,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a8"
+      },
+      {
+        "beat": 7,
+        "dur": 19.2472,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a9"
+      },
+      {
+        "beat": 8,
+        "dur": 18.3159,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a10"
+      },
+      {
+        "beat": 9,
+        "dur": 18.3159,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a11"
+      },
+      {
+        "beat": 10,
+        "dur": 18.3159,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a12"
+      },
+      {
+        "beat": 11,
+        "dur": 13.6242,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a13"
+      },
+      {
+        "beat": 11,
+        "dur": 6,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a14"
+      },
+      {
+        "beat": 12,
+        "dur": 19.6242,
+        "set": [
+          "electronics",
+          "install"
+        ],
+        "outcome": "TIE",
+        "asset": "a15"
+      },
+      {
+        "beat": 13,
+        "dur": 13.1142,
+        "set": [
+          "electronics",
+          "vessel"
+        ],
+        "outcome": "TIE",
+        "asset": "a16"
+      },
+      {
+        "beat": 13,
+        "dur": 6,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a17"
+      },
+      {
+        "beat": 14,
+        "dur": 12,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a18"
+      },
+      {
+        "beat": 14,
+        "dur": 7.1142,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a19"
+      },
+      {
+        "beat": 15,
+        "dur": 13.1142,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a20"
+      },
+      {
+        "beat": 15,
+        "dur": 6,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a21"
+      }
+    ]
+  },
+  "B": {
+    "label": "Digital Yacht veLink",
+    "pillar": "NEW_DROP",
+    "timelineSeconds": 281,
+    "fragments": [
+      {
+        "beat": 1,
+        "dur": 11,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a1"
+      },
+      {
+        "beat": 1,
+        "dur": 9.4444,
+        "set": [
+          "electronics"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a2"
+      },
+      {
+        "beat": 2,
+        "dur": 14.4444,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a3"
+      },
+      {
+        "beat": 2,
+        "dur": 6,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a4"
+      },
+      {
+        "beat": 3,
+        "dur": 14.4444,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a5"
+      },
+      {
+        "beat": 3,
+        "dur": 6,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a6"
+      },
+      {
+        "beat": 4,
+        "dur": 16.3778,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a7"
+      },
+      {
+        "beat": 5,
+        "dur": 16.3778,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a8"
+      },
+      {
+        "beat": 6,
+        "dur": 10.3778,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a9"
+      },
+      {
+        "beat": 6,
+        "dur": 6,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a10"
+      },
+      {
+        "beat": 7,
+        "dur": 12.3556,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a11"
+      },
+      {
+        "beat": 7,
+        "dur": 6,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a12"
+      },
+      {
+        "beat": 8,
+        "dur": 9,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a13"
+      },
+      {
+        "beat": 8,
+        "dur": 9.3556,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a14"
+      },
+      {
+        "beat": 9,
+        "dur": 18.3556,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a15"
+      },
+      {
+        "beat": 10,
+        "dur": 16.8222,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a16"
+      },
+      {
+        "beat": 11,
+        "dur": 10,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a17"
+      },
+      {
+        "beat": 11,
+        "dur": 6.8222,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a18"
+      },
+      {
+        "beat": 12,
+        "dur": 8,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a19"
+      },
+      {
+        "beat": 12,
+        "dur": 8.8222,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a20"
+      },
+      {
+        "beat": 13,
+        "dur": 11,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a21"
+      },
+      {
+        "beat": 13,
+        "dur": 10.6667,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a22"
+      },
+      {
+        "beat": 14,
+        "dur": 21.6667,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a23"
+      },
+      {
+        "beat": 15,
+        "dur": 21.6667,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a24"
+      }
+    ]
+  },
+  "C": {
+    "label": "Minn Kota warranty",
+    "pillar": "NEW_OWNER",
+    "timelineSeconds": 271,
+    "fragments": [
+      {
+        "beat": 1,
+        "dur": 20.6552,
+        "set": [
+          "fishing"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a1"
+      },
+      {
+        "beat": 2,
+        "dur": 10,
+        "set": [
+          "electronics"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a2"
+      },
+      {
+        "beat": 2,
+        "dur": 10.6552,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a3"
+      },
+      {
+        "beat": 3,
+        "dur": 11,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a4"
+      },
+      {
+        "beat": 3,
+        "dur": 9.6552,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a5"
+      },
+      {
+        "beat": 4,
+        "dur": 17.0871,
+        "set": [
+          "fishing"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a6"
+      },
+      {
+        "beat": 5,
+        "dur": 17.0871,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a7"
+      },
+      {
+        "beat": 6,
+        "dur": 11.0871,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a8"
+      },
+      {
+        "beat": 6,
+        "dur": 6,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a9"
+      },
+      {
+        "beat": 7,
+        "dur": 16.3336,
+        "set": [
+          "fishing",
+          "vessel"
+        ],
+        "outcome": "TIE",
+        "asset": "a10"
+      },
+      {
+        "beat": 8,
+        "dur": 10.3336,
+        "set": [
+          "vessel"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a11"
+      },
+      {
+        "beat": 8,
+        "dur": 6,
+        "set": [
+          "fishing"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a12"
+      },
+      {
+        "beat": 9,
+        "dur": 16.3336,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a13"
+      },
+      {
+        "beat": 10,
+        "dur": 16.3336,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a14"
+      },
+      {
+        "beat": 11,
+        "dur": 16.3336,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a15"
+      },
+      {
+        "beat": 12,
+        "dur": 16.3336,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a16"
+      },
+      {
+        "beat": 13,
+        "dur": 13,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a17"
+      },
+      {
+        "beat": 13,
+        "dur": 6.9239,
+        "set": [
+          "fishing",
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a18"
+      },
+      {
+        "beat": 14,
+        "dur": 6,
+        "set": [
+          "vessel",
+          "water"
+        ],
+        "outcome": "TIE",
+        "asset": "a19"
+      },
+      {
+        "beat": 14,
+        "dur": 13.9239,
+        "set": [
+          "water"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a20"
+      },
+      {
+        "beat": 15,
+        "dur": 19.9239,
+        "set": [
+          "install"
+        ],
+        "outcome": "SINGLE",
+        "asset": "a21"
+      }
+    ]
+  }
+}

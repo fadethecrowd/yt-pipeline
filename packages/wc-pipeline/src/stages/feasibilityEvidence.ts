@@ -10,6 +10,8 @@ import type {
 } from "@yt-pipeline/pipeline-core";
 import { tieAwareConceptAccounting, tieAwareChecks } from "./conceptAccounting";
 import type { TieAwareAccounting, FragmentOutcome } from "./conceptAccounting";
+import { wcLocalMonotonyDiagnostics } from "./monotonyDiagnostics";
+import type { WcLocalMonotonyDiagnostics } from "./monotonyDiagnostics";
 
 /**
  * Opt-in diagnostic evidence for Wet Circuit visual feasibility.
@@ -139,6 +141,13 @@ export interface WcFeasibilityEvidence {
   /** Largest bucket of any kind — what the cap is applied to. */
   dominantAnyConcept: string | null;
   dominantAnyShare: number;
+
+  /**
+   * Measurement only. Carries no verdict and gates nothing; recorded so the
+   * incumbent share metric and a local-monotony metric can be compared on real
+   * candidates before anyone proposes changing what gates production.
+   */
+  localMonotonyDiagnostics: WcLocalMonotonyDiagnostics;
 
   /** The gate's own checks, with the two concept checks recomputed. */
   checks: { name: string; ok: boolean; detail: string }[];
@@ -330,6 +339,8 @@ export async function collectWcFeasibilityEvidence(
     dominantShare: accounting.dominantShare,
     dominantAnyConcept: accounting.dominantAnyConcept,
     dominantAnyShare: accounting.dominantAnyShare,
+
+    localMonotonyDiagnostics: wcLocalMonotonyDiagnostics(accounting.fragments),
 
     checks: checks.map((c) => ({ name: c.name, ok: c.ok, detail: c.detail })),
     sharedChecks: report.checks.map((c) => ({ name: c.name, ok: c.ok, detail: c.detail })),

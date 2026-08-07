@@ -7,6 +7,7 @@ import {
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult, Script } from "@yt-pipeline/pipeline-core";
 import { tieAwareConceptAccounting, tieAwareChecks } from "./conceptAccounting";
+import { longestNoNewConceptRun } from "./monotonyDiagnostics";
 
 const CHANNEL = "wet-circuit" as const;
 const LOG = "[wc:visualFeasibilityGate]";
@@ -115,6 +116,18 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
     ` | ${accounting.distinctConcreteConcepts} concrete`,
   );
   for (const c of failed) console.log(`${LOG}   ✗ ${c.name}: ${c.detail}`);
+
+  // Measurement only — logged for comparison, never consulted for the verdict.
+  const run = longestNoNewConceptRun(accounting.fragments);
+  if (run) {
+    console.log(
+      `${LOG} [diagnostic, not a gate] longest no-new-concept run ` +
+      `${run.seconds.toFixed(1)}s (${(run.shareOfTimeline * 100).toFixed(1)}% of timeline), ` +
+      `fragments ${run.startFragmentIndex}-${run.endFragmentIndex}, ` +
+      `vocabulary [${run.initialConcreteConcepts.join(", ") || "none"}], ` +
+      `${run.uniqueAssetCount} assets`,
+    );
+  }
 
   if (failed.length > 0) {
     const reason = failed.map((c) => `${c.name}: ${c.detail}`).join("; ");
