@@ -27,6 +27,9 @@ import { wcFinalVideoQa } from "./stages/finalVideoQa";
 import { wcYoutubeUpload } from "./stages/youtubeUpload";
 import { wcShortsGenerator } from "./stages/shortsGenerator";
 import { wcNotify } from "./stages/notify";
+import {
+  findWcCanaryAuthorization, assertWcCanaryWindow,
+} from "./canary/authorization";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -257,7 +260,22 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
         throw new PilotBlockedError("PILOT_CAP_REACHED",
           `pilot ${pilot.pilotId} has no slots left — refusing to create a candidate`);
       }
-      if (!isInWindow(new Date(), {
+      // ── Execution window ──────────────────────────────────────────
+      //
+      // An AUTHORISED canary is refused outside its window. This used to log
+      // and continue, which made the window advisory: a canary that may run at
+      // any hour is not bounded. The refusal happens here, before any
+      // candidate row is created or resumed, so it precedes budget
+      // reservation, narration, media acquisition, rendering and upload.
+      //
+      // A pilot with no canary authorisation keeps the previous advisory
+      // behaviour, so ordinary pilot use is unchanged.
+      const canaryAuth = findWcCanaryAuthorization(pilot.pilotId);
+      if (canaryAuth) {
+        // Throws WcCanaryAuthorizationError outside the window.
+        const decision = assertWcCanaryWindow(new Date(), canaryAuth);
+        console.log(`${LOG} execution window OK — ${decision.nowLocal} (${decision.reason})`);
+      } else if (!isInWindow(new Date(), {
         days: pilot.windowDays, startHour: pilot.windowStartHour,
         endHour: pilot.windowEndHour, timeZone: pilot.timezone,
       })) {

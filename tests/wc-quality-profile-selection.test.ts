@@ -120,10 +120,16 @@ describe("profile selection is explicit, run-scoped and fails closed", () => {
 
   test("4. ordinary WC production cannot inherit the relaxed profile", () => {
     const gate = readFileSync("packages/wc-pipeline/src/stages/visualFeasibilityGate.ts", "utf8");
-    assert.match(gate, /tieAwareConceptAccounting\(report\)/,
-      "the production gate calls the accounting with NO profile — strict by construction");
-    assert.doesNotMatch(gate, /FINITE_CREDIT|qualityProfileName/,
-      "the production gate must not name a relaxed profile");
+    // Strict by construction: the options object starts empty and is only
+    // populated when a tracked canary authorisation resolves for this exact
+    // pilot + candidate + script hash.
+    assert.match(gate, /let tieAware: TieAwareOptions = \{\};/,
+      "the default must be an empty options object — strict");
+    assert.match(gate, /tieAwareConceptAccounting\(report, tieAware\)/);
+    assert.match(gate, /resolveWcCanaryAuthorization\(/,
+      "relaxation is reachable only through the authorisation resolver");
+    assert.doesNotMatch(gate, /"FINITE_CREDIT_BURN_ACCEPTABLE_QUALITY"/,
+      "the gate must not name a profile literal — it comes from the authorisation");
     // And there is no env or global switch anywhere in WC.
     const acct = readFileSync("packages/wc-pipeline/src/stages/conceptAccounting.ts", "utf8");
     assert.doesNotMatch(acct, /process\.env/, "no environment switch");

@@ -1,0 +1,42 @@
+{
+  "cta": "Subscribe and hit the bell — when we get a TriSonic on the bench and in the water, you'll want to see that install and the real-world accuracy numbers.",
+  "hook": "AIRMAR just announced something that hasn't existed before in the marine market — an ultrasonic speed sensor. No moving parts. No paddlewheel to foul. That's a big deal.",
+  "segments": [
+    {
+      "title": "What's New",
+      "narration": "AIRMAR just announced something that hasn't existed before in the marine market — an ultrasonic speed sensor. No moving parts. No paddlewheel to foul. That's a big deal. AIRMAR calls it the TriSonic Smart Multisensor, and the headline is right there in the name — ultrasonic speed-through-water measurement. That's the first time that technology has been available in a marine speed sensor, full stop. Every paddlewheel you've ever used spins a little rotor through the water. Weeds grab it. Barnacles slow it. You forget to deploy it after trailering. The TriSonic has zero moving parts. It uses ultrasonic pulses to measure speed-through-water the same way AIRMAR's CHIRP transducers use sound to read depth. Beyond speed, it's a true multisensor — it also handles depth and water temperature. So you're pulling three functions off one through-hull. AIRMAR hasn't published full specs or pricing yet, but this is a purpose-built smart sensor, meaning it outputs clean digital data, not just an analog voltage signal.",
+      "segmentIndex": 0,
+      "visual_prompt": "Product beauty shots of the TriSonic unit against a white background, then close-up of a fouled paddlewheel for contrast, then a clean through-hull install shot showing the sensor flush-mounted in a hull",
+      "duration_seconds": 71
+    },
+    {
+      "title": "Why It Matters",
+      "narration": "Here's the thing about paddlewheels — sailors and performance boaters have been complaining about them for decades, and the only real alternative has been GPS speed over ground. Which is fine until you need actual speed-through-water for polar performance, sailing instruments, or current calculations. GPS doesn't give you that. Speed-through-water tells you what the water is doing relative to the hull. That matters for sailboat polar performance, it matters for drift calculations on a fishing boat, and it matters any time there's current running. Ultrasonic measurement solves the fouling problem without giving up that data. AIRMAR is the company that essentially built the CHIRP transducer market — they supply OEM transducers to Garmin, Lowrance, Simrad, Raymarine. When they say ultrasonic speed sensing is ready for the marine market, I take that seriously.",
+      "segmentIndex": 1,
+      "visual_prompt": "On-water footage of a sailboat heeled over, then a screen recording of a chartplotter showing SOG vs STW data fields, then a graphic illustrating current triangle — SOG, STW, set and drift",
+      "duration_seconds": 55
+    },
+    {
+      "title": "Who Should Upgrade",
+      "narration": "If you're a sailor running a performance instrument system — B&G, Garmin, Raymarine — and you've been fighting a paddlewheel, this is exactly what you've been waiting for. One through-hull, no moving parts, accurate speed-through-water. That's the upgrade. If you're a powerboater who runs a paddlewheel purely for water temperature and depth, the TriSonic consolidates all of that. For bluewater cruisers, the reliability angle is huge — one less mechanical failure point offshore matters. Now, who should wait? Anyone shopping today on a tight budget should hold off until pricing drops on the announcement. And if your current paddlewheel is working fine and you're not chasing performance data, this isn't urgent. But for anyone whose paddlewheel spends half the season fouled or retracted — the math on this just changed.",
+      "segmentIndex": 2,
+      "visual_prompt": "Split-screen: fouled paddlewheel pulled from a hull versus clean TriSonic unit, then footage of bluewater sailboat passage-making, then close-up of sailing instrument display showing wind and speed data",
+      "duration_seconds": 55
+    },
+    {
+      "title": "Price and Availability",
+      "narration": "AIRMAR hasn't released official pricing or a firm ship date yet. This is a launch announcement, not a buy-now moment. Check AIRMAR's website and authorized dealers for availability updates — Standard Communications and Cobra are two major distribution channels to watch. I'd also keep an eye on whether major chartplotter manufacturers start announcing TriSonic compatibility, because if Garmin or Simrad lists this as a supported sensor, that's when the install guides and forum threads start showing up and you'll know it's retail-ready. We'll post an update the moment pricing goes live.",
+      "segmentIndex": 3,
+      "visual_prompt": "AIRMAR logo and product shot, then screenshot of AIRMAR website, then retailer storefronts — West Marine, Defender, iNavX — with a 'check for availability' graphic overlay",
+      "duration_seconds": 35
+    },
+    {
+      "title": "Bottom Line",
+      "narration": "Ultrasonic speed-through-water is one of those things the marine industry should have had years ago. AIRMAR finally built it. No paddlewheel, no moving parts, real speed-through-water data combined with depth and temperature in a single smart sensor. I'm genuinely excited to see how this integrates with existing instrument networks and what the install looks like in a real hull. The technology is proven — ultrasonic measurement isn't new, applying it to speed sensing in this form factor is. If AIRMAR prices this competitively against premium paddlewheel systems, it could make traditional paddlewheel speed sensors obsolete fast. That's not hype. That's just what happens when a better solution shows up. Subscribe and hit the bell — when we get a TriSonic on the bench and in the water, you'll want to see that install and the real-world accuracy numbers.",
+      "segmentIndex": 4,
+      "visual_prompt": "Close-up of TriSonic sensor face, then b-roll of clean hull exit through-hull fitting, then wide shot of boat moving through water with speed data overlay on screen",
+      "duration_seconds": 67
+    }
+  ],
+  "estimatedTotalDuration": 293
+}

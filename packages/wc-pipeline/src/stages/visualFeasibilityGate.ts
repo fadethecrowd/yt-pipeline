@@ -4,10 +4,13 @@ import {
   assessVisualFeasibility, pexelsOnlySource, formatFeasibility,
   buildSpokenUnits, spokenCharacterCount, spokenOutlineSegments,
   CHARS_PER_SECOND, TITLE_CARD_S, runtimeRange, currentTestStage,
+  currentPilot,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult, Script } from "@yt-pipeline/pipeline-core";
 import { tieAwareConceptAccounting, tieAwareChecks } from "./conceptAccounting";
 import { longestNoNewConceptRun } from "./monotonyDiagnostics";
+import { resolveWcCanaryAuthorization } from "../canary/authorization";
+import type { TieAwareOptions } from "./conceptAccounting";
 
 const CHANNEL = "wet-circuit" as const;
 const LOG = "[wc:visualFeasibilityGate]";
@@ -98,12 +101,41 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
   );
   console.log(formatFeasibility(report));
 
+  // ── Concept-share tolerance ──────────────────────────────────────────
+  //
+  // Strict by default. The relaxed tolerance is reachable ONLY for a candidate
+  // named in the tracked canary authorisation, running under its own pilot,
+  // with a byte-identical script. A PILOT_ID alone does not relax anything,
+  // and neither does a candidate id alone — every axis must match, and any
+  // partial match refuses rather than quietly downgrading to strict.
+  let tieAware: TieAwareOptions = {};
+  const pilotNow = await currentPilot().catch(() => null);
+  if (pilotNow) {
+    const resolved = resolveWcCanaryAuthorization({
+      pilot: pilotNow,
+      candidateId: ctx.video.id,
+      script,
+      submitChars,
+    });
+    if (resolved) {
+      tieAware = { qualityProfileName: resolved.qualityProfileName };
+      console.log(
+        `${LOG} canary authorisation resolved — pilot ${resolved.authorization.pilotId}, ` +
+        `candidate ${resolved.authorization.candidateId}, ` +
+        `script ${resolved.scriptSha256.slice(0, 16)}…, ` +
+        `profile ${resolved.qualityProfileName} ` +
+        `(concept-share tolerance ${(resolved.effectiveMaxConceptShare * 100).toFixed(0)}%), ` +
+        `narration ${resolved.submitChars}/${resolved.authorization.maxNarrationChars} chars`,
+      );
+    }
+  }
+
   // Concept concentration is re-evaluated with tie-aware accounting. The
   // shared gate files a tie as "none", which reported genuinely marine
   // footage as an unnameable subject; here a tie is divided between the
   // concepts that tied. Every other check, and the entire allocation, is the
   // gate's own — only the labelling of already-allocated seconds changes.
-  const accounting = tieAwareConceptAccounting(report);
+  const accounting = tieAwareConceptAccounting(report, tieAware);
   const checks = tieAwareChecks(report, accounting);
   const failed = checks.filter((c) => !c.ok);
   console.log(
