@@ -14,8 +14,7 @@ import {
   youtubeUpload,
   notify,
   RunSummary,
-  currentPilot, assertRunnable, remainingSlots, PilotBlockedError,
-  formatZoned, isInWindow,
+  assertRunnable, remainingSlots, PilotBlockedError,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -27,6 +26,7 @@ import { shortsGenerator } from "./stages/shortsGenerator";
 import { visualFeasibilityGate } from "./stages/visualFeasibilityGate";
 import { thumbnailHeadlineGenerator } from "./stages/thumbnailHeadlineGenerator";
 import { finalVideoQa, assertFinalQaPassed, QaBlockedError } from "./stages/finalVideoQa";
+import { resolveAiDoomPilot, assertAiDoomPilotWindow } from "./pilotBinding";
 
 /**
  * Upload, refused unless the authoritative QA verdict passes for these exact
@@ -221,7 +221,11 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
     // first concurrency defence; the cap below fails closed independently of
     // it, because a lock that is somehow not held must not become permission
     // to exceed the limit.
-    const pilot = await currentPilot();
+    // Fails closed when the database says a pilot governs this channel but the
+    // environment does not name it. `currentPilot()` alone returned null in
+    // that case, which read as "ordinary production" and silently discarded
+    // every pilot protection.
+    const pilot = await resolveAiDoomPilot();
     if (pilot) {
       console.log(
         `[pipeline] PILOT ${pilot.pilotId}: status=${pilot.status} ` +
@@ -235,16 +239,11 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
         throw new PilotBlockedError("PILOT_CAP_REACHED",
           `pilot ${pilot.pilotId} has no slots left — refusing to create a candidate`);
       }
-      if (!isInWindow(new Date(), {
-        days: pilot.windowDays, startHour: pilot.windowStartHour,
-        endHour: pilot.windowEndHour, timeZone: pilot.timezone,
-      })) {
-        console.log(
-          `[pipeline] outside the pilot execution window ` +
-          `(${pilot.windowStartHour}:00-${pilot.windowEndHour}:00 ${pilot.timezone}); ` +
-          `now is ${formatZoned(new Date(), pilot.timezone)}`,
-        );
-      }
+      // Hard gate. This used to log and continue, which made the window a
+      // comment rather than a control. Refusing here precedes resume,
+      // discovery, candidate creation, budget, narration, media and upload.
+      const w = assertAiDoomPilotWindow(new Date(), pilot);
+      console.log(`[pipeline] execution window OK — ${w.nowLocal} (${w.reason})`);
       // An unresolved upload from a prior pilot candidate must be reconciled
       // by a human before another candidate is created: it may already be a
       // video on the channel.
