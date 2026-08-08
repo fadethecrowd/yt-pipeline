@@ -14,6 +14,8 @@ import { sendDailyDigest, shouldSendDigest } from "./digest";
 import { startBot, setLastTickTime } from "./telegram";
 import { scrapeRedditTopics } from "./redditScraper";
 import { detectLifecycleEvents } from "./lifecycleDetector";
+import { parseMonitorMode } from "./lib/monitorMode";
+import { realHealthDeps, startHealthLoop } from "./healthDeps";
 import { generateRedditPosts } from "./redditPoster";
 
 const DAILY_MS = 24 * 60 * 60 * 1000;
@@ -90,11 +92,51 @@ async function tick(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // ── Master execution gate ────────────────────────────────────────────
+  //
+  // Before ANY monitoring side effect: no channel verification (a YouTube
+  // call), no Telegram bot (which announces itself on startup), no tick, no
+  // interval, no monitoring query. MONITOR_AI_ENABLED never gated this — it
+  // only ever suppressed Claude calls, so a monitor with AI off still ran.
+  //
+  // Fail-closed: unset means DISABLED, and an unrecognised value throws rather
+  // than falling back to a mode that does work.
+  const mode = parseMonitorMode(process.env.MONITOR_MODE);
+  if (mode === "DISABLED") {
+    console.log(
+      `[monitor] MONITOR_MODE=${process.env.MONITOR_MODE ?? "<unset>"} — ` +
+      "monitor execution disabled; exiting without starting any monitoring work",
+    );
+    await prisma.$disconnect();
+    process.exit(0);
+  }
+
   const config = env();
   const serviceLabel = `monitor:${config.CHANNEL}`;
   const expected = CHANNELS[config.CHANNEL];
 
   await verifyChannel(expected, serviceLabel);
+
+  if (mode === "HEALTH_ONLY") {
+    // Deterministic health checks only. The legacy tick — metrics, comments,
+    // decision engine, executor, lifecycle, Reddit — is never reached, so the
+    // write-capable machinery is not merely disabled but unreachable.
+    console.log(
+      `[${serviceLabel}] MONITOR_MODE=health_only — deterministic health checks only; ` +
+      "legacy monitoring, AI decisions and all YouTube writes are unreachable",
+    );
+    const deps = realHealthDeps(config.CHANNEL);
+    const loop = startHealthLoop(config.CHANNEL, deps, config.POLL_INTERVAL_MS);
+    await loop.runNow();
+    process.on("SIGTERM", async () => {
+      loop.stop();
+      await prisma.$disconnect();
+      process.exit(0);
+    });
+    return;
+  }
+
+  console.log(`[${serviceLabel}] MONITOR_MODE=active — full legacy monitoring`);
 
   if (config.YOUTUBE_CHANNEL_ID !== expected.id) {
     throw new Error(

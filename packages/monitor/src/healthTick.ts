@@ -1,0 +1,126 @@
+import {
+  evaluateChannelHealth, GO_LIVE_GRACE_MS,
+} from "./lib/videoHealth";
+import type {
+  HealthFinding, HealthReport, ScheduledVideo, YtView, RunView, BudgetView, PilotView,
+} from "./lib/videoHealth";
+
+/**
+ * The HEALTH_ONLY execution path.
+ *
+ * Deliberately narrow. It does not call the legacy `tick()`, because that would
+ * drag in metric polling, comment scraping, the decision engine, the executor,
+ * lifecycle detection and Reddit posting — everything HEALTH_ONLY exists to
+ * avoid. Instead it gathers exactly the reads the deterministic checks need and
+ * evaluates them.
+ *
+ * The write boundary is structural, not a flag: this module imports no YouTube
+ * client, no executor, no decision engine and no AI budget. Its only contact
+ * with the outside world is through injected functions, and the injected
+ * YouTube surface is a single read that returns privacy and publishAt. There is
+ * no code path from here to `videos.update`, `comments.insert`, an upload, or a
+ * pipeline trigger — not because a boolean forbids it, but because nothing
+ * capable of it is reachable.
+ */
+
+export interface HealthDeps {
+  /** Rows for THIS channel only, already scoped by the caller. */
+  scheduledVideos(): Promise<ScheduledVideo[]>;
+  /** Minimal read: does it exist, what privacy, what publishAt. */
+  ytView(youtubeId: string): Promise<YtView | null>;
+  unresolvedIntentCount(): Promise<number>;
+  recentRuns(): Promise<RunView[]>;
+  budgets(): Promise<BudgetView[]>;
+  activeRunCount(): Promise<number>;
+  pilots(): Promise<PilotView[]>;
+  /** Injected so a test can prove nothing was ever sent. */
+  sendAlert(text: string): Promise<void>;
+  now(): Date;
+  log(line: string): void;
+}
+
+export interface HealthTickResult {
+  report: HealthReport;
+  alerted: boolean;
+}
+
+/** Format a report for the existing alert transport. */
+export function formatFindings(channel: string, findings: HealthFinding[]): string {
+  const lines = findings.map((f) => `• [${f.severity}] ${f.code} — ${f.subject}: ${f.detail}`);
+  return `Monitor health (${channel}) — ${findings.length} finding(s):\n${lines.join("\n")}`;
+}
+
+/**
+ * One health evaluation. Reads, evaluates, and alerts only when a deterministic
+ * finding exists. Silence is the expected outcome of a healthy channel.
+ */
+export async function runHealthTick(
+  channel: string, deps: HealthDeps, graceMs: number = GO_LIVE_GRACE_MS,
+): Promise<HealthTickResult> {
+  const now = deps.now();
+  deps.log(`[monitor:health] ═══ Health tick (${channel}) at ${now.toISOString()} ═══`);
+
+  const videos = await deps.scheduledVideos();
+  const scheduled: { video: ScheduledVideo; yt: YtView | null }[] = [];
+  for (const v of videos) {
+    // Only reach out for videos that actually claim a schedule.
+    const yt = v.youtubeId ? await deps.ytView(v.youtubeId) : null;
+    scheduled.push({ video: v, yt });
+  }
+
+  const report = evaluateChannelHealth({
+    channel,
+    scheduled,
+    unresolvedIntents: await deps.unresolvedIntentCount(),
+    runs: await deps.recentRuns(),
+    budgets: await deps.budgets(),
+    activeRuns: await deps.activeRunCount(),
+    pilots: await deps.pilots(),
+    now,
+    graceMs,
+  });
+
+  if (report.findings.length === 0) {
+    deps.log(`[monitor:health] ${channel}: healthy — ${scheduled.length} scheduled video(s) checked`);
+    return { report, alerted: false };
+  }
+
+  for (const f of report.findings) {
+    deps.log(`[monitor:health] ${f.severity} ${f.code} ${f.subject}: ${f.detail}`);
+  }
+  await deps.sendAlert(formatFindings(channel, report.findings));
+  return { report, alerted: true };
+}
+
+/**
+ * Run health ticks on an interval, with a single-flight guard.
+ *
+ * `setInterval` will happily start a second tick while the first is still
+ * awaiting network reads, which would double the API traffic and interleave
+ * alerts. The guard is the smallest thing that prevents that: one boolean, and
+ * a skipped tick is logged rather than queued.
+ */
+export function startHealthLoop(
+  channel: string, deps: HealthDeps, intervalMs: number,
+): { stop(): void; runNow(): Promise<void> } {
+  let inFlight = false;
+
+  const once = async (): Promise<void> => {
+    if (inFlight) {
+      deps.log(`[monitor:health] previous tick still running — skipping this interval`);
+      return;
+    }
+    inFlight = true;
+    try {
+      await runHealthTick(channel, deps);
+    } catch (err) {
+      // Surface, but never escalate into legacy behaviour.
+      deps.log(`[monitor:health] tick failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  const timer = setInterval(() => { void once(); }, intervalMs);
+  return { stop: () => clearInterval(timer), runNow: once };
+}
