@@ -155,8 +155,17 @@ async function main() {
     "pilot bound to the WC channel", `${pilot.channel}/${pilot.channelId}`);
   ck(pilot.status === "PREPARED", "pilot PREPARED (not yet activated)", pilot.status);
   ck(!pilot.activatedAt, "pilot has no activation timestamp", String(pilot.activatedAt));
+  // 0/1 is the pre-run state. Once the canary has produced its one video the
+  // pilot stays ACTIVE at 1/1 with no slot left — a completed canary awaiting
+  // human acceptance, not a failure. Completion is an explicit, acknowledged
+  // step in the graduation control, because a private upload reaching YouTube
+  // is evidence the machinery worked, not that a person approved it.
+  const remaining = Math.max(0, pilot.maxSuccesses - pilot.successCount);
   ck(pilot.successCount === 0 && pilot.maxSuccesses === 1,
-    "pilot success cap 0/1", `${pilot.successCount}/${pilot.maxSuccesses}`);
+    "pilot success cap 0/1 (pre-run)", `${pilot.successCount}/${pilot.maxSuccesses}` +
+      (remaining === 0 && pilot.successCount === 1
+        ? " — CANARY_COMPLETE_REVIEW_REQUIRED: run graduation control"
+        : ""));
   ck(pilot.privacyStatus === "private" && !pilot.allowPublishAt,
     "PRIVATE with publishAt forbidden", `${pilot.privacyStatus} allowPublishAt=${pilot.allowPublishAt}`);
   ck(!pilot.shortsEnabled, "Shorts disabled", String(pilot.shortsEnabled));

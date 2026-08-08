@@ -116,9 +116,30 @@ describe("the cap is claimed atomically in SQL, not in memory", () => {
     assert.match(src, /COALESCE\(array_length\("successVideoIds", 1\), 0\)\)/);
   });
 
-  test("the pilot completes when the last confirmed upload lands", () => {
-    assert.match(src, /SET "status" = 'COMPLETED'/);
-    assert.match(src, />= "maxSuccesses"/);
+  test("confirming an upload records it WITHOUT completing the pilot", () => {
+    // It used to mark COMPLETED once successVideoIds reached maxSuccesses,
+    // conflating the current authorisation ceiling with human acceptance. For a
+    // progressively authorised pilot (0/1 → review → 1/2 → review → 2/3) that
+    // made the pilot non-ACTIVE at 1/1, so the next video was unreachable.
+    const confirm = src.slice(
+      src.indexOf("export async function confirmPilotSlot"),
+      src.indexOf("export async function completePilot"),
+    );
+    assert.match(confirm, /array_append\("successVideoIds", \$2\)/);
+    assert.ok(!confirm.includes("'COMPLETED'"), "must not complete the pilot");
+    assert.ok(!confirm.includes("completedAt"), "must not write completedAt");
+  });
+
+  test("completion is a separate guarded compare-and-set", () => {
+    const complete = src.slice(src.indexOf("export async function completePilot"));
+    assert.match(complete, /SET "status" = 'COMPLETED', "completedAt" = NOW\(\)/);
+    assert.match(complete, /AND "status" = 'ACTIVE'/);
+    assert.match(complete, /AND "successCount" = \$2/);
+    assert.match(complete, /AND "maxSuccesses" = \$2/);
+  });
+
+  test("a consumed ceiling still blocks the next claim", () => {
+    assert.match(src, /AND "successCount" < "maxSuccesses"/);
   });
 
   test("only an ACTIVE pilot can have a slot claimed", () => {

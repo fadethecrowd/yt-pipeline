@@ -117,6 +117,7 @@ export type Phase =
   | "PREPARED_FOR_ARM"
   | "ARMED_FOR_RUN"
   | "CAP_EXHAUSTED_REVIEW_REQUIRED"
+  | "QUALIFICATION_COMPLETE_REVIEW_REQUIRED"
   | "PILOT_COMPLETE";
 
 /**
@@ -174,7 +175,12 @@ export function classifyPhase(state: ControlState): Phase {
   }
   if (p.status === "ACTIVE") {
     if (remaining > 0) return "ARMED_FOR_RUN";
-    return p.successCount >= MAX_CAP ? "PILOT_COMPLETE" : "CAP_EXHAUSTED_REVIEW_REQUIRED";
+    // Ceiling consumed. At the full qualification target the remaining action is
+    // final human acceptance, not another cap advance — the pilot stays ACTIVE
+    // until a person completes it through the graduation control.
+    return p.successCount >= MAX_CAP
+      ? "QUALIFICATION_COMPLETE_REVIEW_REQUIRED"
+      : "CAP_EXHAUSTED_REVIEW_REQUIRED";
   }
   if (p.status === "COMPLETED") return "PILOT_COMPLETE";
   return "CONFIG_INVALID";
@@ -497,7 +503,13 @@ export async function doAdvanceCap(deps: ControlDeps, reviewed: boolean): Promis
 
   const from = p.maxSuccesses;
   const to = from + 1;
-  if (!(from === 1 || from === 2)) return none(`cap ${from} is not advanceable`, from, to);
+  if (!(from === 1 || from === 2)) {
+    return none(
+      from >= MAX_CAP
+        ? `cap ${from} is the qualification target — complete the pilot instead of advancing`
+        : `cap ${from} is not advanceable`,
+      from, to);
+  }
   if (p.successCount !== from) {
     return none(`successCount ${p.successCount} does not equal cap ${from} — the cap is not exhausted`, from, to);
   }

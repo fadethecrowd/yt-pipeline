@@ -314,7 +314,7 @@ export type { ExhaustiveBeat } from "./lib/exhaustiveBeats";
 export { solveApprovedStrip, MAX_CLIP_S } from "./lib/approvedStrip";
 export {
   activePilotId, getPilot, currentPilot, assertRunnable, remainingSlots,
-  claimPilotSlot, releasePilotSlot, confirmPilotSlot,
+  claimPilotSlot, releasePilotSlot, confirmPilotSlot, completePilot,
   uploadPolicyFor, assertPilotUploadAllowed, PilotBlockedError,
 } from "./lib/pilot";
 export type { PilotConfig, PilotStatus, UploadPolicy } from "./lib/pilot";

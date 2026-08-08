@@ -192,7 +192,7 @@ describe("CHECK", () => {
       "CAP_EXHAUSTED_REVIEW_REQUIRED");
     assert.equal(classifyPhase(await gatherState(makeFake({
       pilot: { ...armed, successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] } }).deps)),
-      "PILOT_COMPLETE");
+      "QUALIFICATION_COMPLETE_REVIEW_REQUIRED");
     assert.equal(classifyPhase(await gatherState(makeFake({ pilot: null }).deps)), "PILOT_MISSING");
   });
 

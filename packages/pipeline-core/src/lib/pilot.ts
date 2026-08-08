@@ -142,8 +142,33 @@ export async function releasePilotSlot(pilotId: string): Promise<void> {
 }
 
 /**
- * Record a confirmed upload against its claimed slot, completing the pilot
- * when the last one lands.
+ * Record a confirmed upload against its claimed slot.
+ *
+ * This used to ALSO mark the pilot COMPLETED once `successVideoIds` reached
+ * `maxSuccesses`, which conflated two different things:
+ *
+ *   maxSuccesses  — the CURRENT AUTHORIZATION CEILING. How many videos the
+ *                   operator has so far permitted.
+ *   COMPLETED     — the qualification is finished and a human has accepted it.
+ *
+ * For a progressively authorised pilot those are not the same event. AI Doom
+ * runs 0/1 → review → 1/2 → review → 2/3 → review, so a pilot sitting at 1/1 has
+ * merely exhausted its current ceiling; it is not finished. Auto-completing
+ * there made the pilot non-ACTIVE, which `assertRunnable` refuses and which the
+ * cap-advance control also refuses — so the second video became unreachable and
+ * the review gate could never be crossed.
+ *
+ * It also conflated an upload with an acceptance. A private video reaching
+ * YouTube is evidence that the machinery worked, not that a person watched it
+ * and approved. Completion is now an explicit, acknowledged control-plane
+ * operation for both channels.
+ *
+ * A pilot whose ceiling is consumed simply has `remainingSlots === 0`, which
+ * already blocks the next run through `assertRunnable`. Nothing is weakened:
+ * the cap still fails closed, it just no longer ends the pilot.
+ *
+ * Idempotent: the append is guarded by `NOT ($2 = ANY(...))`, so confirming the
+ * same video twice records it once.
  */
 export async function confirmPilotSlot(pilotId: string, videoId: string): Promise<PilotConfig> {
   await prisma.$executeRawUnsafe(
@@ -152,15 +177,34 @@ export async function confirmPilotSlot(pilotId: string, videoId: string): Promis
       WHERE "pilotId" = $1 AND NOT ($2 = ANY("successVideoIds"))`,
     pilotId, videoId,
   );
-  await prisma.$executeRawUnsafe(
+  return (await getPilot(pilotId))!;
+}
+
+/**
+ * Finish a pilot's qualification. Compare-and-set, ACTIVE → COMPLETED.
+ *
+ * Deliberately separate from `confirmPilotSlot`: this is the durable record
+ * that a human reviewed the required videos and accepted them. Callers must
+ * establish that themselves — this only enforces that the pilot is ACTIVE, that
+ * its ceiling is fully consumed, and that the ceiling is the one the caller
+ * believes it is, so a stale view cannot complete a pilot mid-progression.
+ *
+ * Returns rows affected; anything but 1 means the pilot drifted and the caller
+ * must refuse.
+ */
+export async function completePilot(
+  pilotId: string, expectedSuccesses: number,
+): Promise<number> {
+  return prisma.$executeRawUnsafe(
     `UPDATE "production_pilot"
         SET "status" = 'COMPLETED', "completedAt" = NOW(), "updatedAt" = NOW()
       WHERE "pilotId" = $1
         AND "status" = 'ACTIVE'
-        AND COALESCE(array_length("successVideoIds", 1), 0) >= "maxSuccesses"`,
-    pilotId,
+        AND "successCount" = $2
+        AND "maxSuccesses" = $2
+        AND COALESCE(array_length("successVideoIds", 1), 0) = $2`,
+    pilotId, expectedSuccesses,
   );
-  return (await getPilot(pilotId))!;
 }
 
 /**
