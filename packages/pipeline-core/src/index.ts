@@ -319,6 +319,13 @@ export {
 } from "./lib/pilot";
 export type { PilotConfig, PilotStatus, UploadPolicy } from "./lib/pilot";
 export {
+  authorizeCycle, currentRunnableCycle, claimCycle, attachVideo,
+  completeCycle, failCycle, getCycle, listCycles,
+  assertValidSlot, nextCycleSlot, CycleError,
+} from "./lib/productionCycle";
+export type { ProductionCycle, CycleStatus } from "./lib/productionCycle";
+
+export {
   nextPublishSlot, describeSlot,
   PUBLISH_DAYS, PUBLISH_HOUR_LOCAL, PUBLISH_MINUTE_LOCAL, PUBLISH_TIMEZONE,
 } from "./lib/publishSlot";
