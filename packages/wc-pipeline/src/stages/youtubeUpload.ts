@@ -5,6 +5,7 @@ import {
   prisma, env,
   prepareUpload, confirmUploadState, assertNoDuplicateUploadRecord,
   currentPilot, uploadPolicyFor, assertPilotUploadAllowed,
+  nextPublishSlot, describeSlot,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult, UploadResult } from "@yt-pipeline/pipeline-core";
 import { runWcPilotUpload, completeWcPilotUpload, WcPilotUploadRefused } from "./pilotUpload";
@@ -27,32 +28,27 @@ function isBeforeLaunch(): boolean {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-const PUBLISH_DAYS = [1, 3, 5]; // Mon, Wed, Fri
-const PUBLISH_HOUR_UTC = 19;    // 2 PM EST = 19:00 UTC
-
-function getNextPublishSlot(): Date {
-  const now = new Date();
-  const today = new Date(now);
-  today.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
-
-  // Same-day slot only if it is still in the future — YouTube requires
-  // publishAt to be ahead of upload time; runs after 19:00 UTC on a
-  // publish day fall through to the next-day search below.
-  if (PUBLISH_DAYS.includes(today.getUTCDay()) && today > now) {
-    return today;
-  }
-
-  for (let i = 1; i <= 7; i++) {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() + i);
-    if (PUBLISH_DAYS.includes(d.getUTCDay())) {
-      return d;
-    }
-  }
-
-  const fallback = new Date(today);
-  fallback.setUTCDate(fallback.getUTCDate() + 1);
-  return fallback;
+/**
+ * The next unoccupied ordinary-production publication slot.
+ *
+ * Delegates to the shared, timezone-aware selector. The previous local
+ * implementation used a fixed 19:00 UTC hour and a UTC weekday, so the local
+ * publish time moved an hour at every DST transition and a late-evening Eastern
+ * instant could be mistaken for the next UTC day. It also had no collision
+ * handling: every video produced on a given day received the identical slot.
+ */
+async function getNextPublishSlot(): Promise<Date> {
+  const future = await prisma.wcVideo.findMany({
+    where: { scheduledAt: { gt: new Date() } },
+    select: { scheduledAt: true },
+  });
+  const occupied = future
+    .map((r) => r.scheduledAt)
+    .filter((d): d is Date => d !== null);
+  const slot = nextPublishSlot(new Date(), { occupied });
+  console.log(`[wc:youtubeUpload] publication slot: ${describeSlot(slot)}` +
+    (occupied.length ? ` (skipped ${occupied.length} occupied)` : ""));
+  return slot;
 }
 
 // ── Tag sanitizer (defense in depth before YouTube API call) ───────────
@@ -167,7 +163,7 @@ export async function wcYoutubeUpload(
   // scheduled slot below, so this does not redefine WC publishing forever.
   const preLaunch = isBeforeLaunch();
   const pilot = await currentPilot();
-  const policy = uploadPolicyFor(pilot, preLaunch ? null : getNextPublishSlot());
+  const policy = uploadPolicyFor(pilot, preLaunch ? null : await getNextPublishSlot());
   if (policy.source === "pilot") {
     console.log(`[wc:youtubeUpload] pilot ${pilot!.pilotId}: private, no publishAt, guarded intent`);
   }

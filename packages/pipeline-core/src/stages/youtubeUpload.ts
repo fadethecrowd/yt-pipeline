@@ -17,50 +17,35 @@ import {
 import { sha256File, sha256Manifest } from "../lib/approvedArtifact";
 import { sceneRecordsFor } from "../lib/visuals";
 import { currentTestStage } from "../lib/testStage";
+import { nextPublishSlot, describeSlot } from "../lib/publishSlot";
 import type { PipelineContext, StageResult, UploadResult } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Returns the publish slot for the current pipeline run.
+ * The next unoccupied ordinary-production publication slot.
  *
- * Always publishes same-day: if today is Mon/Wed/Fri, use today at
- * 2 PM EST (19:00 UTC). Multiple videos per day is allowed — AI news
- * gets stale fast so same-day publish is the priority.
+ * Delegates to the shared, timezone-aware selector. The previous local
+ * implementation used a fixed 19:00 UTC hour and a UTC weekday, so the local
+ * publish time moved an hour at every DST transition — 15:00 EDT in summer but
+ * 14:00 EST in winter — and a late-evening Eastern instant could be mistaken
+ * for the next UTC day. It also had no collision handling: every video produced
+ * on a given day received the identical slot.
  *
- * If today is not a publish day (Tue/Thu/Sat/Sun), use the next
- * Mon/Wed/Fri at 2 PM EST.
+ * Occupied slots come from this channel's own future-scheduled rows.
  */
-function getNextPublishSlot(): Date {
-  const PUBLISH_DAYS = [1, 3, 5]; // Mon, Wed, Fri
-  const PUBLISH_HOUR_UTC = 19; // 2 PM EST = 19:00 UTC
-
-  const now = new Date();
-  const today = new Date(now);
-  today.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
-
-  // Same-day slot only if it is still in the future — YouTube requires
-  // publishAt to be ahead of upload time; runs after 19:00 UTC on a
-  // publish day fall through to the next-day search below.
-  if (PUBLISH_DAYS.includes(today.getUTCDay()) && today > now) {
-    console.log(`[youtubeUpload] Using same-day slot: ${today.toISOString()}`);
-    return today;
-  }
-
-  // Find the next Mon/Wed/Fri
-  for (let i = 1; i <= 7; i++) {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() + i);
-    if (PUBLISH_DAYS.includes(d.getUTCDay())) {
-      console.log(`[youtubeUpload] Next publish day: ${d.toISOString()}`);
-      return d;
-    }
-  }
-
-  // Should never reach here, but fallback to tomorrow
-  const fallback = new Date(today);
-  fallback.setUTCDate(fallback.getUTCDate() + 1);
-  return fallback;
+async function getNextPublishSlot(): Promise<Date> {
+  const future = await prisma.video.findMany({
+    where: { scheduledAt: { gt: new Date() } },
+    select: { scheduledAt: true },
+  });
+  const occupied = future
+    .map((r) => r.scheduledAt)
+    .filter((d): d is Date => d !== null);
+  const slot = nextPublishSlot(new Date(), { occupied });
+  console.log(`[youtubeUpload] publication slot: ${describeSlot(slot)}` +
+    (occupied.length ? ` (skipped ${occupied.length} occupied)` : ""));
+  return slot;
 }
 
 /**
@@ -123,7 +108,7 @@ export async function youtubeUpload(
   // the pilot: ordinary production still receives its scheduled slot, so this
   // does not quietly redefine all PRODUCTION uploads as private forever.
   const pilot = await currentPilot();
-  const policy = uploadPolicyFor(pilot, getNextPublishSlot());
+  const policy = uploadPolicyFor(pilot, await getNextPublishSlot());
   if (policy.source === "pilot") {
     console.log(`[youtubeUpload] pilot ${pilot!.pilotId}: private, no publishAt, guarded intent`);
   }

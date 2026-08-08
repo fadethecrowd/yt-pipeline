@@ -319,6 +319,12 @@ export {
 } from "./lib/pilot";
 export type { PilotConfig, PilotStatus, UploadPolicy } from "./lib/pilot";
 export {
+  nextPublishSlot, describeSlot,
+  PUBLISH_DAYS, PUBLISH_HOUR_LOCAL, PUBLISH_MINUTE_LOCAL, PUBLISH_TIMEZONE,
+} from "./lib/publishSlot";
+export type { SlotOptions } from "./lib/publishSlot";
+
+export {
   zonedParts, offsetMinutes, isDst, zonedTimeToUtc, isWindowDay, isInWindow,
   nextWindowStart, formatZoned, EASTERN,
   DEFAULT_WINDOW_DAYS, DEFAULT_WINDOW_START_HOUR, DEFAULT_WINDOW_END_HOUR,
