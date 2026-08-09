@@ -131,7 +131,11 @@ describe("1-6. direct invocation topology", () => {
                               ["packages/wc-pipeline/src/pipeline.ts", "wcVideo"]] as const) {
       const body = readFileSync(p, "utf8");
       const fn = body.slice(body.indexOf("export async function runPipeline"));
-      const creates = (fn.match(new RegExp(`prisma\\.${model}\\.create`, "g")) ?? []).length;
+      // Matches any client, not just `prisma.` — under a production cycle the
+      // create runs on a transaction client so it can be atomic with the
+      // cycle's record of it. There must still be exactly ONE call site: two
+      // would mean two payloads that could drift apart.
+      const creates = (fn.match(new RegExp(`\\.${model}\\.create\\b`, "g")) ?? []).length;
       assert.equal(creates, 1, `${p} must create exactly one ${model}`);
     }
   });

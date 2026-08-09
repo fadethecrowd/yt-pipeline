@@ -12,6 +12,9 @@ import {
   currentPilot, assertRunnable, remainingSlots, PilotBlockedError,
   formatZoned, isInWindow,
   buildSpokenUnits, spokenCharacterCount,
+  openUnattendedGate, isUnattendedMode, unattendedClaimantId,
+  createAndAttachCandidate, settleCycle, getCycle,
+  type ActiveCycle,
 } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig, PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -125,11 +128,30 @@ function fmtDuration(ms: number): string {
   return `${s}s`;
 }
 
+/**
+ * The production cycle this process owns, or null when not unattended.
+ *
+ * Module-scoped on purpose. The run has several terminal points and threading a
+ * cycle handle through every one of them is how a path gets missed and a cycle
+ * is left CLAIMED forever. One process runs one pipeline at a time — the
+ * advisory lock guarantees it — so a single slot is an honest model of "the
+ * cycle this run owns".
+ */
+let activeCycle: ActiveCycle | null = null;
+
+/** Cycle channel key. Matches the pilot's channel field, deliberately. */
+const WC_CHANNEL = "wet-circuit";
+
 async function failVideo(
   ctx: PipelineContext,
   stageName: string,
   reason: string,
 ) {
+  // Settle first: the cycle's terminal state governs whether another container
+  // may act, and it must not depend on the notification succeeding.
+  await settleCycle(activeCycle, { ok: false, stage: stageName, reason });
+  activeCycle = null;
+
   const failReason = `${stageName}: ${reason}`;
   await prisma.wcVideo.update({
     where: { id: ctx.video.id },
@@ -306,8 +328,28 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
   console.log(`${LOG} ═══ Run started at ${ts()} ═══`);
   console.log(`${LOG} Channel: Wet Circuit (${WC_CHANNEL_ID})`);
 
+  activeCycle = null;
+
   await withAdvisoryLock(prisma, WC_LOCK_ID, async () => {
     console.log(`${LOG} Advisory lock acquired (id: ${WC_LOCK_ID})`);
+
+    // ── Unattended production gate ────────────────────────────────────
+    //
+    // Inside the lock, ahead of the pilot gate and well ahead of the resume
+    // query, because everything below can produce a video and a container
+    // start is not an authorization. Unattended runs need a durable cycle
+    // saying a video is owed; human-invoked runs are unchanged.
+    if (isUnattendedMode()) {
+      const gate = await openUnattendedGate(WC_CHANNEL);
+      if (!gate.run) {
+        console.log(`${LOG} unattended run declined: ${gate.reason}`);
+        return;
+      }
+      activeCycle = { id: gate.cycle.id, claimantId: unattendedClaimantId(WC_CHANNEL) };
+      console.log(`${LOG} ${gate.reason}`);
+    } else {
+      console.log(`${LOG} not unattended — human-invoked run, existing gates govern`);
+    }
 
     const pilot = await pilotGate();
     const stages = STAGES.filter((s) => !(pilot && s.skipDuringPilot));
@@ -362,10 +404,17 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
     if (quarantined.length > 0) {
       console.log(`${LOG} ${quarantined.length} quarantined job(s) excluded from resume`);
     }
+    // An unattended run may only resume ITS OWN cycle's candidate. Otherwise a
+    // crashed run would restart, pick some older unrelated stuck row (oldest
+    // updatedAt wins) and drive that to publication under this cycle's
+    // authorization, while its own candidate stayed owed.
+    const cycleVideoId = activeCycle ? (await getCycle(activeCycle.id))?.videoId ?? null : null;
     const stuckVideo = await prisma.wcVideo.findFirst({
       where: {
         status: { in: resumableStatuses },
-        id: { notIn: quarantined.length ? quarantined : ["__none__"] },
+        id: activeCycle
+          ? { equals: cycleVideoId ?? "__none__", notIn: quarantined }
+          : { notIn: quarantined.length ? quarantined : ["__none__"] },
       },
       include: { topic: true },
       orderBy: { updatedAt: "asc" }, // oldest stuck video first
@@ -398,6 +447,8 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
 
       const ok = await runStages(resumeStages, ctx, summary);
       if (ok) {
+        await settleCycle(activeCycle, { ok: true });
+        activeCycle = null;
         await cleanupTmpDir(ctx.video.id);
         await finalizeSummary(summary, ctx.video.id);
         console.log(`${LOG} ✓ Resumed complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`);
@@ -453,9 +504,18 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
     // Create a video record to track through the pipeline.
     // runMode tags the row so DRY_RUN failures don't trigger the halt guard.
     const runMode = process.env.DISABLE_ELEVEN === "true" ? "DRY_RUN" : "LIVE";
-    const video = await prisma.wcVideo.create({
+    // Under a cycle, the create and the cycle's record of it are one
+    // transaction: a crash in between would leave an orphan candidate and a
+    // cycle that still believed it could create one.
+    const createVideo = (client: typeof prisma) => client.wcVideo.create({
       data: { topicId: topic.id, status: VideoStatus.SCRIPT_PENDING, runMode },
     });
+    const video = activeCycle
+      ? await createAndAttachCandidate(
+          activeCycle.id, activeCycle.claimantId,
+          (tx) => createVideo(tx as typeof prisma),
+        ) as Awaited<ReturnType<typeof createVideo>>
+      : await createVideo(prisma);
 
     const ctx: PipelineContext = { topic, video };
     summary?.setVideoId(video.id);
@@ -465,6 +525,8 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
 
     const ok = await runStages(stages.slice(1), ctx, summary);
     if (ok) {
+      await settleCycle(activeCycle, { ok: true });
+      activeCycle = null;
       await cleanupTmpDir(ctx.video.id);
       await finalizeSummary(summary, ctx.video.id);
       console.log(`${LOG} ✓ Complete — video ${ctx.video.id} → YouTube ${ctx.youtubeId ?? "n/a"}`);

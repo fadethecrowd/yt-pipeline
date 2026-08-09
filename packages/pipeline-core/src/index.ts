@@ -324,6 +324,12 @@ export {
   assertValidSlot, nextCycleSlot, CycleError,
 } from "./lib/productionCycle";
 export type { ProductionCycle, CycleStatus } from "./lib/productionCycle";
+export {
+  openUnattendedGate, isUnattendedMode, unattendedClaimantId,
+  createAndAttachCandidate, settleCycle, isAmbiguousFailure, isClaimStale,
+  UNATTENDED_MODE, AMBIGUOUS_STAGES, CLAIM_STALE_AFTER_MS,
+} from "./lib/unattendedGate";
+export type { GateDecision, ActiveCycle } from "./lib/unattendedGate";
 
 export {
   nextPublishSlot, describeSlot,
