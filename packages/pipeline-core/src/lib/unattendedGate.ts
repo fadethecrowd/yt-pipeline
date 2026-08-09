@@ -3,6 +3,9 @@ import type { ProductionCycle } from "./productionCycle";
 import {
   currentRunnableCycle, claimCycle, completeCycle, failCycle,
 } from "./productionCycle";
+import { CLAIM_STALE_AFTER_MS } from "./runtimeLimits";
+
+export { CLAIM_STALE_AFTER_MS };
 
 /**
  * The gate an unattended container passes through before it may do any work.
@@ -62,15 +65,12 @@ export function unattendedClaimantId(channel: string): string {
 }
 
 /**
- * How long a CLAIMED cycle may sit untouched before it is reported as stale.
+ * Whether a claim is old enough that no live process can still hold it.
  *
- * Reporting only — nothing auto-steals a claim. A run that legitimately takes
- * longer than this is not interrupted; the control tool simply surfaces it so a
- * human can look. Sized well above the pipeline's own 30-minute hard timeout so
- * a healthy long render is never flagged.
+ * Age alone is never sufficient to release a claim — see `failAbandonedCycle`,
+ * which also requires the channel advisory lock. This answers only "is it worth
+ * a human looking at this".
  */
-export const CLAIM_STALE_AFTER_MS = 45 * 60 * 1000;
-
 export function isClaimStale(cycle: ProductionCycle, now = new Date()): boolean {
   if (cycle.status !== "CLAIMED" || !cycle.claimedAt) return false;
   return now.getTime() - new Date(cycle.claimedAt).getTime() > CLAIM_STALE_AFTER_MS;

@@ -330,6 +330,19 @@ export {
   UNATTENDED_MODE, AMBIGUOUS_STAGES, CLAIM_STALE_AFTER_MS,
 } from "./lib/unattendedGate";
 export type { GateDecision, ActiveCycle } from "./lib/unattendedGate";
+export { PIPELINE_HARD_TIMEOUT_MS } from "./lib/runtimeLimits";
+export {
+  inspectStaleCycle, failAbandonedCycle, ownerAppearsGone,
+  channelLockId, CHANNEL_LOCK_IDS,
+} from "./lib/staleCycle";
+export type { StaleAssessment, StaleDisposition, ReapResult } from "./lib/staleCycle";
+export {
+  schedulerTick, realSchedulerDeps, isSchedulerEnabled,
+  AUTHORIZATION_LEAD_MS, MINIMUM_LEAD_MS, SCHEDULER_ENABLED_VALUE,
+} from "./lib/authorizationScheduler";
+export type { TickResult, TickOutcome, SchedulerDeps } from "./lib/authorizationScheduler";
+export { publicationPolicyFor } from "./lib/publishSlot";
+export type { PublicationPolicy } from "./lib/publishSlot";
 
 export {
   nextPublishSlot, describeSlot,

@@ -29,16 +29,23 @@ const WC = {
   shortsEnabled: false,
   requireFeasibility: true,
   requireGuardedUpload: true,
-  // Tuesday and Thursday, 5-8 PM America/New_York, daylight-saving aware.
+  // Mon/Wed/Fri, 5-8 PM America/New_York, daylight-saving aware.
   // This is an EXECUTION window. It is never a YouTube publishAt.
-  windowDays: [2, 4],
+  //
+  // [1,3,5], NOT the [2,4] this file used to declare. That value was written
+  // on a mistaken restart assumption, was corrected in the durable pilot row
+  // and in canary/authorization.ts, but was left stale HERE — and this script
+  // repairs drift by writing its own constants back over the row. Re-running
+  // it would therefore have silently reverted the pilot to Tue/Thu and made
+  // assertPilotWindowMatches refuse the canary on a Monday.
+  windowDays: [1, 3, 5],
   windowStartHour: 17,
   windowEndHour: 20,
   timezone: "America/New_York",
   notes:
     "Bounded private canary for Wet Circuit. Exactly one PRIVATE upload, no publishAt, " +
     "no Shorts, feasibility required before narration spend, guarded durable upload required. " +
-    "Execution window Tue/Thu 17:00-20:00 America/New_York is when the pipeline may RUN; " +
+    "Execution window Mon/Wed/Fri 17:00-20:00 America/New_York is when the pipeline may RUN; " +
     "it never becomes a publish time.",
 };
 

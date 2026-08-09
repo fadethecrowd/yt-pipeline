@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { nextPublishSlot, PUBLISH_DAYS, PUBLISH_HOUR_LOCAL, PUBLISH_TIMEZONE } from "./publishSlot";
+import { nextPublishSlot, publicationPolicyFor } from "./publishSlot";
 import { zonedParts } from "./easternWindow";
 
 /**
@@ -61,29 +61,36 @@ export class CycleError extends Error {
  * Checked in local wall-clock terms, so the same calendar slot is one identity
  * in summer and winter even though its UTC instant differs by an hour.
  */
-export function assertValidSlot(slot: Date, timeZone = PUBLISH_TIMEZONE): void {
+export function assertValidSlot(slot: Date, channel: string): void {
+  const policy = publicationPolicyFor(channel);
   if (!Number.isFinite(slot.getTime())) {
     throw new CycleError("CYCLE_SLOT_INVALID", "target publish slot is not a date");
   }
-  const p = zonedParts(slot, timeZone);
-  if (!PUBLISH_DAYS.includes(p.weekday)) {
+  const p = zonedParts(slot, policy.timeZone);
+  if (!policy.days.includes(p.weekday)) {
     throw new CycleError("CYCLE_SLOT_WRONG_DAY",
-      `slot weekday ${p.weekday} is not in ${JSON.stringify(PUBLISH_DAYS)} (1=Mon)`);
+      `slot weekday ${p.weekday} is not in ${JSON.stringify(policy.days)} (1=Mon) ` +
+      `for channel ${channel}`);
   }
-  if (p.hour !== PUBLISH_HOUR_LOCAL || p.minute !== 0 || p.second !== 0) {
+  if (p.hour !== policy.hour || p.minute !== policy.minute || p.second !== 0) {
     throw new CycleError("CYCLE_SLOT_WRONG_TIME",
       `slot reads ${p.hour}:${String(p.minute).padStart(2, "0")}:` +
-      `${String(p.second).padStart(2, "0")} local, expected ${PUBLISH_HOUR_LOCAL}:00:00`);
+      `${String(p.second).padStart(2, "0")} local, expected ` +
+      `${policy.hour}:${String(policy.minute).padStart(2, "0")}:00 for channel ${channel}`);
   }
 }
 
 /** The slot an unattended run would target right now, skipping occupied ones. */
 export async function nextCycleSlot(channel: string, now = new Date()): Promise<Date> {
-  const model = channel === "ai-doom-scroll" ? "video" : "wc_video";
+  const model = channel === "ai-doom-scroll" ? "Video" : "wc_video";
   const rows = await prisma.$queryRawUnsafe<{ scheduledAt: Date }[]>(
     `SELECT "scheduledAt" FROM "${model}" WHERE "scheduledAt" > $1`, now,
   );
-  return nextPublishSlot(now, { occupied: rows.map((r) => r.scheduledAt) });
+  const policy = publicationPolicyFor(channel);
+  return nextPublishSlot(now, {
+    occupied: rows.map((r) => r.scheduledAt),
+    days: policy.days, hour: policy.hour, minute: policy.minute, timeZone: policy.timeZone,
+  });
 }
 
 async function readCycle(channel: string, slot: Date): Promise<ProductionCycle | null> {
@@ -104,7 +111,7 @@ async function readCycle(channel: string, slot: Date): Promise<ProductionCycle |
 export async function authorizeCycle(
   channel: string, targetPublishSlot: Date,
 ): Promise<{ cycle: ProductionCycle; created: boolean }> {
-  assertValidSlot(targetPublishSlot);
+  assertValidSlot(targetPublishSlot, channel);
   const existing = await readCycle(channel, targetPublishSlot);
   if (existing) return { cycle: existing, created: false };
 

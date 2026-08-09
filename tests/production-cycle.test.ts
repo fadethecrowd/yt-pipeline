@@ -357,7 +357,28 @@ describe("34-35. channel isolation", () => {
   });
 
   test("the library resolves the channel's own table for occupied slots", () => {
-    assert.match(LIB, /channel === "ai-doom-scroll" \? "video" : "wc_video"/);
+    assert.match(LIB, /channel === "ai-doom-scroll" \? "Video" : "wc_video"/);
+  });
+
+  test("those table names are the ones the database actually has", () => {
+    // This is the assertion that matters. The previous version pinned the
+    // string "video" — lowercase — which no table is called: `Video` has no
+    // @@map, so Postgres holds it case-sensitively as "Video". Every AI Doom
+    // call to nextCycleSlot would have thrown `relation "video" does not
+    // exist`, and a test that only compared the literal to itself could never
+    // notice. Names are now checked against the schema instead.
+    const names = new Set<string>();
+    for (const m of SCHEMA.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)) {
+      const mapped = m[2].match(/@@map\("([^"]+)"\)/);
+      names.add(mapped ? mapped[1] : m[1]);
+    }
+    for (const t of LIB.match(/\? "(\w+)" : "(\w+)"/) ?? []) {
+      if (t.includes("?")) continue;
+      assert.ok(names.has(t), `table "${t}" does not exist in the schema`);
+    }
+    assert.ok(names.has("Video"));
+    assert.ok(names.has("wc_video"));
+    assert.ok(!names.has("video"), "there is no lowercase video table");
   });
 });
 

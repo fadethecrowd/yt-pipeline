@@ -7,10 +7,11 @@ import {
   verifyChannel,
   CHANNELS,
   RunSummary,
+  PIPELINE_HARD_TIMEOUT_MS,
 } from "@yt-pipeline/pipeline-core";
 
 // ── Hard timeout: kill the process if pipeline exceeds 30 minutes ────────
-const PIPELINE_TIMEOUT_MS = 30 * 60 * 1000;
+const PIPELINE_TIMEOUT_MS = PIPELINE_HARD_TIMEOUT_MS;
 const killTimer = setTimeout(() => {
   console.error(`[wc:pipeline] HARD TIMEOUT: pipeline exceeded ${PIPELINE_TIMEOUT_MS / 60000} minutes — forcing exit`);
   process.exit(1);

@@ -42,6 +42,48 @@ export const PUBLISH_HOUR_LOCAL = 15;
 export const PUBLISH_MINUTE_LOCAL = 0;
 export const PUBLISH_TIMEZONE = EASTERN;
 
+/** A channel's ordinary publication policy. */
+export interface PublicationPolicy {
+  channel: string;
+  /** Publication weekdays, 1 = Monday. */
+  days: number[];
+  hour: number;
+  minute: number;
+  timeZone: string;
+}
+
+/**
+ * The publication policy for a channel.
+ *
+ * Both channels share Mon/Wed/Fri 15:00 America/New_York, and that is a finding
+ * rather than an assumption. Audited against durable production history on
+ * 2026-08-09, reading the stored instants as UTC and converting to Eastern:
+ *
+ *   ai-doom-scroll : Mon 9, Wed 5, Fri 5 at 15:00 ET (19 rows), plus 4 older
+ *                    Wed 10:00 ET rows that predate the convergence.
+ *   wet-circuit    : Mon 4, Wed 2, Fri 3 at 15:00 ET (9 rows, 9/9).
+ *
+ * No row on either channel has ever been scheduled on a Tue/Thu. The one file
+ * that still said Tue/Thu — scripts/prepare-wc-canary.ts — was describing the
+ * pilot EXECUTION window, not publication, and was itself stale against both
+ * canary/authorization.ts and the durable pilot row; it was corrected in the
+ * same pass that added this function.
+ *
+ * The lookup is per-channel even though the answer is currently identical for
+ * both, so a future divergence is a table entry rather than a refactor of every
+ * call site, and so "these are the same on purpose" is something a test can
+ * assert rather than something implied by a channel-blind constant.
+ */
+export function publicationPolicyFor(channel: string): PublicationPolicy {
+  return {
+    channel,
+    days: PUBLISH_DAYS,
+    hour: PUBLISH_HOUR_LOCAL,
+    minute: PUBLISH_MINUTE_LOCAL,
+    timeZone: PUBLISH_TIMEZONE,
+  };
+}
+
 export interface SlotOptions {
   /** Slots already taken by other future videos on the same channel. */
   occupied?: Date[];
