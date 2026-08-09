@@ -435,6 +435,111 @@ npx tsx scripts/monday-preflight.ts
 
 ---
 
+## 15a. Missed-slot policy
+
+A publication slot can pass with no video for several reasons, and the policy is
+the same for all of them: **the slot is simply missed. Nothing is republished,
+backfilled, or moved.**
+
+| How it happened | Cycle ends as | What happens next |
+|---|---|---|
+| Scheduler disabled | no cycle exists | Next slot proceeds normally |
+| Scheduler enabled but out of the lead window | no cycle exists | Next slot proceeds normally |
+| Cycle authorized, no container ever started | stays `AUTHORIZED` until its slot passes, then stops being runnable | Next slot proceeds normally |
+| Pipeline started and failed before upload | `FAILED` | Next slot proceeds normally |
+| Pipeline crashed mid-run | stays `CLAIMED` (see §6) | Next slot proceeds normally |
+| Upload outcome unknown | `RECONCILIATION_REQUIRED` | **Blocked until a human resolves it (§8)** |
+
+### Why nothing is backfilled
+
+A late video is stale content published at an unintended time. Publishing
+Monday's video on Tuesday afternoon is a worse outcome than not publishing it,
+and doing it automatically means an operator who fixes a problem on Wednesday
+could trigger a surprise publication of three days of backlog.
+
+`currentRunnableCycle` enforces this structurally: it requires
+`targetPublishSlot > now`, so a cycle whose slot has passed can never be claimed
+or run, whatever state it is in. There is no code path that backfills, and the
+scheduler only ever computes the *next* slot — never a past one.
+
+### Forward progress is automatic
+
+A missed slot never blocks the next one. An abandoned `CLAIMED` cycle stops
+being runnable the moment its own slot passes, so the next authorization
+proceeds with no human action. Recovery (§6) is hygiene, not unblocking.
+
+### What a late-finishing video does
+
+If a run completes *after* its slot has passed, the video exists but was never
+scheduled for a past time. Treat it as an ordinary unpublished candidate:
+review it and schedule it for a future slot with the publication control (§12),
+or discard it. Do not schedule it into the past.
+
+### Visibility
+
+```bash
+npx tsx scripts/youtube-ops-status.ts        # SLOT_MISSED findings, per channel
+npx tsx scripts/youtube-daily-report.ts --days 7
+```
+
+`SLOT_MISSED` is a **WARN**, not an ALERT: a gap in output is not a safety
+incident, and it is the correct outcome of several safe behaviours. It is only
+reported at all when unattended production was actually armed — a slot that
+passed while the system was deliberately switched off is not a miss.
+
+---
+
+## 15b. Rollback rehearsal
+
+Rehearsed 2026-08-09 against the real deployment history; no production state
+was changed.
+
+### Identify the current and previous known-good commits
+
+```bash
+git log --oneline -10 origin/main
+railway deployment list --service yt-pipeline --json | head -40
+```
+
+The running commit is the newest deployment whose status is `SUCCESS` **or**
+`SKIPPED`. `SKIPPED` means Watch Paths matched nothing in that commit, so the
+previous build is still live and already correct — it is not a failure. A
+release touching only `scripts/`, `docs/` or `tests/` legitimately skips all
+four services.
+
+### Application rollback
+
+```bash
+git checkout main && git pull
+git revert --no-edit <bad-sha>
+git push origin main            # never --force
+npx tsx scripts/monday-preflight.ts
+```
+
+Revert rather than force-push: Railway deploys whatever `main` points at, and a
+force-push makes the deployed history unreconstructable.
+
+### Database rollback — read this before considering it
+
+Migration 0018 (`production_cycle`) is **purely additive**: one enum, one table,
+two indexes. Nothing else references it with a foreign key.
+
+**Dropping it is more dangerous than leaving it.** The deployed runtime reads
+`production_cycle` through the unattended gate; removing the table turns every
+container start into a crash instead of a clean "no work owed" exit. Leaving an
+unused additive table costs nothing — it holds zero rows whenever unattended
+production is disabled.
+
+Also: `_prisma_migrations` is frozen at 0011 and migrations 0012–0018 were
+applied with `npx prisma db execute --file`. `prisma migrate deploy` against the
+root schema would attempt to DROP the seven monitor tables. Never run it. See
+`docs/DATABASE.md`.
+
+To disable unattended production, use the switches in §1 and §3. Do not reach
+for the schema.
+
+---
+
 ## 16. Safety invariants — do not "fix" these
 
 1. **One authorization is at most one video.** Candidate creation and the
