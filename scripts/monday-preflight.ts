@@ -74,14 +74,25 @@ async function main(): Promise<void> {
       const parsed: unknown = JSON.parse(raw);
       const rows = (Array.isArray(parsed) ? parsed : []) as {
         status?: string; meta?: { branch?: string; commitHash?: string } }[];
-      // SKIPPED means Watch Paths matched nothing, so the previously running
-      // build is still live — walk back to the newest deployment that ran.
-      const live = rows.find((r) => r.status === "SUCCESS");
-      const commit = live?.meta?.commitHash ?? "";
-      const branch = live?.meta?.branch ?? "?";
-      ck(commit.startsWith(originMain.slice(0, 8)) || originMain.startsWith(commit.slice(0, 8)),
-        `${svc} runs canonical main`, `${branch}@${commit.slice(0, 8)} (want ${originMain.slice(0, 8)})`,
-        `redeploy: railway redeploy --service ${svc} --yes`);
+      // The question is "has Railway evaluated canonical main for this
+      // service", not "did it rebuild". SKIPPED means Watch Paths matched
+      // nothing in that commit, so the running build is already correct — a
+      // release touching only scripts/, docs/ or tests/ legitimately skips all
+      // four services. Treating SKIPPED as stale produces a false FAIL on
+      // exactly the safest kind of release, so both count as up to date; only
+      // a FAILED or still-building newest deployment is a real problem.
+      const newest = rows[0];
+      const commit = newest?.meta?.commitHash ?? "";
+      const branch = newest?.meta?.branch ?? "?";
+      const status = newest?.status ?? "?";
+      const settled = status === "SUCCESS" || status === "SKIPPED";
+      const onMain = commit.startsWith(originMain.slice(0, 8)) ||
+        originMain.startsWith(commit.slice(0, 8));
+      ck(settled && onMain && branch === "main",
+        `${svc} at canonical main`,
+        `${status} ${branch}@${commit.slice(0, 8)} (want ${originMain.slice(0, 8)})`,
+        status === "FAILED" ? `deploy failed — check: railway logs --service ${svc}`
+          : `redeploy: railway redeploy --service ${svc} --yes`);
     } catch {
       ck(false, `${svc} deployment readable`, "could not parse railway output", "check railway CLI");
     }

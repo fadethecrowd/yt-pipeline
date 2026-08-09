@@ -149,6 +149,20 @@ describe("read-only tooling stays read-only", () => {
     assert.match(c, /MONDAY_PREFLIGHT = \$\{failed\.length === 0 \? "PASS" : "FAIL"\}/);
   });
 
+  test("preflight treats a SKIPPED deployment as up to date, not stale", () => {
+    // Watch Paths legitimately skip all four services when a release touches
+    // only scripts/, docs/ or tests/. Requiring SUCCESS would make the safest
+    // possible release look like a deployment failure every time.
+    const c = code(PREFLIGHT);
+    assert.match(c, /status === "SUCCESS" \|\| status === "SKIPPED"/);
+    assert.match(c, /const newest = rows\[0\]/);
+  });
+
+  test("preflight still rejects a failed or unsettled deployment", () => {
+    const c = code(PREFLIGHT);
+    assert.match(c, /settled && onMain && branch === "main"/);
+  });
+
   test("preflight fails closed when a check cannot be evaluated", () => {
     const c = code(PREFLIGHT);
     // An unreadable Railway CLI must record a FAILING check, not skip silently.
