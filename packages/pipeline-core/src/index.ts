@@ -113,6 +113,8 @@ export {
   budgetReport,
   BudgetExceededError,
   TOTAL_TARGET_CHARS,
+  DEFAULT_TOTAL_TARGET_CHARS,
+  resolveTotalTargetChars,
 } from "./lib/budget";
 export type { BudgetReport } from "./lib/budget";
 
@@ -331,6 +333,12 @@ export {
 } from "./lib/unattendedGate";
 export type { GateDecision, ActiveCycle } from "./lib/unattendedGate";
 export { PIPELINE_HARD_TIMEOUT_MS } from "./lib/runtimeLimits";
+export {
+  evaluateCycleHealth, checkUnclaimed, checkStaleClaim, checkTerminal,
+  checkLinkage, checkSingleOpenCycle, checkMissedSlots, checkGateCoherence,
+} from "./lib/cycleHealth";
+export type { CycleFinding, CycleHealthInput, CycleHealthReport, CycleSeverity } from "./lib/cycleHealth";
+
 export {
   inspectStaleCycle, failAbandonedCycle, ownerAppearsGone,
   channelLockId, CHANNEL_LOCK_IDS,

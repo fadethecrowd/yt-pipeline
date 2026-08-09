@@ -1,6 +1,10 @@
 import {
   evaluateChannelHealth, GO_LIVE_GRACE_MS,
 } from "./lib/videoHealth";
+import {
+  dedupeAlerts, newAlertState, formatResolved,
+  type AlertState,
+} from "./lib/alertDedup";
 import type {
   HealthFinding, HealthReport, ScheduledVideo, YtView, RunView, BudgetView, PilotView,
 } from "./lib/videoHealth";
@@ -42,6 +46,12 @@ export interface HealthDeps {
 export interface HealthTickResult {
   report: HealthReport;
   alerted: boolean;
+  /** Findings held back as unchanged repeats. */
+  suppressed: number;
+  /** Conditions that cleared since the last tick. */
+  resolved: number;
+  /** State to pass into the next tick. */
+  alertState: AlertState;
 }
 
 /** Format a report for the existing alert transport. */
@@ -56,6 +66,7 @@ export function formatFindings(channel: string, findings: HealthFinding[]): stri
  */
 export async function runHealthTick(
   channel: string, deps: HealthDeps, graceMs: number = GO_LIVE_GRACE_MS,
+  alertState: AlertState = newAlertState(),
 ): Promise<HealthTickResult> {
   const now = deps.now();
   deps.log(`[monitor:health] ═══ Health tick (${channel}) at ${now.toISOString()} ═══`);
@@ -80,16 +91,36 @@ export async function runHealthTick(
     graceMs,
   });
 
-  if (report.findings.length === 0) {
-    deps.log(`[monitor:health] ${channel}: healthy — ${scheduled.length} scheduled video(s) checked`);
-    return { report, alerted: false };
-  }
-
+  // Log EVERY finding every tick — logs are cheap and are the audit trail.
+  // Deduplication applies only to what gets pushed at a human.
   for (const f of report.findings) {
     deps.log(`[monitor:health] ${f.severity} ${f.code} ${f.subject}: ${f.detail}`);
   }
-  await deps.sendAlert(formatFindings(channel, report.findings));
-  return { report, alerted: true };
+
+  const d = dedupeAlerts({ findings: report.findings, state: alertState, now });
+
+  if (d.resolved.length > 0) {
+    deps.log(`[monitor:health] ${d.resolved.length} condition(s) cleared`);
+    await deps.sendAlert(formatResolved(channel, d.resolved));
+  }
+  if (d.notify.length > 0) {
+    await deps.sendAlert(formatFindings(channel, d.notify));
+  }
+  if (d.suppressed.length > 0) {
+    deps.log(`[monitor:health] ${d.suppressed.length} unchanged finding(s) suppressed ` +
+      "— already notified, awaiting the re-notify interval");
+  }
+  if (report.findings.length === 0) {
+    deps.log(`[monitor:health] ${channel}: healthy — ${scheduled.length} scheduled video(s) checked`);
+  }
+
+  return {
+    report,
+    alerted: d.notify.length > 0 || d.resolved.length > 0,
+    suppressed: d.suppressed.length,
+    resolved: d.resolved.length,
+    alertState: d.nextState,
+  };
 }
 
 /**
@@ -104,6 +135,11 @@ export function startHealthLoop(
   channel: string, deps: HealthDeps, intervalMs: number,
 ): { stop(): void; runNow(): Promise<void> } {
   let inFlight = false;
+  // Carried across ticks so a persistent condition is notified once rather than
+  // every interval. Held in memory deliberately: the monitor runs continuously
+  // for days, so the worst case is one alert per condition per deploy, and that
+  // needs no schema change.
+  let alertState: AlertState = newAlertState();
 
   const once = async (): Promise<void> => {
     if (inFlight) {
@@ -112,7 +148,8 @@ export function startHealthLoop(
     }
     inFlight = true;
     try {
-      await runHealthTick(channel, deps);
+      const r = await runHealthTick(channel, deps, GO_LIVE_GRACE_MS, alertState);
+      alertState = r.alertState;
     } catch (err) {
       // Surface, but never escalate into legacy behaviour.
       deps.log(`[monitor:health] tick failed: ${err instanceof Error ? err.message : String(err)}`);

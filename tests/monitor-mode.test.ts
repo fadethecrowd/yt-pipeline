@@ -256,9 +256,22 @@ describe("10/23/24. write boundary and channel isolation", () => {
     }
   });
 
-  test("healthTick imports nothing but the pure evaluator", () => {
+  test("healthTick imports only pure local lib modules", () => {
+    // The boundary is that healthTick cannot REACH a writer. Importing the
+    // pipeline-core barrel would hand it prisma, the YouTube client and the
+    // budget machinery in one line, so the allowlist is explicit and every
+    // entry must be a relative ./lib/ module with no side-effecting imports of
+    // its own.
     const imports = [...HEALTH_TICK_CODE.matchAll(/from "(.*?)"/g)].map((m) => m[1]);
-    assert.deepEqual([...new Set(imports)].sort(), ["./lib/videoHealth"]);
+    assert.deepEqual([...new Set(imports)].sort(),
+      ["./lib/alertDedup", "./lib/videoHealth"]);
+    for (const mod of imports) {
+      assert.ok(mod.startsWith("./lib/"), `${mod} is not a local pure module`);
+      const src = readFileSync(`packages/monitor/src/${mod.slice(2)}.ts`, "utf8");
+      const nested = [...src.matchAll(/from "(.*?)"/g)].map((m) => m[1]);
+      assert.deepEqual(nested.filter((n) => !n.startsWith("./")), [],
+        `${mod} pulls in a non-local dependency`);
+    }
   });
 
   test("the only YouTube call in the health wiring is a list read", () => {
