@@ -230,6 +230,19 @@ export async function main(): Promise<void> {
   }
   const deps = realDeps();
 
+  // Modes are explicit. CHECK remains the default, but an unrecognised flag
+  // must not silently BECOME check — a typo'd "--reep" should refuse, not
+  // quietly print a report and look like it worked.
+  const MODES = ["--check", "--authorize", "--verify", "--inspect-stale", "--reap"];
+  const unknown = process.argv.slice(2).filter(
+    (a) => a.startsWith("--") && !MODES.includes(a) &&
+      !["--channel", "--cycle", "--slot", AUTHORIZE_ACK, REAP_ACK].includes(a));
+  if (unknown.length) {
+    console.error(`✗ unrecognised flag(s): ${unknown.join(" ")}`);
+    console.error(`  modes: ${MODES.join(" | ")}`);
+    process.exitCode = 2; return;
+  }
+
   if (process.argv.includes("--authorize")) {
     const slotArg = argValue(process.argv, "--slot");
     const r = await doAuthorize(

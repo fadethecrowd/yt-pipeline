@@ -54,6 +54,17 @@ export async function main(): Promise<void> {
   console.log(`  lead window       : authorize between ${MINIMUM_LEAD_MS / 3600000}h and ` +
     `${AUTHORIZATION_LEAD_MS / 3600000}h before the slot`);
 
+  // Modes are explicit. CHECK is the default, but an unrecognised flag must
+  // refuse rather than silently becoming a read-only report that looks fine.
+  const MODES = ["--check", "--dry-run", "--run"];
+  const unknown = process.argv.slice(2).filter(
+    (a) => a.startsWith("--") && !MODES.includes(a) && a !== "--channel");
+  if (unknown.length) {
+    console.error(`✗ unrecognised flag(s): ${unknown.join(" ")}`);
+    console.error(`  modes: ${MODES.join(" | ")}`);
+    process.exitCode = 2; return;
+  }
+
   const channelArg = argValue(process.argv, "--channel") as ChannelKey | undefined;
   const channels = channelArg ? [channelArg] : [...CHANNELS];
   for (const c of channels) {
