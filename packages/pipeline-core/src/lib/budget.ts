@@ -13,10 +13,53 @@ import { prisma } from "./db";
  * real `character-cost` reported by the API.
  */
 
+/**
+ * The canonical hard ceiling across all channels and stages.
+ *
+ * ~300,000 credits are held; production targets stopping here, leaving a
+ * reserve for corrections.
+ */
+export const DEFAULT_TOTAL_TARGET_CHARS = 297_000;
+
+/**
+ * Resolve the global ceiling, FAIL-CLOSED.
+ *
+ * This was `Number(process.env.ELEVEN_TOTAL_TARGET_CHARS ?? 297_000)`, which
+ * silently removed the ceiling entirely. `Number("abc")` is NaN, and the guard
+ * is `globalUsed + chars > TOTAL_TARGET_CHARS` — every comparison with NaN is
+ * false, so a typo'd environment variable made the global check pass for any
+ * amount. The per-stage limit still bound, but the one control that spans
+ * every channel and stage was gone, and nothing said so.
+ *
+ * Now anything that is not a finite positive number falls back to the canonical
+ * default. A misconfiguration therefore tightens to the known-safe value rather
+ * than opening up, and says so loudly. Falling back rather than throwing is
+ * deliberate: this module is imported by read-only operator tooling, and a
+ * throw at import time would take the status and snapshot commands down at
+ * exactly the moment someone is trying to diagnose a budget problem.
+ */
+export function resolveTotalTargetChars(
+  raw: string | undefined = process.env.ELEVEN_TOTAL_TARGET_CHARS,
+  warn: (m: string) => void = console.warn,
+): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_TOTAL_TARGET_CHARS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    warn(`[budget] ELEVEN_TOTAL_TARGET_CHARS=${JSON.stringify(raw)} is not a positive ` +
+      `finite number — falling back to the canonical ceiling ${DEFAULT_TOTAL_TARGET_CHARS}`);
+    return DEFAULT_TOTAL_TARGET_CHARS;
+  }
+  if (n > DEFAULT_TOTAL_TARGET_CHARS) {
+    warn(`[budget] ELEVEN_TOTAL_TARGET_CHARS=${n} exceeds the canonical ceiling ` +
+      `${DEFAULT_TOTAL_TARGET_CHARS} — clamping. Raising the real ceiling is a ` +
+      "deliberate decision that belongs in code, not an environment variable.");
+    return DEFAULT_TOTAL_TARGET_CHARS;
+  }
+  return n;
+}
+
 /** Hard ceiling across all channels and stages. */
-export const TOTAL_TARGET_CHARS = Number(
-  process.env.ELEVEN_TOTAL_TARGET_CHARS ?? 297_000,
-);
+export const TOTAL_TARGET_CHARS = resolveTotalTargetChars();
 
 /** Default per-(channel, stage) allocations, applied on first use. */
 const DEFAULT_LIMITS: Record<TestStage, number> = {
