@@ -16,6 +16,7 @@ import { scrapeRedditTopics } from "./redditScraper";
 import { detectLifecycleEvents } from "./lifecycleDetector";
 import { parseMonitorMode } from "./lib/monitorMode";
 import { realHealthDeps, startHealthLoop } from "./healthDeps";
+import { startAuthorizationTick } from "./authorizationTick";
 import { generateRedditPosts } from "./redditPoster";
 
 const DAILY_MS = 24 * 60 * 60 * 1000;
@@ -128,8 +129,13 @@ async function main(): Promise<void> {
     const deps = realHealthDeps(config.CHANNEL);
     const loop = startHealthLoop(config.CHANNEL, deps, config.POLL_INTERVAL_MS);
     await loop.runNow();
+    // Authorization is not a monitoring side effect — no YouTube call, no
+    // Claude call, no comment read — so it runs here too, behind its own
+    // independent SCHEDULER_ENABLED gate.
+    const scheduler = startAuthorizationTick(config.CHANNEL);
     process.on("SIGTERM", async () => {
       loop.stop();
+      scheduler.stop();
       await prisma.$disconnect();
       process.exit(0);
     });
@@ -169,6 +175,8 @@ async function main(): Promise<void> {
 
   // Start Telegram bot listener
   startBot();
+
+  startAuthorizationTick(config.CHANNEL);
 
   // Run immediately, then on interval
   await tick();
