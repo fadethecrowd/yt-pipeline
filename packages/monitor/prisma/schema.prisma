@@ -769,3 +769,54 @@ enum PilotStatus {
   COMPLETED
   FAILED
 }
+
+enum ProductionCycleStatus {
+  AUTHORIZED
+  CLAIMED
+  COMPLETED
+  FAILED
+  RECONCILIATION_REQUIRED
+}
+
+/// Durable authorization for exactly ONE ordinary production cycle.
+///
+/// Neither channel has a recurring trigger, so ordinary production happens only
+/// when a container starts — and any start (deploy, restart, env change, infra
+/// event) would otherwise reach discovery and create a video. Nothing in the
+/// existing schema could express "this channel may produce exactly one video for
+/// this publication slot": PipelineRun is telemetry with no unique key,
+/// ProductionPilot is a lifetime qualification cap, UploadIntent is downstream of
+/// candidate creation, and JobQuarantine is a block-list.
+///
+/// Identity is the intended PUBLICATION slot, never container start time, so a
+/// restart at any hour resolves to the same cycle. The unique constraint is what
+/// makes a duplicate scheduler event a no-op rather than a second video.
+model ProductionCycle {
+  id                String                @id @default(cuid())
+  channel           String // "ai-doom-scroll" | "wet-circuit"
+  /// UTC instant of the Eastern wall-clock publication slot (M/W/F 15:00 ET).
+  targetPublishSlot DateTime
+  status            ProductionCycleStatus  @default(AUTHORIZED)
+
+  /// Set by the single winning claimant. Identifies which process holds it.
+  claimantId        String?
+  /// The one candidate this cycle is permitted to produce. Channel-specific:
+  /// AI Doom rows live in Video, Wet Circuit rows in WcVideo, so this is a
+  /// plain id validated in application code rather than a polymorphic FK that
+  /// no single relation could express correctly.
+  videoId           String?
+  pipelineRunId     String?
+  failureCode       String?
+
+  authorizedAt      DateTime              @default(now())
+  claimedAt         DateTime?
+  completedAt       DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  /// One cycle per channel per publication slot. This is the whole guarantee.
+  @@unique([channel, targetPublishSlot])
+  @@index([channel, status])
+  @@map("production_cycle")
+}
