@@ -129,7 +129,26 @@ export function readFeasibilityVerification(): FeasibilityVerification | null {
   }
 }
 
+
+/**
+ * Reject anything not in the flag surface.
+ *
+ * Every mode here falls through to a read-only CHECK when no mode flag matches,
+ * which is safe but silent: a mistyped `--arm` produced a clean CHECK report
+ * that an operator could easily read as "it armed". Refusing the command is the
+ * only outcome that cannot be misread.
+ */
+function assertKnownFlags(argv: string[], known: string[]): boolean {
+  const unknown = argv.slice(2).filter((a) => a.startsWith("--") && !known.includes(a));
+  if (unknown.length === 0) return true;
+  console.error(`\u2717 unrecognised flag(s): ${unknown.join(" ")}`);
+  console.error(`  known flags: ${known.join(" ")}`);
+  process.exitCode = 2;
+  return false;
+}
+
 async function main() {
+  if (!assertKnownFlags(process.argv, ["--arm", "--i-understand-this-spends-credits", "--run"])) return;
   hr(`WET CIRCUIT PRIVATE CANARY — PHASE: ${PHASE}`);
   console.log(`  pilot        ${AUTH.pilotId}`);
   console.log(`  candidate    ${AUTH.candidateId}`);

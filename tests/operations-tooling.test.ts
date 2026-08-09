@@ -191,3 +191,75 @@ describe("read-only tooling stays read-only", () => {
     assert.ok(PREFLIGHT.includes(id), `preflight does not pin candidate ${id}`);
   });
 });
+
+describe("operator control scripts fail closed", () => {
+  /**
+   * The shipped operator surface. Historical one-off scripts (qualify.ts,
+   * upload-diagnostic.ts, record-*, recover-*) are deliberately excluded: they
+   * are single-use artefacts of past incidents, not commands anyone is told to
+   * run, and retrofitting guards onto scripts nobody reads would add regression
+   * risk without reducing operational risk. What must not happen is a NEW
+   * control shipping without guards, which is what this pins.
+   */
+  const CONTROLS = [
+    "scripts/ai-doom-pilot-control.ts",
+    "scripts/wc-canary-control.ts",
+    "scripts/video-publication-control.ts",
+    "scripts/channel-graduation-control.ts",
+    "scripts/ordinary-production-control.ts",
+    "scripts/production-cycle-control.ts",
+    "scripts/authorization-scheduler-control.ts",
+  ];
+
+  for (const path of CONTROLS) {
+    const src = readFileSync(path, "utf8");
+
+    test(`${path.split("/")[1]} is local-only`, () => {
+      assert.match(src, /const isDirectRun =/,
+        "a control must not execute when imported");
+    });
+
+    test(`${path.split("/")[1]} refuses unrecognised flags`, () => {
+      // Every control defaults to a read-only CHECK when no mode matches. That
+      // is safe but silent: a mistyped --arm renders a clean report an operator
+      // can read as success. Refusing is the only unambiguous outcome.
+      assert.ok(/unrecognised flag/.test(src),
+        `${path} silently falls through on a typo'd mode`);
+    });
+
+    test(`${path.split("/")[1]} gates every mutation behind an acknowledgement`, () => {
+      const body = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+      const mutates = /\$executeRaw|\.update\(|\.create\(|\.upsert\(|\.delete\(/.test(body);
+      if (!mutates) return;
+      assert.ok(/--i-(understand|have)[a-z-]+/.test(src),
+        `${path} mutates with no acknowledgement phrase`);
+    });
+  }
+
+  test("every control's known-flag list covers the flags it actually reads", () => {
+    // The failure this guards against is the mirror of a silent typo: adding a
+    // real flag to the parsing logic but forgetting the allowlist, so a valid
+    // documented command gets refused. Controls express the allowlist two ways
+    // — a MODES array plus a separate value-flag allowlist inside the filter,
+    // or a single assertKnownFlags array — so both shapes are collected.
+    for (const path of CONTROLS) {
+      const src = readFileSync(path, "utf8");
+      const read = new Set([...src.matchAll(/(?:includes|argValue\(process\.argv,\s*)\(?"(--[a-z-]+)"/g)]
+        .map((m) => m[1]));
+      const declaredRegions = [
+        ...(src.match(/MODES = \[[^\]]*\]/g) ?? []),
+        ...(src.match(/assertKnownFlags\(process\.argv, \[[^\]]*\]/g) ?? []),
+        ...(src.match(/!\[[^\]]*\]\.includes\(a\)/g) ?? []),
+        ...(src.match(/a !== "--[a-z-]+"/g) ?? []),
+      ];
+      const declared = new Set([...declaredRegions.join(" ")
+        .matchAll(/"(--[a-z-]+)"/g)].map((m) => m[1]));
+      if (declared.size === 0) continue;
+      for (const f of read) {
+        if (f.startsWith("--i-")) continue; // acknowledgements listed separately
+        assert.ok(declared.has(f),
+          `${path} reads ${f} but does not declare it — a valid command would be refused`);
+      }
+    }
+  });
+});

@@ -635,7 +635,26 @@ export function selectedMode(argv: string[]): "ARM" | "RUN" | "RELOCK" | "ADVANC
   return (picked[0] as never) ?? "CHECK";
 }
 
+
+/**
+ * Reject anything not in the flag surface.
+ *
+ * Every mode here falls through to a read-only CHECK when no mode flag matches,
+ * which is safe but silent: a mistyped `--arm` produced a clean CHECK report
+ * that an operator could easily read as "it armed". Refusing the command is the
+ * only outcome that cannot be misread.
+ */
+function assertKnownFlags(argv: string[], known: string[]): boolean {
+  const unknown = argv.slice(2).filter((a) => a.startsWith("--") && !known.includes(a));
+  if (unknown.length === 0) return true;
+  console.error(`\u2717 unrecognised flag(s): ${unknown.join(" ")}`);
+  console.error(`  known flags: ${known.join(" ")}`);
+  process.exitCode = 2;
+  return false;
+}
+
 async function main(): Promise<void> {
+  if (!assertKnownFlags(process.argv, ["--advance-cap", "--arm", "--i-have-reviewed-the-previous-video", "--i-understand-this-activates-the-pilot", "--i-understand-this-spends-credits", "--relock", "--run"])) return;
   const mode = selectedMode(process.argv);
   const deps = realDeps();
   if (mode === "AMBIGUOUS") {
