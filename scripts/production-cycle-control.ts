@@ -26,6 +26,7 @@ import {
   authorizeCycle, currentRunnableCycle, listCycles, getCycle,
   nextCycleSlot, assertValidSlot, describeSlot,
   isClaimStale, unattendedClaimantId, CLAIM_STALE_AFTER_MS,
+  inspectStaleCycle, failAbandonedCycle,
   CycleError,
 } from "@yt-pipeline/pipeline-core";
 import type { ProductionCycle } from "@yt-pipeline/pipeline-core";
@@ -36,6 +37,14 @@ export const CHANNELS: ChannelKey[] = ["ai-doom-scroll", "wet-circuit"];
 
 /** The phrase that must be typed to write an authorization. */
 export const AUTHORIZE_ACK = "--i-understand-this-authorizes-one-unattended-video";
+
+/**
+ * The phrase that must be typed to terminalise an abandoned cycle.
+ *
+ * Distinct from the authorize phrase on purpose: these are opposite actions and
+ * a single blanket "--yes" would let muscle memory from one reach the other.
+ */
+export const REAP_ACK = "--i-understand-this-terminates-an-abandoned-cycle";
 
 // ── Injected surface (so the decisions below are testable without a DB) ────
 
@@ -129,7 +138,7 @@ export async function doAuthorize(
   let slot: Date;
   if (explicitSlot) {
     try {
-      assertValidSlot(explicitSlot);
+      assertValidSlot(explicitSlot, channel);
     } catch (err) {
       const code = err instanceof CycleError ? err.code : "CYCLE_SLOT_INVALID";
       return { outcome: "REFUSED", cycle: null,
@@ -175,7 +184,7 @@ export async function doVerify(
     problems.push(`cycle belongs to ${cycle.channel}, not ${channel}`);
   }
   try {
-    assertValidSlot(cycle.targetPublishSlot);
+    assertValidSlot(cycle.targetPublishSlot, channel);
   } catch (err) {
     problems.push(`target slot invalid: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -230,6 +239,30 @@ export async function main(): Promise<void> {
     console.log(`\n  OUTCOME : ${r.outcome}\n  reason  : ${r.reason}`);
     if (r.cycle) console.log(fmt(r.cycle));
     if (r.outcome === "REFUSED") process.exitCode = 1;
+    return;
+  }
+
+  if (process.argv.includes("--inspect-stale") || process.argv.includes("--reap")) {
+    const id = argValue(process.argv, "--cycle");
+    if (!id) { console.error("✗ --cycle <id> is required"); process.exitCode = 2; return; }
+    const reap = process.argv.includes("--reap");
+    if (!reap) {
+      const a = await inspectStaleCycle(channel, id);
+      console.log(`\n  DISPOSITION : ${a.disposition}`);
+      if (a.cycle) console.log(fmt(a.cycle));
+      for (const r of a.reasons) console.log(`  · ${r}`);
+      console.log(`  side effects: video=${a.sideEffects.videoId ?? "—"} ` +
+        `youtube=${a.sideEffects.youtubeId ?? "—"} ` +
+        `unresolvedIntents=${a.sideEffects.unresolvedIntents} ` +
+        `narrationChars=${a.sideEffects.narrationCharges}`);
+      return;
+    }
+    const r = await failAbandonedCycle(channel, id, process.argv.includes(REAP_ACK));
+    console.log(`\n  ACTED   : ${r.acted ? "yes" : "no"}`);
+    console.log(`  status  : ${r.newStatus ?? "unchanged"}`);
+    console.log(`  reason  : ${r.reason}`);
+    for (const x of r.assessment.reasons) console.log(`  · ${x}`);
+    if (!r.acted) process.exitCode = 1;
     return;
   }
 
