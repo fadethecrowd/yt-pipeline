@@ -2,8 +2,12 @@
  * Run candidate A through the REAL visual feasibility gate, with no durable
  * mutation and no spend.
  *
- *   PILOT_ID=wet-circuit-private-canary-1 TEST_STAGE=PRODUCTION \
  *   DISABLE_ELEVEN=true npx tsx scripts/wc-feasibility-verify.ts
+ *
+ * TEST_STAGE is NOT passed on the command line. It is taken from the tracked
+ * canary authorisation, because the runtime envelope the gate applies depends
+ * on it and `currentTestStage()` silently defaults to DIAGNOSTIC — a 55-100s
+ * band — when it is missing.
  *
  * This executes `wcVisualFeasibilityGate` itself — the same function the
  * pipeline calls — not a reimplementation of it. Two things are substituted at
@@ -26,6 +30,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { VideoStatus } from "@prisma/client";
 import * as core from "@yt-pipeline/pipeline-core";
+import { runtimeRange } from "@yt-pipeline/pipeline-core";
+import type { TestStage } from "@prisma/client";
 import { prisma, disconnect } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig, PipelineContext, Script } from "@yt-pipeline/pipeline-core";
 import { WC_CANARY_AUTHORIZATIONS, scriptSha256 } from "../packages/wc-pipeline/src/canary/authorization";
@@ -40,12 +46,53 @@ const hr = (t: string) => console.log(`\n${"═".repeat(78)}\n  ${t}\n${"═".re
 /** Every durable write the gate attempted. Must stay empty on PASS. */
 const attemptedWrites: unknown[] = [];
 
+/**
+ * Pin the stage the gate will resolve its runtime envelope from.
+ *
+ * The gate calls `currentTestStage()` internally, which reads TEST_STAGE from
+ * the environment and DEFAULTS TO DIAGNOSTIC when it is unset or misspelt.
+ * DIAGNOSTIC carries a deliberately short 55-100s envelope, so running this
+ * verifier without TEST_STAGE judged a 281s long-form canary against a 0.9-1.7
+ * minute band and produced an authoritative-looking FAIL for a candidate that
+ * is well inside its real 210-340s policy.
+ *
+ * The stage is therefore taken from the AUTHORISATION, which is tracked source
+ * and reviewable, instead of from whatever happens to be exported in the
+ * shell. An explicitly-set TEST_STAGE that disagrees is refused rather than
+ * overridden — if the operator meant something different from the authorised
+ * stage, that is a question, not something to silently correct.
+ *
+ * This does not weaken the gate. It makes the verifier judge the candidate
+ * against the SAME envelope Monday's run will use, which is the only thing a
+ * pre-flight verification is for. wc-canary-control independently requires
+ * TEST_STAGE=PRODUCTION at RUN.
+ */
+function resolveVerificationStage(): TestStage {
+  const declared = AUTH.testStage;
+  const ambient = process.env.TEST_STAGE;
+  if (ambient && ambient.toUpperCase() !== declared) {
+    console.error(
+      `\n  ✗ TEST_STAGE=${ambient} disagrees with the authorised stage ${declared}.\n` +
+      `    The canary is authorised to run at ${declared}; verifying under a different\n` +
+      `    stage would judge it against a different runtime envelope than Monday's run.\n` +
+      `    Re-run without TEST_STAGE, or with TEST_STAGE=${declared}.`,
+    );
+    process.exit(2);
+  }
+  process.env.TEST_STAGE = declared;
+  return declared;
+}
+
 async function main() {
   hr("WC FEASIBILITY VERIFICATION — NO SPEND, NO DURABLE MUTATION");
+  const stage = resolveVerificationStage();
+  const envelope = runtimeRange("wet-circuit", "LONGFORM", stage);
   console.log(`  candidate    ${AUTH.candidateId}`);
   console.log(`  profile      ${AUTH.qualityProfileName} (resolved via authorisation, never restated)`);
-  console.log(`  TEST_STAGE   ${process.env.TEST_STAGE}`);
-  console.log(`  PILOT_ID     ${process.env.PILOT_ID}`);
+  console.log(`  TEST_STAGE   ${stage} (from the authorisation, not the ambient environment)`);
+  console.log(`  runtime band ${envelope.minS}-${envelope.maxS}s ` +
+    `(${(envelope.minS / 60).toFixed(1)}-${(envelope.maxS / 60).toFixed(1)} min) — the band Monday's run uses`);
+  console.log(`  PILOT_ID     ${process.env.PILOT_ID ?? AUTH.pilotId}`);
   console.log(`  DISABLE_ELEVEN ${process.env.DISABLE_ELEVEN}`);
 
   const video = await prisma.wcVideo.findUnique({
@@ -180,6 +227,13 @@ async function main() {
     checksTotal: checks.length,
     longestNoNewConceptRunS: runDiag ? runDiag.seconds : null,
     result: result.success ? "PASS" : "FAIL",
+    // Recorded so CHECK can refuse a verification produced under a different
+    // envelope. Without these a PASS obtained under DIAGNOSTIC (55-100s) would
+    // have been accepted as evidence for a PRODUCTION run.
+    testStage: stage,
+    runtimeMinS: envelope.minS,
+    runtimeMaxS: envelope.maxS,
+    videoS: Number(env.videoS.toFixed(1)),
     verifiedAt: new Date().toISOString(),
     provenance:
       `live wcVisualFeasibilityGate execution; ${report.totalCandidates} Pexels candidates ` +

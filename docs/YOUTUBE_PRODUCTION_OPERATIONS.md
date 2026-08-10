@@ -358,6 +358,9 @@ npx tsx scripts/ai-doom-pilot-control.ts --advance-cap --i-have-reviewed-the-pre
 
 ```bash
 DISABLE_ELEVEN=true npx tsx scripts/wc-feasibility-verify.ts   # required, expires after 24h
+# TEST_STAGE is taken from the tracked canary authorisation, NOT the shell.
+# currentTestStage() defaults to DIAGNOSTIC (a 55-100s band) when unset, which
+# would judge a 281s long-form canary against the wrong envelope.
 npx tsx scripts/wc-canary-control.ts                           # CHECK
 npx tsx scripts/wc-canary-control.ts --arm --i-understand-this-spends-credits
 npx tsx scripts/wc-canary-control.ts --run --i-understand-this-spends-credits

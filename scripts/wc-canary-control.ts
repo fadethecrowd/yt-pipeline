@@ -103,6 +103,18 @@ export interface FeasibilityVerification {
   candidateId: string;
   scriptSha256: string;
   profile: string;
+  /**
+   * The stage the verification was produced under, and the envelope that
+   * implied. Runtime bands are stage-sensitive — DIAGNOSTIC is 55-100s while
+   * PRODUCTION is the real 210-340s channel band — so a verification that does
+   * not say which band it used cannot be trusted as evidence for a run under a
+   * different one. Optional only so an older record is treated as unusable
+   * rather than crashing the check.
+   */
+  testStage?: string;
+  runtimeMinS?: number;
+  runtimeMaxS?: number;
+  videoS?: number;
   effectiveMaxConceptShare: number;
   dominantConcept: string;
   dominantShare: number;
@@ -303,6 +315,18 @@ async function main() {
   } else if (verification.profile !== AUTH.qualityProfileName) {
     ck(false, "feasibility CURRENTLY VERIFIED",
       `NOT YET VERIFIED — verified under ${verification.profile}`);
+  } else if (verification.testStage !== AUTH.testStage) {
+    // A verification produced under DIAGNOSTIC judged the candidate against a
+    // 55-100s band. Accepting it as evidence for a PRODUCTION run would be the
+    // dangerous inverse of the false FAIL that exposed this gap.
+    ck(false, "feasibility CURRENTLY VERIFIED",
+      `NOT YET VERIFIED — produced under stage ${verification.testStage ?? "<unrecorded>"}, ` +
+      `run requires ${AUTH.testStage}`);
+  } else if (verification.runtimeMinS !== AUTH.runtimeMinS ||
+             verification.runtimeMaxS !== AUTH.runtimeMaxS) {
+    ck(false, "feasibility CURRENTLY VERIFIED",
+      `NOT YET VERIFIED — verified against ${verification.runtimeMinS}-${verification.runtimeMaxS}s, ` +
+      `authorised envelope is ${AUTH.runtimeMinS}-${AUTH.runtimeMaxS}s`);
   } else {
     const ageH = (Date.now() - Date.parse(verification.verifiedAt)) / 3600000;
     const fresh = ageH <= FEASIBILITY_MAX_AGE_H;
@@ -310,6 +334,9 @@ async function main() {
       "feasibility CURRENTLY VERIFIED",
       `${verification.result} at ${verification.verifiedAt} (${ageH.toFixed(1)}h old, ` +
       `max ${FEASIBILITY_MAX_AGE_H}h)${fresh ? "" : " — STALE, re-verify"}`);
+    console.log(`     stage ${verification.testStage} envelope ` +
+      `${verification.runtimeMinS}-${verification.runtimeMaxS}s` +
+      (verification.videoS ? `, candidate ${verification.videoS}s` : ""));
     console.log(`     dominant ${verification.dominantConcept} ${(verification.dominantShare * 100).toFixed(1)}%` +
       ` vs tolerance ${(verification.effectiveMaxConceptShare * 100).toFixed(0)}%`);
     console.log(`     ${verification.checksPassed}/${verification.checksTotal} checks passed`);

@@ -3,6 +3,7 @@ import {
   qualityProfile, runtimeRange, isInWindow, formatZoned, zonedParts,
 } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig, QualityProfileName, Script } from "@yt-pipeline/pipeline-core";
+import type { TestStage } from "@prisma/client";
 
 /**
  * The explicit, version-controlled authorization for ONE private Wet Circuit
@@ -39,6 +40,18 @@ export interface WcCanaryAuthorization {
   scriptSha256: string;
   qualityProfileName: QualityProfileName;
   maxNarrationChars: number;
+  /**
+   * The stage this canary is authorised to run under.
+   *
+   * Runtime envelopes are stage-sensitive: runtimeRange() returns the
+   * DIAGNOSTIC band (55-100s) for TEST_STAGE=DIAGNOSTIC and the real channel
+   * band (210-340s) for every other stage. currentTestStage() defaults to
+   * DIAGNOSTIC when TEST_STAGE is unset or misspelt, so "which envelope am I
+   * being judged against" was previously decided by ambient environment rather
+   * than by the authorisation. Naming it here makes it reviewable in the diff
+   * and lets both the verifier and the pre-flight check refuse a mismatch.
+   */
+  testStage: TestStage;
   runtimeMinS: number;
   runtimeMaxS: number;
   privacyStatus: "private";
@@ -65,6 +78,7 @@ export const WC_CANARY_AUTHORIZATIONS: readonly WcCanaryAuthorization[] = [
     scriptSha256: "7681ec18117f3255c18fd912b0c79390e70bcd0ae87618c6bd711891fb4d1259",
     qualityProfileName: "FINITE_CREDIT_BURN_ACCEPTABLE_QUALITY",
     maxNarrationChars: 4164,
+    testStage: "PRODUCTION",
     runtimeMinS: 210,
     runtimeMaxS: 340,
     privacyStatus: "private",
@@ -162,7 +176,7 @@ export function resolveWcCanaryAuthorization(input: ResolveInput): ResolvedWcCan
 
   // The envelope is asserted against the canonical source, not trusted from
   // the manifest — drift between them is a configuration error, not a licence.
-  const range = runtimeRange("wet-circuit", "LONGFORM", "PRODUCTION");
+  const range = runtimeRange("wet-circuit", "LONGFORM", auth.testStage);
   if (range.minS !== auth.runtimeMinS || range.maxS !== auth.runtimeMaxS) {
     refuse("CANARY_RUNTIME_ENVELOPE_DRIFT",
       `runtimeRange is ${range.minS}-${range.maxS}s but the authorisation names ${auth.runtimeMinS}-${auth.runtimeMaxS}s`);
