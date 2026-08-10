@@ -67,6 +67,41 @@ const attemptedWrites: unknown[] = [];
  * pre-flight verification is for. wc-canary-control independently requires
  * TEST_STAGE=PRODUCTION at RUN.
  */
+/**
+ * Pin the pilot the gate resolves its QUALITY PROFILE from.
+ *
+ * Exactly the same trap as TEST_STAGE, one layer down. The gate calls
+ * `currentPilot()`, which calls `activePilotId()`, which reads PILOT_ID from
+ * the environment and returns null when it is missing. A null pilot means
+ * `resolveWcCanaryAuthorization` is never consulted, the relaxed
+ * FINITE_CREDIT_BURN_ACCEPTABLE_QUALITY profile never applies, and the gate
+ * silently falls back to the STRICT 40% concept cap — which is why the first
+ * corrected run still failed, at 44.2% against a cap the canary is explicitly
+ * authorised to exceed.
+ *
+ * The existing Prisma-layer substitution could never have covered this: it
+ * replaces the pilot ROW that `getPilot` reads, but `currentPilot` returns null
+ * before it ever gets there.
+ *
+ * Setting this arms nothing. Arming is a durable UPDATE performed only by
+ * wc-canary-control --arm; the pilot stays PREPARED, and the gate opens no
+ * budget.
+ */
+function resolveVerificationPilot(): string {
+  const declared = AUTH.pilotId;
+  const ambient = process.env.PILOT_ID;
+  if (ambient && ambient !== declared) {
+    console.error(
+      `\n  ✗ PILOT_ID=${ambient} disagrees with the authorised pilot ${declared}.\n` +
+      `    Verifying under a different pilot would resolve a different quality\n` +
+      `    profile than Monday's run. Re-run without PILOT_ID, or with PILOT_ID=${declared}.`,
+    );
+    process.exit(2);
+  }
+  process.env.PILOT_ID = declared;
+  return declared;
+}
+
 function resolveVerificationStage(): TestStage {
   const declared = AUTH.testStage;
   const ambient = process.env.TEST_STAGE;
@@ -86,13 +121,14 @@ function resolveVerificationStage(): TestStage {
 async function main() {
   hr("WC FEASIBILITY VERIFICATION — NO SPEND, NO DURABLE MUTATION");
   const stage = resolveVerificationStage();
+  const pilotId = resolveVerificationPilot();
   const envelope = runtimeRange("wet-circuit", "LONGFORM", stage);
   console.log(`  candidate    ${AUTH.candidateId}`);
   console.log(`  profile      ${AUTH.qualityProfileName} (resolved via authorisation, never restated)`);
   console.log(`  TEST_STAGE   ${stage} (from the authorisation, not the ambient environment)`);
   console.log(`  runtime band ${envelope.minS}-${envelope.maxS}s ` +
     `(${(envelope.minS / 60).toFixed(1)}-${(envelope.maxS / 60).toFixed(1)} min) — the band Monday's run uses`);
-  console.log(`  PILOT_ID     ${process.env.PILOT_ID ?? AUTH.pilotId}`);
+  console.log(`  PILOT_ID     ${pilotId} (from the authorisation, not the ambient environment)`);
   console.log(`  DISABLE_ELEVEN ${process.env.DISABLE_ELEVEN}`);
 
   const video = await prisma.wcVideo.findUnique({

@@ -261,3 +261,62 @@ describe("no hardcoded envelope can override the resolver", () => {
     assert.doesNotMatch(GATE, /\b0\.9\b|\b1\.7\b/);
   });
 });
+
+// ── The same trap, one layer down: PILOT_ID selects the PROFILE ───────────
+
+describe("quality profile resolution", () => {
+  const PILOT = readFileSync("packages/pipeline-core/src/lib/pilot.ts", "utf8");
+
+  test("activePilotId returns null when PILOT_ID is missing", () => {
+    // This is why the first corrected run still failed: a null pilot means
+    // resolveWcCanaryAuthorization is never consulted, so the relaxed profile
+    // never applies and the gate falls back to the STRICT 40% concept cap —
+    // which the canary is explicitly authorised to exceed at 60%.
+    assert.match(PILOT, /const id = process\.env\.PILOT_ID\?\.trim\(\)/);
+    assert.match(PILOT, /return id && id\.length > 0 \? id : null/);
+    assert.match(PILOT, /const id = activePilotId\(\);\s*\n\s*if \(!id\) return null;/);
+  });
+
+  test("the verifier pins the pilot from the authorisation", () => {
+    assert.match(VERIFY, /function resolveVerificationPilot\(\): string/);
+    assert.match(VERIFY, /const declared = AUTH\.pilotId/);
+    assert.match(VERIFY, /process\.env\.PILOT_ID = declared/);
+  });
+
+  test("a conflicting ambient PILOT_ID is refused, not overridden", () => {
+    const fn = VERIFY.slice(VERIFY.indexOf("function resolveVerificationPilot"));
+    assert.match(fn, /disagrees with the authorised pilot/);
+    assert.match(fn.slice(0, fn.indexOf("function resolveVerificationStage")), /process\.exit\(2\)/);
+  });
+
+  test("the Prisma-layer substitution alone could not have covered this", () => {
+    // getPilot reads through the substituted findUnique, but currentPilot
+    // returns null before reaching it. Both layers are needed.
+    assert.match(VERIFY, /findUnique = async \(\) => modelled/);
+    const stub = VERIFY.indexOf("findUnique = async () => modelled");
+    const pin = VERIFY.indexOf("process.env.PILOT_ID = declared");
+    assert.ok(pin >= 0 && pin < stub, "the id must be pinned before the row is substituted");
+  });
+
+  test("pinning the pilot arms nothing", () => {
+    // Arming is a durable UPDATE performed only by wc-canary-control --arm.
+    assert.doesNotMatch(VERIFY, /status['"]?\s*:\s*['"]ACTIVE/);
+    assert.doesNotMatch(VERIFY, /activatedAt/);
+    assert.match(CONTROL, /SET "status" = 'ACTIVE'/, "arming lives in the control, not the verifier");
+  });
+
+  test("the authorised tolerance is the profile's, never restated", () => {
+    const AUTHSRC = readFileSync("packages/wc-pipeline/src/canary/authorization.ts", "utf8");
+    assert.doesNotMatch(AUTHSRC, /maxConceptShare:\s*0?\.6/,
+      "the manifest names the profile; the value belongs to the profile");
+    assert.match(AUTHSRC, /qualityProfileName: "FINITE_CREDIT_BURN_ACCEPTABLE_QUALITY"/);
+  });
+
+  test("a strict-profile candidate still fails the concept cap", () => {
+    // The relaxation is opt-in per authorised candidate. Nothing about this fix
+    // widens the cap for ordinary production.
+    const GATESRC = readFileSync("packages/wc-pipeline/src/stages/visualFeasibilityGate.ts", "utf8");
+    assert.match(GATESRC, /let tieAware: TieAwareOptions = \{\};/,
+      "the default must be strict, with the profile applied only on resolution");
+  });
+});
