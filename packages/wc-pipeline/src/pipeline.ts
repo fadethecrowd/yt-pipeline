@@ -14,9 +14,10 @@ import {
   buildSpokenUnits, spokenCharacterCount,
   openUnattendedGate, isUnattendedMode, unattendedClaimantId,
   createAndAttachCandidate, settleCycle, getCycle,
+  MANUAL_SUPERVISED, UNATTENDED, windowApplies,
   type ActiveCycle,
 } from "@yt-pipeline/pipeline-core";
-import type { PilotConfig, PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
+import type { PilotConfig, PilotSupervision, PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
 
 import { topicDiscovery } from "./stages/topicDiscovery";
 import { scriptGenerator } from "./stages/scriptGenerator";
@@ -257,7 +258,13 @@ async function finalizeSummary(
 // canary runner must not be able to drift apart on what a pilot permits: a
 // second copy of these checks is a second place for one of them to be missed.
 // Callers must already hold WC_LOCK_ID.
-async function pilotGate(): Promise<PilotConfig | null> {
+// `supervision` decides only whether the time-of-day window is evaluated. It
+// defaults to UNATTENDED so the ordinary runner — which a container start can
+// reach — keeps the clock exactly as before; only `runWcCanaryOnce`, which is
+// reachable solely from wc-canary-control, declares itself supervised.
+async function pilotGate(
+  supervision: PilotSupervision = UNATTENDED,
+): Promise<PilotConfig | null> {
   const pilot = await currentPilot();
   if (!pilot) return null;
 
@@ -293,10 +300,11 @@ async function pilotGate(): Promise<PilotConfig | null> {
   // so ordinary pilot use is unchanged.
   const canaryAuth = findWcCanaryAuthorization(pilot.pilotId);
   if (canaryAuth) {
-    // Throws WcCanaryAuthorizationError outside the window.
-    const decision = assertWcCanaryWindow(new Date(), canaryAuth);
+    // Throws WcCanaryAuthorizationError outside the window, unless this is a
+    // manually supervised one-shot — see lib/supervision.ts.
+    const decision = assertWcCanaryWindow(new Date(), canaryAuth, supervision);
     console.log(`${LOG} execution window OK — ${decision.nowLocal} (${decision.reason})`);
-  } else if (!isInWindow(new Date(), {
+  } else if (windowApplies(supervision) && !isInWindow(new Date(), {
     days: pilot.windowDays, startHour: pilot.windowStartHour,
     endHour: pilot.windowEndHour, timeZone: pilot.timezone,
   })) {
@@ -587,8 +595,10 @@ export async function runWcCanaryOnce(
     console.log(`${LOG} Advisory lock acquired (id: ${WC_LOCK_ID})`);
 
     // Same gate as the ordinary runner: channel, runnability, cap, window,
-    // unresolved intents.
-    const pilot = await pilotGate();
+    // unresolved intents. Declared MANUAL_SUPERVISED because this function is
+    // reachable only from `wc-canary-control --run`, which a human invokes with
+    // an explicit acknowledgement flag; the ordinary runner above keeps the clock.
+    const pilot = await pilotGate(MANUAL_SUPERVISED);
     if (!pilot) {
       throw new PilotBlockedError("CANARY_NO_PILOT",
         "one-shot canary execution requires an active pilot — refusing to run uncapped");

@@ -152,7 +152,11 @@ describe("the one-shot runner refuses anything but a clean armed candidate", () 
   });
 
   test("it runs the shared pilot gate rather than its own copy", () => {
-    assert.match(body, /await pilotGate\(\)/);
+    // B. The one-shot is the manually supervised path: a human runs
+    // wc-canary-control --run with an acknowledgement flag, so the
+    // time-of-day window does not bound it. Everything else in the shared
+    // gate — channel, runnability, cap, unresolved intents — still applies.
+    assert.match(body, /await pilotGate\(MANUAL_SUPERVISED\)/);
     // One definition only — a second copy is a second place to miss a check.
     assert.equal((PIPELINE.match(/async function pilotGate\(/g) ?? []).length, 1);
   });
@@ -485,10 +489,14 @@ describe("the control tool is the only start path", () => {
     assert.ok(!reader.includes("prisma"), "reading a verification must not touch the DB");
   });
 
-  test("CHECK reports the window separately from authorisation", () => {
-    assert.match(CONTROL, /EXECUTION WINDOW \(Mon\/Wed\/Fri 17:00-20:00 America\/New_York, end-exclusive\)/);
-    // Out-of-window is not a CHECK failure but is one at ARM/RUN.
-    assert.match(CONTROL, /wNow\.allowed \|\| PHASE === "CHECK"/);
+  test("CHECK reports the window as manually supervised, not as a clock gate", () => {
+    assert.match(CONTROL, /EXECUTION WINDOW \(manually supervised — time-of-day not enforced\)/);
+    // The control evaluates its own window explicitly as MANUAL_SUPERVISED
+    // rather than relying on the default, which is the restrictive branch.
+    assert.match(CONTROL, /evaluateWcCanaryWindow\(new Date\(\), AUTH, MANUAL_SUPERVISED\)/);
+    // The old "out-of-window is fine at CHECK but fatal at ARM/RUN" carve-out
+    // is gone: there is no hour at which ARM/RUN would refuse on time alone.
+    assert.doesNotMatch(CONTROL, /wNow\.allowed \|\| PHASE === "CHECK"/);
   });
 
   test("the tool drives the candidate named in the durable authorisation", () => {

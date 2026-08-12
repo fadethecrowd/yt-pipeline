@@ -1,7 +1,8 @@
 import {
   prisma, activePilotId, getPilot, PilotBlockedError, isInWindow, formatZoned,
+  UNATTENDED, windowApplies,
 } from "@yt-pipeline/pipeline-core";
-import type { PilotConfig } from "@yt-pipeline/pipeline-core";
+import type { PilotConfig, PilotSupervision } from "@yt-pipeline/pipeline-core";
 
 /**
  * Binding the AI Doom runner to its durable pilot, and refusing when it cannot.
@@ -115,8 +116,32 @@ export interface WindowDecision {
   reason: string;
 }
 
-/** Pure evaluation, so every boundary is testable without a database. */
-export function evaluateAiDoomPilotWindow(now: Date, pilot: PilotConfig): WindowDecision {
+/**
+ * Pure evaluation, so every boundary is testable without a database.
+ *
+ * `supervision` defaults to UNATTENDED — the branch that still enforces the
+ * clock. A caller that forgets to declare itself supervised therefore gets the
+ * window, never a waiver. See lib/supervision.ts for why permission is stated
+ * rather than inferred from an omission.
+ */
+export function evaluateAiDoomPilotWindow(
+  now: Date,
+  pilot: PilotConfig,
+  supervision: PilotSupervision = UNATTENDED,
+): WindowDecision {
+  const nowLocalAlways = formatZoned(now, pilot.timezone);
+
+  // A human is running a control command with an acknowledgement flag right
+  // now. The bound on this attempt is that authorization, the single-slot cap
+  // and the relock — not the hour of the day.
+  if (!windowApplies(supervision)) {
+    return {
+      allowed: true,
+      nowLocal: nowLocalAlways,
+      reason: "manually supervised pilot — the time-of-day window does not apply",
+    };
+  }
+
   const spec = {
     days: pilot.windowDays,
     startHour: pilot.windowStartHour,
@@ -124,7 +149,7 @@ export function evaluateAiDoomPilotWindow(now: Date, pilot: PilotConfig): Window
     timeZone: pilot.timezone,
   };
   const allowed = isInWindow(now, spec);
-  const nowLocal = formatZoned(now, pilot.timezone);
+  const nowLocal = nowLocalAlways;
   return {
     allowed,
     nowLocal,
@@ -148,9 +173,18 @@ export function evaluateAiDoomPilotWindow(now: Date, pilot: PilotConfig): Window
  * here, because the caller only invokes it for a resolved pilot — so completing
  * or removing the pilot restores unrestricted scheduling rather than silently
  * inheriting the pilot's window.
+ *
+ * Under MANUAL_SUPERVISED the window is not applied at all: a person invoked
+ * this run deliberately, and the bound on it is the single-slot cap plus the
+ * relock. The refusal below remains exactly as it was for UNATTENDED, which is
+ * also the default when the caller says nothing.
  */
-export function assertAiDoomPilotWindow(now: Date, pilot: PilotConfig): WindowDecision {
-  const decision = evaluateAiDoomPilotWindow(now, pilot);
+export function assertAiDoomPilotWindow(
+  now: Date,
+  pilot: PilotConfig,
+  supervision: PilotSupervision = UNATTENDED,
+): WindowDecision {
+  const decision = evaluateAiDoomPilotWindow(now, pilot, supervision);
   if (!decision.allowed) {
     throw new PilotBlockedError(
       "PILOT_OUTSIDE_WINDOW",

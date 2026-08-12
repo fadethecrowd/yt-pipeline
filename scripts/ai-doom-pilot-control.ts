@@ -27,7 +27,7 @@
  */
 import { VideoStatus } from "@prisma/client";
 import {
-  prisma, disconnect, budgetReport,
+  prisma, disconnect, budgetReport, MANUAL_SUPERVISED,
 } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig } from "@yt-pipeline/pipeline-core";
 import { evaluateAiDoomPilotWindow } from "../src/pilotBinding";
@@ -186,9 +186,17 @@ export function classifyPhase(state: ControlState): Phase {
   return "CONFIG_INVALID";
 }
 
+/**
+ * This control IS the manual supervision.
+ *
+ * Nothing here runs without a human typing the command and its acknowledgement
+ * flag, so the time-of-day window is not what bounds an attempt — the durable
+ * single-slot cap, the guarded per-candidate budget and the unconditional
+ * relock are. A missing pilot still refuses, so the failure mode is unchanged.
+ */
 export function windowDecision(state: ControlState) {
   if (!state.pilot) return { allowed: false, nowLocal: state.now.toISOString(), reason: "no pilot" };
-  return evaluateAiDoomPilotWindow(state.now, state.pilot);
+  return evaluateAiDoomPilotWindow(state.now, state.pilot, MANUAL_SUPERVISED);
 }
 
 // ── CHECK ─────────────────────────────────────────────────────────────────

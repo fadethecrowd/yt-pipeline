@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import {
   qualityProfile, runtimeRange, isInWindow, formatZoned, zonedParts,
+  UNATTENDED, windowApplies,
 } from "@yt-pipeline/pipeline-core";
-import type { PilotConfig, QualityProfileName, Script } from "@yt-pipeline/pipeline-core";
+import type {
+  PilotConfig, PilotSupervision, QualityProfileName, Script,
+} from "@yt-pipeline/pipeline-core";
 import type { TestStage } from "@prisma/client";
 
 /**
@@ -244,10 +247,18 @@ export interface WindowDecision {
  * Fail-closed execution-window guard.
  *
  * The runner previously logged a violation and continued, which made the
- * window advisory. A canary that may run at any hour is not bounded, so this
- * refuses instead — and it refuses BEFORE the candidate is touched, before any
- * budget opens, and therefore before narration, media acquisition, rendering
- * or upload can occur.
+ * window advisory. A canary that may run at any hour *unsupervised* is not
+ * bounded, so this refuses instead — and it refuses BEFORE the candidate is
+ * touched, before any budget opens, and therefore before narration, media
+ * acquisition, rendering or upload can occur.
+ *
+ * `supervision` decides whether the clock is consulted at all. A manually
+ * supervised canary — one a human started through wc-canary-control with an
+ * acknowledgement flag — is bounded by that authorization, the single-slot cap
+ * and the relock, not by the hour, so MANUAL_SUPERVISED waives the time
+ * comparison. It waives ONLY that: the configuration validation below still
+ * runs, so a malformed window refuses either way, and the default is
+ * UNATTENDED, which enforces the window exactly as before.
  *
  * Boundary convention is the repository's existing one, preserved deliberately:
  * `hour >= startHour && hour < endHour`, i.e. 17:00:00 through 19:59:59
@@ -260,6 +271,7 @@ export interface WindowDecision {
 export function assertWcCanaryWindow(
   now: Date,
   auth: WcCanaryAuthorization,
+  supervision: PilotSupervision = UNATTENDED,
 ): WindowDecision {
   const w = auth.window;
 
@@ -279,6 +291,19 @@ export function assertWcCanaryWindow(
     parts = zonedParts(now, w.timezone);
   } catch {
     return refuse("CANARY_WINDOW_MALFORMED", `unknown timezone "${w.timezone}"`);
+  }
+
+  // A manually supervised canary waives the CLOCK, never the configuration
+  // checks above: a malformed window still refuses, so a corrupt authorisation
+  // cannot be laundered into permission by claiming supervision.
+  if (!windowApplies(supervision)) {
+    return {
+      allowed: true,
+      nowLocal: formatZoned(now, w.timezone),
+      weekday: parts.weekday,
+      hour: parts.hour,
+      reason: "manually supervised canary — the time-of-day window does not apply",
+    };
   }
 
   const allowed = isInWindow(now, {
@@ -303,9 +328,10 @@ export function assertWcCanaryWindow(
 export function evaluateWcCanaryWindow(
   now: Date,
   auth: WcCanaryAuthorization,
+  supervision: PilotSupervision = UNATTENDED,
 ): WindowDecision {
   try {
-    return assertWcCanaryWindow(now, auth);
+    return assertWcCanaryWindow(now, auth, supervision);
   } catch (e) {
     const w = auth.window;
     let weekday = -1, hour = -1, nowLocal = "(unavailable)";

@@ -366,9 +366,30 @@ npx tsx scripts/wc-canary-control.ts --arm --i-understand-this-spends-credits
 npx tsx scripts/wc-canary-control.ts --run --i-understand-this-spends-credits
 ```
 
-Both pilots may only run inside their execution window: **Mon/Wed/Fri
-17:00–20:00 America/New_York**, end-exclusive. That window is when the pipeline
-may *run*; it is not a publication time.
+**Both controls may be run on any day, at any hour.** The Mon/Wed/Fri
+17:00–20:00 execution window no longer applies to manually supervised
+qualification. It existed to bound *unsupervised* risk, and neither of these
+controls can start anything without a person running the command with an
+explicit acknowledgement flag, so it was friction rather than safety.
+
+What bounds a manual attempt instead:
+
+1. explicit human authorization for that specific run
+2. exactly one bounded attempt (`maxSuccesses`, compare-and-set)
+3. guarded ElevenLabs spend, opened per candidate and relocked after
+4. immediate relock of the pipeline when the attempt ends
+5. human review before the cap advances or another video is produced
+6. no unattended execution, and no scheduler side door
+7. the normal quality and safety gates, still failing closed
+
+The window is still enforced for anything that could start *without* a person:
+the pilot rows keep their `windowDays`/`windowStartHour`/`windowEndHour`
+fields, the ordinary runners still honour them, and the code defaults to
+enforcing them — only the manual control paths declare themselves supervised.
+See `packages/pipeline-core/src/lib/supervision.ts`.
+
+This changed nothing about **publication** cadence, which is still Mon/Wed/Fri
+15:00 America/New_York, nor about unattended scheduling.
 
 **Unattended production must stay off during a pilot.** Keep
 `PRODUCTION_MODE` unset and `SCHEDULER_ENABLED` disabled, so a pilot and an

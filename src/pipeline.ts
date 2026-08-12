@@ -17,6 +17,7 @@ import {
   assertRunnable, remainingSlots, PilotBlockedError,
   openUnattendedGate, isUnattendedMode, unattendedClaimantId,
   createAndAttachCandidate, settleCycle, getCycle,
+  MANUAL_SUPERVISED, UNATTENDED,
   type ActiveCycle,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
@@ -286,7 +287,17 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
       // Hard gate. This used to log and continue, which made the window a
       // comment rather than a control. Refusing here precedes resume,
       // discovery, candidate creation, budget, narration, media and upload.
-      const w = assertAiDoomPilotWindow(new Date(), pilot);
+      //
+      // `activeCycle` is the POSITIVE evidence that this start was unattended:
+      // it is set only when isUnattendedMode() held AND a durable cycle was
+      // claimed above, and the unattended branch returns outright when no
+      // cycle is owed. So reaching here with it null means a human invoked the
+      // run, and the time-of-day window is not what bounds it. Deriving this
+      // from the claimed cycle rather than from an env var is deliberate — an
+      // absent variable must never be what grants the waiver.
+      const w = assertAiDoomPilotWindow(
+        new Date(), pilot, activeCycle ? UNATTENDED : MANUAL_SUPERVISED,
+      );
       console.log(`[pipeline] execution window OK — ${w.nowLocal} (${w.reason})`);
       // An unresolved upload from a prior pilot candidate must be reconciled
       // by a human before another candidate is created: it may already be a

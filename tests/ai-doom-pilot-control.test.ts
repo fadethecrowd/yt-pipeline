@@ -131,13 +131,14 @@ const terminalRun = (status: string): RunRecord => ({
 // ── CHECK ────────────────────────────────────────────────────────────────
 
 describe("CHECK", () => {
-  test("1. Saturday is statically ready but window-ineligible", async () => {
+  test("A1. Saturday is both statically ready and eligible — this control IS the supervision", async () => {
     const f = makeFake({ now: SATURDAY_1200 });
     const r = await doCheck(f.deps);
     assert.equal(r.staticReady, true, "configuration is correct on a Saturday");
-    assert.equal(r.window.allowed, false, "but it may not run today");
+    assert.equal(r.window.allowed, true,
+      "a human running this command is the authorization; the hour is not");
+    assert.match(r.window.reason, /manually supervised/);
     assert.equal(r.phase, "PREPARED_FOR_ARM");
-    // The window must not drag static readiness down.
     assert.ok(r.checks.every((c) => c.ok));
   });
 
@@ -227,14 +228,26 @@ describe("ARM", () => {
     assert.equal(f.sets.length, 0, "ARM must not touch Railway");
   });
 
-  test("9. outside the window it mutates nothing", async () => {
+  test("A2. ARM succeeds on any day and hour once explicitly authorized", async () => {
     for (const now of [SATURDAY_1200, TUESDAY_1800]) {
       const f = makeFake({ now });
       const r = await doArm(f.deps, true);
-      assert.equal(r.armed, false);
-      assert.match(r.reason, /outside the execution window/);
-      assert.ok(!f.calls.includes("activatePilot"));
+      assert.equal(r.armed, true, `${now.toISOString()} must be armable`);
+      assert.ok(f.calls.includes("activatePilot"));
+      // Still exactly one durable activation — removing the clock removed the
+      // clock, not the single-shot guarantee.
+      assert.equal(f.calls.filter((c) => c === "activatePilot").length, 1);
+      // And it still changes no Railway variable and opens no budget.
+      assert.ok(!f.calls.some((c) => c.startsWith("setVars")));
     }
+  });
+
+  test("A2b. the acknowledgement flag is still required on any day", async () => {
+    const f = makeFake({ now: SATURDAY_1200 });
+    const r = await doArm(f.deps, false);
+    assert.equal(r.armed, false);
+    assert.match(r.reason, /--i-understand-this-activates-the-pilot/);
+    assert.ok(!f.calls.includes("activatePilot"));
   });
 
   test("10. a 0/3 pilot refuses the first ARM", async () => {
@@ -420,11 +433,30 @@ describe("RUN orchestration", () => {
     assert.equal(f.sets.length, 0, "nothing unlocked");
   });
 
-  test("outside the window RUN refuses and touches nothing", async () => {
+  test("A3. RUN proceeds on a Saturday and still relocks", async () => {
     const f = armedFake({ now: SATURDAY_1200, runs: [terminalRun("SUCCESS")] });
+    // The pilot claims its slot during the run, exactly as in the weekday case.
+    const orig = f.deps.readPilot.bind(f.deps);
+    let reads = 0;
+    f.deps.readPilot = async () => {
+      reads++;
+      const p = await orig(PILOT_ID);
+      return reads > 1 && p ? { ...p, successCount: 1, successVideoIds: ["v1"] } : p;
+    };
     const r = await doRun(f.deps, true);
+    assert.equal(r.outcome, "SUCCESS");
+    assert.equal(r.relocked, true, "the relock is unconditional, whatever the day");
+    assert.equal(f.state.vars.PIPELINE_MODE, LOCK_VALUE);
+    assert.equal(f.state.vars.DISABLE_ELEVEN, "true");
+    // Exactly one unlock — one authorization is still at most one run.
+    assert.equal(f.sets.filter((s) => s.kv.PIPELINE_MODE === UNLOCK_VALUE).length, 1);
+  });
+
+  test("A3b. RUN on a Saturday still requires the acknowledgement flag", async () => {
+    const f = armedFake({ now: SATURDAY_1200, runs: [terminalRun("SUCCESS")] });
+    const r = await doRun(f.deps, false);
     assert.equal(r.outcome, "REFUSED");
-    assert.equal(f.sets.length, 0);
+    assert.equal(f.sets.length, 0, "nothing unlocked without the flag");
   });
 
   test("a PREPARED pilot cannot be RUN", async () => {

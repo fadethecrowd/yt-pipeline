@@ -207,7 +207,7 @@ describe("the execution window is a hard gate", () => {
   });
 
   test("16. the refusal precedes resume and discovery", () => {
-    const gate = PIPELINE.indexOf("assertAiDoomPilotWindow(new Date(), pilot)");
+    const gate = PIPELINE.indexOf("assertAiDoomPilotWindow(");
     const resume = PIPELINE.indexOf("const stuckVideo = await prisma.video.findFirst");
     const discovery = PIPELINE.indexOf("topicDiscovery({} as PipelineContext)");
     assert.ok(gate > 0 && resume > gate, "window gate must precede resume");
@@ -222,7 +222,7 @@ describe("the execution window is a hard gate", () => {
   test("the window applies to pilot runs only, not ordinary production", () => {
     // Completing or removing the pilot must restore unrestricted scheduling.
     // Anchor on the call site, not the import.
-    const gateIdx = PIPELINE.indexOf("assertAiDoomPilotWindow(new Date(), pilot)");
+    const gateIdx = PIPELINE.indexOf("assertAiDoomPilotWindow(");
     const blockStart = PIPELINE.indexOf("const pilot = await resolveAiDoomPilot();");
     const guard = PIPELINE.indexOf("if (pilot) {", blockStart);
     assert.ok(blockStart > 0 && guard > blockStart && gateIdx > guard,

@@ -363,6 +363,8 @@ export {
   nextWindowStart, formatZoned, EASTERN,
   DEFAULT_WINDOW_DAYS, DEFAULT_WINDOW_START_HOUR, DEFAULT_WINDOW_END_HOUR,
 } from "./lib/easternWindow";
+export { MANUAL_SUPERVISED, UNATTENDED, windowApplies } from "./lib/supervision";
+export type { PilotSupervision } from "./lib/supervision";
 export type { StripAsset, StripBeat } from "./lib/approvedStrip";
 export {
   beatSpansForUnit, beatSpansForNarration, AlignmentError,

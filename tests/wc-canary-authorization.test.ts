@@ -187,8 +187,9 @@ describe("A. execution window is fail-closed", () => {
 
   test("the root path refuses rather than logging", () => {
     const pipeline = readFileSync("packages/wc-pipeline/src/pipeline.ts", "utf8");
-    assert.match(pipeline, /assertWcCanaryWindow\(new Date\(\), canaryAuth\)/,
-      "an authorised canary must be asserted, not logged");
+    assert.match(pipeline, /assertWcCanaryWindow\(new Date\(\), canaryAuth, supervision\)/,
+      "an authorised canary must be asserted, not logged — and the supervision " +
+      "mode must be passed through rather than assumed at the call site");
     // And the assertion happens inside the pilot gate, before any candidate work.
     const gateIdx = pipeline.indexOf("assertWcCanaryWindow");
     const discoveryIdx = pipeline.indexOf("const discoveryStage = stages[0]");

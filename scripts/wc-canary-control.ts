@@ -28,7 +28,7 @@ import { VideoStatus } from "@prisma/client";
 import {
   prisma, disconnect, budgetReport, resumableJobs, prismaIntentStore,
   buildSpokenUnits, spokenCharacterCount, currentTestStage, runtimeRange,
-  CHARS_PER_SECOND, TITLE_CARD_S, RunSummary,
+  CHARS_PER_SECOND, TITLE_CARD_S, RunSummary, MANUAL_SUPERVISED,
 } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig, Script } from "@yt-pipeline/pipeline-core";
 import {
@@ -281,19 +281,19 @@ async function main() {
   ck(currentTestStage() === "PRODUCTION" || PHASE === "CHECK",
     "TEST_STAGE", `${currentTestStage()} (PRODUCTION required only at RUN)`);
 
-  // ── Execution window (M/W/F), reported separately from everything else ──
+  // ── Execution window ───────────────────────────────────────────────────
   //
-  // "Authorised" and "may run right now" are different questions, and a report
-  // that blends them lets an out-of-window operator read a green pre-flight as
-  // permission. The window is not a pre-flight failure at CHECK — CHECK is a
-  // read-only inspection you may run any day — but it IS one at ARM and RUN.
-  hr("EXECUTION WINDOW (Mon/Wed/Fri 17:00-20:00 America/New_York, end-exclusive)");
-  const wNow = evaluateWcCanaryWindow(new Date(), AUTH);
+  // This control IS the supervision: nothing here runs without a human typing
+  // the command and its acknowledgement flag. The time-of-day window therefore
+  // no longer bounds an attempt — the tracked authorisation, the single-slot
+  // cap, the per-candidate budget window and the relock do. The authorisation's
+  // window fields are still validated (a malformed one refuses), and the
+  // ordinary WC runner, which a container start can reach, still honours them.
+  hr("EXECUTION WINDOW (manually supervised — time-of-day not enforced)");
+  const wNow = evaluateWcCanaryWindow(new Date(), AUTH, MANUAL_SUPERVISED);
   console.log(`  now (local)  ${wNow.nowLocal}`);
   console.log(`  authorised   days ${JSON.stringify(AUTH.window.days)} (1=Mon 3=Wed 5=Fri)`);
-  ck(wNow.allowed || PHASE === "CHECK",
-    wNow.allowed ? "INSIDE the execution window" : "OUTSIDE the execution window",
-    `${wNow.reason}${wNow.allowed ? "" : " — ARM/RUN would refuse"}`);
+  ck(wNow.allowed, "manual supervision — any day, any hour", wNow.reason);
 
   // ── Feasibility provenance ─────────────────────────────────────────
   //
