@@ -51,8 +51,39 @@ export const AI_SUBJECTS: Record<string, string[]> = {
            "object detection", "lidar", "sensor", "camera array", "scanner"],
   research: ["laboratory", "lab", "researcher", "scientist", "engineer", "whiteboard",
              "research", "experiment"],
+  // "terminal" was a bare token, so "modern airport terminal with travellers"
+  // classified as software. The phrase is what actually names a shell.
   software: ["code", "coding", "programming", "software", "screen", "monitor",
-             "terminal", "developer", "dashboard", "interface", "algorithm", "data"],
+             "terminal window", "developer", "dashboard", "interface", "algorithm", "data"],
+  // ── Knowledge work and paper ──────────────────────────────────────────
+  //
+  // These two exist because the taxonomy is not only a label, it is the de
+  // facto relevance filter: `scoreRelevance` gives up to 0.75 for subject
+  // evidence and only 0.39 for agreeing with the prompt and narration, so an
+  // asset matching NO taxonomy term almost always lands under REJECT_THRESHOLD.
+  // A gap in coverage is therefore not a missing label, it is a rejection.
+  //
+  // Measured on the two refused AI Doom candidates: 70 of 74 rejected assets
+  // were rejected as "none", and they were the exact footage the prompts asked
+  // for — "cozy library aisle with bookshelves", "high speed newspaper printing
+  // process", "people working in a call center", "busy office environment".
+  // Meanwhile "industrial printing press in operation" scored 0.29 and survived
+  // as `factory`, because `factory` carries the widest net of ordinary-workplace
+  // vocabulary in the taxonomy ("industrial", "warehouse", "logistics",
+  // "manufacturing", "conveyor"). So every topic with any physical setting
+  // collapsed toward factory — not because factory footage was chosen, but
+  // because it was the only thing the taxonomy could still name.
+  //
+  // Naming these domains does not take anything away from `factory`: its terms
+  // are untouched, and a genuinely industrial story still matches them.
+  workplace: ["office", "desk", "meeting", "meeting room", "conference room",
+              "call center", "call centre", "colleague", "colleagues", "coworking",
+              "workspace", "workstation", "presentation", "business meeting",
+              "open plan office", "cubicle", "reception", "boardroom"],
+  documents: ["document", "documents", "paperwork", "paper", "archive", "filing",
+              "folder", "folders", "bookshelf", "bookshelves", "library", "book",
+              "books", "newspaper", "manuscript", "handwriting", "handwritten",
+              "envelope", "ledger", "printed page"],
   network: ["network", "neural network", "connection", "node", "graph", "cloud computing",
             "fiber optic", "cable", "infrastructure"],
   // Includes studio/microphone vocabulary because these ARE the right visuals
@@ -465,6 +496,8 @@ const CONCEPT_QUERIES: Record<string, string> = {
   vision: "computer vision camera sensor",
   research: "engineer laboratory computer",
   software: "programmer code screen",
+  workplace: "office team meeting",
+  documents: "documents paper archive",
   network: "network server cables",
   voiceai: "audio waveform studio monitor",
   surveillance: "security camera surveillance",
