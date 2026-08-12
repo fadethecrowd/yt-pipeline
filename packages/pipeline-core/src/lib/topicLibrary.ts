@@ -6,6 +6,21 @@
  * returns it and (unless reserveTopic mode) marks it USED.
  *
  * When the library is empty, returns null and normal discovery proceeds.
+ *
+ * USED means "consumed by a live attempt", NOT "produced a video". The row
+ * leaves the pool at SELECTION time, before any later stage can refuse the
+ * topic. When this lifecycle was written (2026-04-17) that distinction barely
+ * existed: a live run that got as far as selection nearly always produced
+ * something. `visualFeasibilityGate` (2026-07-31) then added a common refusal
+ * that costs nothing and happens after selection, so USED now also covers
+ * topics that were rejected before a single credit was spent.
+ *
+ * Consuming them anyway is deliberate. Leaving a refused topic PENDING would
+ * hand the next run the same highest-priority row, which would be re-scripted
+ * (Claude spend) and refused again, and the ordinary runner would spin there
+ * instead of reaching the rest of the library. Reclaiming inventory is
+ * therefore an operator decision, never an automatic one — see
+ * `tests/topic-library-lifecycle.test.ts`, which pins that as the loop guard.
  */
 import { prisma } from "./db";
 
