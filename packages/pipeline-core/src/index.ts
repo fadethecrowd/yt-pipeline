@@ -196,6 +196,14 @@ export type { BrandCheck, BrandDecision } from "./lib/brandGuard";
 export {
   assessVisualFeasibility, assertVisuallyFeasible, planPreliminaryBeats,
   FEASIBILITY_POLICY, feasibilityPolicyFor,
+} from "./lib/visualFeasibility";
+export {
+  authorizeNarrationWindow, narrationCeilingChars,
+} from "./lib/narrationWindow";
+export type {
+  NarrationAuthorization, NarrationWindowDecision, NarrationWindowInput,
+} from "./lib/narrationWindow";
+export {
   feasibilityQueries, pexelsOnlySource, formatFeasibility,
   withVisualFeasibilityGate, VisualFeasibilityError,
   MAX_CARD_SHARE, POOL_SAFETY_FACTOR, DURATION_SAFETY_FACTOR,
