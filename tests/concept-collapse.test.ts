@@ -79,6 +79,54 @@ describe("knowledge-work footage is recognised instead of discarded", () => {
   });
 });
 
+// ── The same defect, one domain further out ───────────────────────────────
+
+describe("outdoor and environmental footage is recognised", () => {
+  const EARTH_NARRATION =
+    "The model turns satellite imagery into embeddings for tracking deforestation and wildfire.";
+  const EARTH_PROMPT =
+    "An aerial drone shot above a patchwork of farmland and forest edge showing deforestation";
+
+  /**
+   * Real Pexels descriptions returned for the OlmoEarth script's outdoor
+   * beats. Every one was REJECTED as "none" before `environment` existed,
+   * while "clouds behind flying drone" was ACCEPTED as robotics — so a beat
+   * asking for aerial farmland was illustrated with a picture of a drone.
+   * Acceptance on those beats ran 17-25% against 50-60% on the indoor beats.
+   */
+  const PREVIOUSLY_REJECTED_OUTDOOR = [
+    "aerial view of expansive rural farmland",
+    "serene cornfield sunset with a farmer",
+    "wild fire in the forest",
+    "aerial view of scenic austrian farmland",
+  ];
+
+  test("it survives relevance instead of being discarded", () => {
+    for (const d of PREVIOUSLY_REJECTED_OUTDOOR) {
+      const r = ai(d, EARTH_NARRATION, EARTH_PROMPT);
+      assert.notEqual(r.verdict, "REJECT",
+        `"${d}" is what the prompt asked for and must survive`);
+      assert.equal(r.concept, "environment", `"${d}" classified as ${r.concept}`);
+    }
+  });
+
+  test("naming outdoors did not take anything from the industrial concepts", () => {
+    // The e-waste/mining story legitimately mixes both; neither may swallow
+    // the other.
+    assert.equal(ai("aerial view of industrial conveyor belt system",
+      INDUSTRIAL_NARRATION, INDUSTRIAL_PROMPT).concept, "factory");
+    assert.equal(ai("aerial view of large industrial warehouse facility",
+      INDUSTRIAL_NARRATION, INDUSTRIAL_PROMPT).concept, "factory");
+  });
+
+  test("environment does not admit unrelated scenery", () => {
+    // A landscape with no narration support is still irrelevant.
+    assert.equal(
+      ai("a dog running on a beach at sunset", OCR_NARRATION, OCR_PROMPT).verdict,
+      "REJECT");
+  });
+});
+
 // ── The thing that must NOT regress: genuine industry ─────────────────────
 
 describe("genuinely industrial narration still uses factory footage heavily", () => {

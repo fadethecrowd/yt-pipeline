@@ -84,6 +84,22 @@ export const AI_SUBJECTS: Record<string, string[]> = {
               "folder", "folders", "bookshelf", "bookshelves", "library", "book",
               "books", "newspaper", "manuscript", "handwriting", "handwritten",
               "envelope", "ledger", "printed page"],
+  // ── The physical world the models are pointed AT ──────────────────────
+  //
+  // Same defect as `workplace`/`documents`, one domain further out. A
+  // geospatial/earth-observation script asked for a crop field, aerial
+  // farmland, and a wildfire; the library returned exactly that — "serene
+  // cornfield sunset with a farmer", "aerial view of expansive rural
+  // farmland", "wild fire in the forest" — and every one was rejected as
+  // "none", because nothing here could name outdoors. Acceptance on those
+  // beats ran 17-25% against 50-60% on the indoor beats, so the timeline
+  // kept the offices and discarded the subject of the story.
+  environment: ["farmland", "farm", "crop", "crops", "cornfield", "field",
+                "forest", "trees", "wildfire", "forest fire", "deforestation",
+                "landscape", "terrain", "mountain", "mountains", "river",
+                "coastline", "coastal", "glacier", "desert", "flood",
+                "agriculture", "agricultural", "harvest", "irrigation",
+                "satellite dish", "weather station", "erosion"],
   network: ["network", "neural network", "connection", "node", "graph", "cloud computing",
             "fiber optic", "cable", "infrastructure"],
   // Includes studio/microphone vocabulary because these ARE the right visuals
@@ -498,6 +514,7 @@ const CONCEPT_QUERIES: Record<string, string> = {
   software: "programmer code screen",
   workplace: "office team meeting",
   documents: "documents paper archive",
+  environment: "aerial farmland landscape",
   network: "network server cables",
   voiceai: "audio waveform studio monitor",
   surveillance: "security camera surveillance",
