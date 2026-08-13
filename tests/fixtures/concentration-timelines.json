@@ -1,0 +1,2153 @@
+[
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 101,
+  "description": "a drone shot over the power plant",
+  "seconds": 15.768,
+  "label": "power plant aerial"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 102,
+  "description": "server racks and storage equipment in a data facility",
+  "seconds": 20.674,
+  "label": "server room"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 201,
+  "description": "fibre bundles and indicator lights inside networking equipment",
+  "seconds": 15.441000000000003,
+  "label": "network hardware"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 301,
+  "description": "network switch with patch cabling and status lights",
+  "seconds": 11.250999999999998,
+  "label": "network hardware"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 401,
+  "description": "high voltage power lines against clear sky",
+  "seconds": 9.161000000000001,
+  "label": "power lines"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 402,
+  "description": "industrial ventilation fan spinning",
+  "seconds": 4.253,
+  "label": "ventilation fan"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 403,
+  "description": "close view of an exhaust ventilation fan",
+  "seconds": 6.474999999999994,
+  "label": "ventilation fan"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 501,
+  "description": "aerial view of power substation infrastructure",
+  "seconds": 15.01100000000001,
+  "label": "substation aerial"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 602,
+  "description": "cooling towers in autumn landscape at sunset",
+  "seconds": 14.134999999999991,
+  "label": "cooling towers"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 701,
+  "description": "aerial view of a large flat-site industrial construction project",
+  "seconds": 26.207000000000008,
+  "label": "construction aerial"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 801,
+  "description": "aerial footage of a power plant",
+  "seconds": 11.061000000000007,
+  "label": "power plant aerial"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 902,
+  "description": "aerial footage of a power plant",
+  "seconds": 8.698000000000008,
+  "label": "power plant aerial"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 903,
+  "description": "aerial view of a large industrial building under construction",
+  "seconds": 12.234000000000009,
+  "label": "construction aerial"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1001,
+  "description": "industrial power plant equipment in operation",
+  "seconds": 6.150000000000006,
+  "label": "power plant ground"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1002,
+  "description": "electric transmission tower with conductors overhead",
+  "seconds": 29.113999999999976,
+  "label": "transmission tower"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1202,
+  "description": "industrial power plant facilities under blue sky",
+  "seconds": 5.431000000000125,
+  "label": "power plant ground"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1203,
+  "description": "aerial view of a construction site with excavators and access roads",
+  "seconds": 19.34999999999988,
+  "label": "construction aerial"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1301,
+  "description": "excavator loading a dump truck on a construction site",
+  "seconds": 26.51700000000008,
+  "label": "construction ground"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1401,
+  "description": "transmission tower at dusk with power lines",
+  "seconds": 5.593000000000018,
+  "label": "transmission tower"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1402,
+  "description": "transmission tower against moving cloud",
+  "seconds": 5.0540000000000305,
+  "label": "transmission tower"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1501,
+  "description": "technician setting up industrial equipment in workshop",
+  "seconds": 31.81599999999986,
+  "label": "technician work"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1601,
+  "description": "aerial view of large industrial power plant",
+  "seconds": 20.086000000000126,
+  "label": "power plant aerial"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1701,
+  "description": "power lines crossing farmland under cloud",
+  "seconds": 7.786000000000001,
+  "label": "power lines"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1702,
+  "description": "transformers and bushings at an electrical substation",
+  "seconds": 5.235000000000014,
+  "label": "substation ground"
+ },
+ {
+  "script": "power",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1801,
+  "description": "aerial view of large industrial power plant",
+  "seconds": 16.48599999999999,
+  "label": "power plant aerial"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 101,
+  "description": "high tech traffic management control room",
+  "seconds": 12.436,
+  "label": "control room"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 102,
+  "description": "close up shot of printed circuit board",
+  "seconds": 6,
+  "label": "circuit board"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 201,
+  "description": "high tech traffic management control room",
+  "seconds": 14.689,
+  "label": "control room"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 202,
+  "description": "enfinium power plant at skelton grange",
+  "seconds": 6,
+  "label": "power plant ground"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 301,
+  "description": "high tech control room in action",
+  "seconds": 12.783999999999999,
+  "label": "control room"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 302,
+  "description": "motorcycle factory production line overview",
+  "seconds": 6,
+  "label": "factory floor"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 401,
+  "description": "hands removing the wires of circuit board",
+  "seconds": 13.759999999999998,
+  "label": "circuit board"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 402,
+  "description": "modern traffic management control room",
+  "seconds": 7.986000000000004,
+  "label": "control room"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 501,
+  "description": "close up footage of an electronic circuit board",
+  "seconds": 15.138999999999996,
+  "label": "circuit board"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 601,
+  "description": "efficient assembly line in modern factory",
+  "seconds": 7.826999999999998,
+  "label": "factory floor"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 602,
+  "description": "drone shot over a cement manufacturing plant",
+  "seconds": 6,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 701,
+  "description": "industrial factory operation with machinery and workers",
+  "seconds": 18.691999999999993,
+  "label": "factory floor"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 801,
+  "description": "server picks up a tray with smoothie",
+  "seconds": 10,
+  "label": "food service"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 802,
+  "description": "industrial warehouse with glass storage racks",
+  "seconds": 11.119,
+  "label": "warehouse interior"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 901,
+  "description": "a close up video of cable wires connected on a motherboard",
+  "seconds": 14.33333300000001,
+  "label": "circuit board"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 903,
+  "description": "conveyor belt in the warehouse",
+  "seconds": 9.942667,
+  "label": "conveyor belt"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1001,
+  "description": "drone footage inside industrial building",
+  "seconds": 18.834000000000003,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1002,
+  "description": "aerial view of large industrial warehouse facility",
+  "seconds": 6,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1101,
+  "description": "drone footage of construction workers working on a building",
+  "seconds": 9.98599999999999,
+  "label": "aerial construction"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1102,
+  "description": "industrial warehouse exterior with blue facade",
+  "seconds": 6,
+  "label": "warehouse exterior"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1201,
+  "description": "drone footage of a building floors with a burger joint in the ground floor",
+  "seconds": 18.019000000000005,
+  "label": "aerial urban"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1301,
+  "description": "aerial view of industrial sand mining conveyor",
+  "seconds": 12.74606700000001,
+  "label": "aerial conveyor"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1302,
+  "description": "drone footage of trucks on a mining site",
+  "seconds": 14.014933000000013,
+  "label": "aerial mining"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1401,
+  "description": "industrial warehouse storage aisle with packed shelves",
+  "seconds": 9.599999999999966,
+  "label": "warehouse interior"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1402,
+  "description": "drone footage of a truck driving on a mining site",
+  "seconds": 9.48699999999991,
+  "label": "aerial mining"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1501,
+  "description": "factory conveyor belt",
+  "seconds": 15.490000000000123,
+  "label": "conveyor belt"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1502,
+  "description": "drone aerial view of mining dump truck",
+  "seconds": 6,
+  "label": "aerial mining"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1601,
+  "description": "aerial view of industrial conveyor belt system",
+  "seconds": 12.192999999999984,
+  "label": "aerial conveyor"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1602,
+  "description": "close up shot of a electronic processor",
+  "seconds": 6,
+  "label": "circuit board"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1701,
+  "description": "industrial waste recycling conveyor aerial view",
+  "seconds": 15.256000000000029,
+  "label": "aerial conveyor"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1801,
+  "description": "animation of a drone lifting cardboard boxes from a conveyor belt",
+  "seconds": 20.548999999999978,
+  "label": "conveyor animation"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 1901,
+  "description": "industrial conveyor belt moving stones outdoors",
+  "seconds": 17.613,
+  "label": "conveyor belt"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 2001,
+  "description": "aerial drone view of large warehouse complex",
+  "seconds": 18.52000000000004,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ewaste",
+  "source": "RENDERED",
+  "outcome": "PUBLISHED",
+  "beat": 2002,
+  "description": "industrial conveyor belt moving rocks in quarry",
+  "seconds": 6,
+  "label": "conveyor belt"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 101,
+  "description": "a scientist working inside a laboratory",
+  "seconds": 11.88,
+  "label": "laboratory"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 201,
+  "description": "automated factory conveyor with electronic components",
+  "seconds": 7.129999999999999,
+  "label": "conveyor belt"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 202,
+  "description": "a scientist holding a form in a laboratory",
+  "seconds": 8.428,
+  "label": "laboratory"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 301,
+  "description": "automated industrial production line in action",
+  "seconds": 10.219999999999999,
+  "label": "factory floor"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 401,
+  "description": "scientists working in a laboratory",
+  "seconds": 15.080999999999996,
+  "label": "laboratory"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 501,
+  "description": "modern automated warehouse conveyor system",
+  "seconds": 8.730000000000004,
+  "label": "warehouse"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 601,
+  "description": "a person holding a test tube rack in a laboratory",
+  "seconds": 12.280000000000001,
+  "label": "laboratory"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 602,
+  "description": "industrial warehouse storage racks overview",
+  "seconds": 8.512999999999991,
+  "label": "warehouse"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 701,
+  "description": "traffic control room with monitoring screens",
+  "seconds": 8.88000000000001,
+  "label": "control room"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 702,
+  "description": "efficient assembly line in modern factory",
+  "seconds": 8.189999999999998,
+  "label": "factory floor"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 801,
+  "description": "automated solar panel production line",
+  "seconds": 10.280000000000015,
+  "label": "factory line"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 901,
+  "description": "spacious industrial warehouse with high shelves",
+  "seconds": 23.52200000000002,
+  "label": "warehouse"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 1001,
+  "description": "automated conveyor with packaging process",
+  "seconds": 15.014999999999986,
+  "label": "factory line"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 1101,
+  "description": "modern semiconductor manufacturing facility",
+  "seconds": 8.689999999999998,
+  "label": "factory line"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 1102,
+  "description": "healthcare worker in laboratory with ppe",
+  "seconds": 7.639999999999986,
+  "label": "laboratory"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 1201,
+  "description": "industrial factory operation with machinery and workers",
+  "seconds": 14.745000000000005,
+  "label": "factory floor"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 1301,
+  "description": "high tech control room with traffic monitoring",
+  "seconds": 12.04000000000002,
+  "label": "control room"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 1801,
+  "description": "modern technology automated factory scene",
+  "seconds": 14.28000000000003,
+  "label": "factory line"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 1802,
+  "description": "aerial view of industrial power plant facility",
+  "seconds": 6.329000000000008,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 1901,
+  "description": "automated factory peach packaging process",
+  "seconds": 12.23333299999996,
+  "label": "factory line"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 2101,
+  "description": "modern data center in urban business district",
+  "seconds": 17.599999999999966,
+  "label": "data center"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 2201,
+  "description": "monitors display financial data and charts",
+  "seconds": 15.964000000000112,
+  "label": "data screens"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 2301,
+  "description": "database storage of a server",
+  "seconds": 19.562999999999988,
+  "label": "data center"
+ },
+ {
+  "script": "hbm",
+  "source": "RENDERED",
+  "outcome": "HUMAN-REJECTED",
+  "beat": 2401,
+  "description": "aerial view of large industrial factory",
+  "seconds": 19.772000000000048,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 1,
+  "description": "a person placing documents in a plastic envelope",
+  "seconds": 18.446888519134777,
+  "label": "office paperwork"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 2,
+  "description": "people inside a meeting room",
+  "seconds": 18.446888519134777,
+  "label": "meeting room"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 3,
+  "description": "a person walking through a library with books",
+  "seconds": 12.446888519134777,
+  "label": "library"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 3,
+  "description": "people working in a call center",
+  "seconds": 6,
+  "label": "call center"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 4,
+  "description": "quiet library study area with book drop",
+  "seconds": 8,
+  "label": "library"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 4,
+  "description": "female talking over the phone at a call center",
+  "seconds": 10.446888519134777,
+  "label": "call center"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 5,
+  "description": "a large library with many books on shelves",
+  "seconds": 12.446888519134777,
+  "label": "library"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 5,
+  "description": "modern call center team working efficiently",
+  "seconds": 6,
+  "label": "call center"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 6,
+  "description": "efficient textile factory production line",
+  "seconds": 10,
+  "label": "factory line"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 6,
+  "description": "people working in a call center",
+  "seconds": 7.094841930116473,
+  "label": "call center"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 7,
+  "description": "man reading book in library",
+  "seconds": 17.094841930116473,
+  "label": "library"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 8,
+  "description": "colleagues working together while preparing for a presentation",
+  "seconds": 7,
+  "label": "office meeting"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 8,
+  "description": "woman placing papers into a folder",
+  "seconds": 10.094841930116473,
+  "label": "office paperwork"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 9,
+  "description": "aerial view of industrial facility and river landscape",
+  "seconds": 17.094841930116473,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 10,
+  "description": "a man searching for book in the library",
+  "seconds": 22.145590682196342,
+  "label": "library browsing"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 11,
+  "description": "woman greeting her colleagues",
+  "seconds": 14,
+  "label": "office greeting"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 11,
+  "description": "people holding books at a library",
+  "seconds": 8.145590682196342,
+  "label": "library reading"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 12,
+  "description": "woman working using laptop while colleague ask her to give a paper",
+  "seconds": 22.145590682196342,
+  "label": "office work"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 13,
+  "description": "librarian carrying books in library",
+  "seconds": 12,
+  "label": "library books"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 13,
+  "description": "coworkers having a meeting in an office",
+  "seconds": 9.316749861342206,
+  "label": "office meeting"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 14,
+  "description": "a man borrowing books from the library",
+  "seconds": 21.316749861342206,
+  "label": "library borrowing"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "modern automated warehouse conveyor system",
+  "seconds": 8,
+  "label": "warehouse"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "choosing a book from the bookshelves",
+  "seconds": 7.316749861342206,
+  "label": "library browsing"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "workers in an industrial factory with many sewing machines",
+  "seconds": 6,
+  "label": "factory floor"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 16,
+  "description": "a man reading a book in the library",
+  "seconds": 11.114267886855242,
+  "label": "library reading"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 16,
+  "description": "industrial warehouse operations with workers",
+  "seconds": 6,
+  "label": "warehouse ops"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 17,
+  "description": "a woman getting book from the library",
+  "seconds": 11.114267886855242,
+  "label": "library borrowing"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 17,
+  "description": "industrial warehouse with glass storage racks",
+  "seconds": 6,
+  "label": "warehouse interior"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 18,
+  "description": "students reading book in the library",
+  "seconds": 17.11426788685524,
+  "label": "library reading"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 19,
+  "description": "industrial warehouse exterior with blue facade",
+  "seconds": 17.11426788685524,
+  "label": "warehouse exterior"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 20,
+  "description": "man and woman reading books at the library",
+  "seconds": 17.923682750970595,
+  "label": "library reading"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 21,
+  "description": "aerial view of industrial warehouse complex",
+  "seconds": 17.923682750970595,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 22,
+  "description": "students reading books in the library",
+  "seconds": 17.923682750970595,
+  "label": "library reading"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 23,
+  "description": "men getting items from the shelves in the warehouse",
+  "seconds": 11.923682750970595,
+  "label": "warehouse ops"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 23,
+  "description": "man finding a book on a bookshelves at the library",
+  "seconds": 6,
+  "label": "library browsing"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 24,
+  "description": "aerial view of industrial park and warehouse area",
+  "seconds": 10,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 24,
+  "description": "man carrying books in library",
+  "seconds": 7.923682750970595,
+  "label": "library books"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 25,
+  "description": "aerial view of industrial warehouse by the sea",
+  "seconds": 9,
+  "label": "aerial industrial"
+ },
+ {
+  "script": "ocr",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 25,
+  "description": "a young woman looking at books in a library",
+  "seconds": 8.923682750970595,
+  "label": "library browsing"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 1,
+  "description": "casual office meeting at computer desk",
+  "seconds": 18.40706042090971,
+  "label": "office work"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 2,
+  "description": "wide view of modern factory production line",
+  "seconds": 10,
+  "label": "factory floor"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 2,
+  "description": "colleagues having a discussion at the office",
+  "seconds": 8.407060420909708,
+  "label": "office meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 3,
+  "description": "female factory worker on textile production line",
+  "seconds": 18.40706042090971,
+  "label": "factory floor"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 4,
+  "description": "colleagues brainstorming at the office",
+  "seconds": 9,
+  "label": "office meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 4,
+  "description": "assembly line work in motorcycle factory",
+  "seconds": 9.407060420909708,
+  "label": "factory floor"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 5,
+  "description": "call center agents at work",
+  "seconds": 9,
+  "label": "office work"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 5,
+  "description": "modern control room monitoring operations",
+  "seconds": 9.407060420909708,
+  "label": "control room"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 6,
+  "description": "people in a business meeting discussing about data and charts on the table",
+  "seconds": 15,
+  "label": "business meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 6,
+  "description": "high tech control room with traffic monitoring",
+  "seconds": 6.635551029644716,
+  "label": "control room"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 7,
+  "description": "woman taking notes while a meeting room",
+  "seconds": 6,
+  "label": "business meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 7,
+  "description": "high tech traffic management control room",
+  "seconds": 9.635551029644716,
+  "label": "control room"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 7,
+  "description": "people in a conference room for a business meeting",
+  "seconds": 6,
+  "label": "business meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 8,
+  "description": "high tech control room monitoring operations",
+  "seconds": 8,
+  "label": "control room"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 8,
+  "description": "group of people in a business meeting",
+  "seconds": 7.635551029644716,
+  "label": "business meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 8,
+  "description": "modern traffic management control room",
+  "seconds": 6,
+  "label": "control room"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 9,
+  "description": "developer typing code on multiple monitors",
+  "seconds": 13.95134645847477,
+  "label": "coding"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 9,
+  "description": "industrial robot arm in high tech factory",
+  "seconds": 6,
+  "label": "factory robots"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 10,
+  "description": "call center representatives working in the office",
+  "seconds": 19.95134645847477,
+  "label": "call center"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 11,
+  "description": "modern factory textile production line in action",
+  "seconds": 8,
+  "label": "factory line"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 11,
+  "description": "call center representatives working in the office",
+  "seconds": 11.95134645847477,
+  "label": "call center"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 12,
+  "description": "motorcycle engine assembly line workers",
+  "seconds": 16.984555329260015,
+  "label": "factory line"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 13,
+  "description": "call center agents wearing their headphones",
+  "seconds": 16.984555329260015,
+  "label": "call center"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 14,
+  "description": "high tech control room for traffic monitoring",
+  "seconds": 8,
+  "label": "control room"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 14,
+  "description": "colleagues having a meeting",
+  "seconds": 8.984555329260015,
+  "label": "business meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "police officer monitoring security camera while looking at the monitor screen",
+  "seconds": 10,
+  "label": "control room"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "people working inside the conference room",
+  "seconds": 6.984555329260015,
+  "label": "business meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 16,
+  "description": "woman covering a security camera",
+  "seconds": 9,
+  "label": "surveillance"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 16,
+  "description": "man and woman working in a call center",
+  "seconds": 7.634758995247793,
+  "label": "call center"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 17,
+  "description": "industrial power plant machinery operations",
+  "seconds": 10.634758995247793,
+  "label": "factory line"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 17,
+  "description": "people working as a call center agent",
+  "seconds": 6,
+  "label": "call center"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 18,
+  "description": "motorcycle factory assembly line operations",
+  "seconds": 16.634758995247793,
+  "label": "factory line"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 19,
+  "description": "industrial power plant equipment in operation",
+  "seconds": 9,
+  "label": "power plant ground"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 19,
+  "description": "people working as call center agents",
+  "seconds": 7.634758995247793,
+  "label": "call center"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 20,
+  "description": "automated industrial production line in action",
+  "seconds": 10,
+  "label": "factory floor"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 20,
+  "description": "a man coming late to a business meeting",
+  "seconds": 7.78779135551029,
+  "label": "business meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 21,
+  "description": "automated solar panel production line",
+  "seconds": 10,
+  "label": "factory line"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 21,
+  "description": "a man and a woman having a business meeting",
+  "seconds": 7.78779135551029,
+  "label": "business meeting"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 22,
+  "description": "motorcycle factory production line overview",
+  "seconds": 17.78779135551029,
+  "label": "factory floor"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 23,
+  "description": "a call center agents talking to their clients",
+  "seconds": 17.78779135551029,
+  "label": "call center"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 24,
+  "description": "high tech solar panel production line",
+  "seconds": 11.78779135551029,
+  "label": "factory line"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 24,
+  "description": "high tech traffic management control room",
+  "seconds": 6,
+  "label": "control room"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 25,
+  "description": "motorcycle components assembly line in factory",
+  "seconds": 11.78779135551029,
+  "label": "factory line"
+ },
+ {
+  "script": "enterprise",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 25,
+  "description": "business meeting team company",
+  "seconds": 6,
+  "label": "business meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 1,
+  "description": "modern weather station against clear sky",
+  "seconds": 13.180398009950249,
+  "label": "weather station"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 1,
+  "description": "a man and a woman started a group business meeting with a handshake",
+  "seconds": 6,
+  "label": "business meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 2,
+  "description": "a satellite dish near the trees",
+  "seconds": 13.180398009950249,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 2,
+  "description": "woman picking book in a library",
+  "seconds": 6,
+  "label": "library"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 3,
+  "description": "a satellite dish in the middle of a field",
+  "seconds": 19.18039800995025,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 4,
+  "description": "books in the library",
+  "seconds": 19.18039800995025,
+  "label": "library"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 5,
+  "description": "aerial view of large satellite dish at sunset",
+  "seconds": 17.576716417910447,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 5,
+  "description": "a man is reading a book in a library",
+  "seconds": 6,
+  "label": "library"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 6,
+  "description": "aerial view of large satellite dish at sunset",
+  "seconds": 17,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 6,
+  "description": "woman finding a book in a bookshelves at the library",
+  "seconds": 6.576716417910447,
+  "label": "library"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 7,
+  "description": "satellite dishes on grass field",
+  "seconds": 19.84179104477612,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 8,
+  "description": "people in a business meeting discussing about data and charts on the table",
+  "seconds": 13.84179104477612,
+  "label": "business meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 8,
+  "description": "satellite dishes on grass field",
+  "seconds": 6,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 9,
+  "description": "colleagues having a discussion at the office",
+  "seconds": 13.84179104477612,
+  "label": "office meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 9,
+  "description": "forest wildfire with smoke rising from trees",
+  "seconds": 6,
+  "label": "forest fire"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 10,
+  "description": "corporate colleagues brainstorming in the office",
+  "seconds": 12.10401326699834,
+  "label": "office meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 10,
+  "description": "aerial view of forest fire battled by helicopter",
+  "seconds": 6,
+  "label": "forest fire"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 11,
+  "description": "call center agents stacking hands in an office",
+  "seconds": 9,
+  "label": "office meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 11,
+  "description": "aerial view of forest fire with smoke and flames",
+  "seconds": 9.10401326699834,
+  "label": "forest fire"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 12,
+  "description": "young woman conducting science laboratory experiment",
+  "seconds": 12.10401326699834,
+  "label": "lab science"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 12,
+  "description": "aerial view of smoky forest fire scene",
+  "seconds": 6,
+  "label": "forest fire"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 13,
+  "description": "female scientists in laboratory with microscopes",
+  "seconds": 11,
+  "label": "lab science"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 13,
+  "description": "aerial view of forest fire and smoke plume",
+  "seconds": 8.997412935323386,
+  "label": "forest fire"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 14,
+  "description": "scientist looking through a microscope while having a discussion with her colleague",
+  "seconds": 13.997412935323386,
+  "label": "lab science"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 14,
+  "description": "aerial view of forest fire ravaging wilderness",
+  "seconds": 6,
+  "label": "forest fire"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "woman taking selfie with her colleague",
+  "seconds": 13.997412935323386,
+  "label": "office meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "aerial view of weather station on mountain",
+  "seconds": 6,
+  "label": "aerial landscape"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 16,
+  "description": "community leaders discussing documents outdoors",
+  "seconds": 9,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 16,
+  "description": "a satellite dish on the ground",
+  "seconds": 9.6590646766169,
+  "label": "office meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 17,
+  "description": "colleagues discussing about work",
+  "seconds": 12,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 17,
+  "description": "low angle shot of a satellite dish",
+  "seconds": 6.6590646766169,
+  "label": "library"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 18,
+  "description": "a man using computer and reading a book while doing his homework",
+  "seconds": 18.6590646766169,
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 19,
+  "description": "push in shot of a satellite dish in the woods",
+  "seconds": 18.6590646766169,
+  "label": "library"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 20,
+  "description": "a man holding a book while talking to a woman",
+  "seconds": 8,
+  "label": "office meeting"
+ },
+ {
+  "script": "olmoearth",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 20,
+  "description": "satellite dishes on grass field",
+  "seconds": 10.6590646766169,
+  "label": "satellite dish"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 1,
+  "description": "cozy rustic meeting room with wooden table",
+  "seconds": 18.0710766580534,
+  "label": "library"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 2,
+  "description": "a conference room with a large screen and chairs",
+  "seconds": 6.0710766580534,
+  "label": "conference room"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 3,
+  "description": "blind man using braille book while woman on assistance",
+  "seconds": 12.0710766580534,
+  "label": "braille assistance"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 3,
+  "description": "engaging conference room presentation with audience",
+  "seconds": 6,
+  "label": "conference room"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 4,
+  "description": "a footage of a woman using braille book while sitting on a coffee shop",
+  "seconds": 18.0710766580534,
+  "label": "braille reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 5,
+  "description": "colleagues having a discussion at the office",
+  "seconds": 18.0710766580534,
+  "label": "office meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 6,
+  "description": "man signing documents",
+  "seconds": 9,
+  "label": "document signing"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 6,
+  "description": "group of people discussing in a business meeting",
+  "seconds": 7.936778639104222,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 7,
+  "description": "woman holding the hands of blind man while using braille book",
+  "seconds": 10.936778639104222,
+  "label": "braille assistance"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 7,
+  "description": "an empty conference room",
+  "seconds": 6,
+  "label": "conference room"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 8,
+  "description": "an elderly woman reading a book while drinking tea",
+  "seconds": 16.936778639104222,
+  "label": "book reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 9,
+  "description": "a man is opening a box in a conference room",
+  "seconds": 9,
+  "label": "conference room"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 9,
+  "description": "man writing diary and his wife reading book in background",
+  "seconds": 7.936778639104222,
+  "label": "book reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 10,
+  "description": "people in a business meeting discussing about data and charts on the table",
+  "seconds": 15,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 10,
+  "description": "a woman reading a book",
+  "seconds": 6.701866207292568,
+  "label": "book reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 11,
+  "description": "a businesswoman talking to her colleagues in a meeting",
+  "seconds": 21.701866207292568,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 12,
+  "description": "an elderly man reading a book",
+  "seconds": 15.701866207292568,
+  "label": "book reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 12,
+  "description": "people in a conference room for a business meeting",
+  "seconds": 6,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 13,
+  "description": "a man passing a smart pad with data on screen to another man in a meeting",
+  "seconds": 16.956201550387597,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 14,
+  "description": "university meeting room in edinburgh",
+  "seconds": 6,
+  "label": "conference room"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 14,
+  "description": "a hand holding a small piece of paper in front of a green background",
+  "seconds": 10.956201550387597,
+  "label": "paper holding"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "woman taking notes while a meeting room",
+  "seconds": 6,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 15,
+  "description": "a man sitting at a table writing on a piece of paper",
+  "seconds": 10.956201550387597,
+  "label": "paper writing"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 16,
+  "description": "colleagues having a meeting at the conference room",
+  "seconds": 10.956201550387597,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 16,
+  "description": "a man sitting at a desk with a laptop and papers",
+  "seconds": 6,
+  "label": "desk work"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 17,
+  "description": "casual office meeting at computer desk",
+  "seconds": 20.614183175423488,
+  "label": "office work"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 18,
+  "description": "a man drinking coffee while reading a newspaper",
+  "seconds": 14.614183175423488,
+  "label": "newspaper reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 18,
+  "description": "business meeting team company",
+  "seconds": 6,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 19,
+  "description": "man reading a newspaper while drinking orange juice",
+  "seconds": 20.614183175423488,
+  "label": "newspaper reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 20,
+  "description": "colleagues brainstorming at the office",
+  "seconds": 9,
+  "label": "office meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 20,
+  "description": "a helicopter is flying over a field with a fence",
+  "seconds": 10.624909560723506,
+  "label": "helicopter flight"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 21,
+  "description": "colleagues having a conversation",
+  "seconds": 13.624909560723506,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 21,
+  "description": "public speaking at event",
+  "seconds": 6,
+  "label": "public speaking"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 22,
+  "description": "a man doing a presentation in a meeting",
+  "seconds": 10,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 22,
+  "description": "man drinking juice while reading newspaper",
+  "seconds": 9.624909560723506,
+  "label": "newspaper reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 23,
+  "description": "people having a meeting in the office",
+  "seconds": 10,
+  "label": "business meeting"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 23,
+  "description": "elderly man reading newspaper at the kitchen",
+  "seconds": 9.624909560723506,
+  "label": "newspaper reading"
+ },
+ {
+  "script": "signlang",
+  "source": "PROJECTED",
+  "outcome": "PRE-SPEND-FAIL",
+  "beat": 24,
+  "description": "team workshop presentation in modern workspace",
+  "seconds": 19.624909560723506,
+  "label": "business meeting"
+ }
+]
