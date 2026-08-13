@@ -29,7 +29,7 @@ import "dotenv/config";
 
 const CORPUS_PATH = "tests/fixtures/relevance-corpus.json";
 const VEC_CACHE = "tmp/embedding-cache.json";
-const MODEL = "Xenova/all-MiniLM-L6-v2";
+const MODEL = process.env.EMB_MODEL ?? "Xenova/all-MiniLM-L6-v2";
 
 // ── Embedding with a deterministic on-disk cache ──────────────────────────
 
@@ -128,7 +128,7 @@ async function main() {
   for (const [fname, f] of FORMS) {
     let bt = 0, bf1 = -1;
     const lines: string[] = [];
-    for (let t = 0.10; t <= 0.60; t += 0.02) {
+    for (let t = 0.10; t <= 0.96; t += 0.02) {
       const m = evaluate(rows, (r) => f(sims[rows.indexOf(r)]) >= t);
       if (m.f1 > bf1) { bf1 = m.f1; bt = t; }
       if (Math.abs(t - 0.20) < 1e-9 || Math.abs(t - 0.30) < 1e-9 || Math.abs(t - 0.40) < 1e-9) {
@@ -161,7 +161,7 @@ async function main() {
       // fitted parameter.
       const RECALL_FLOOR = 0.75;
       let bt = 0.10, bestPrec = -1;
-      for (let t = 0.10; t <= 0.60; t += 0.02) {
+      for (let t = 0.10; t <= 0.96; t += 0.02) {
         const m = evaluate(train, (r) => f(sims[idx.get(r)!]) >= t);
         if (m.recall >= RECALL_FLOOR && m.precision > bestPrec) { bestPrec = m.precision; bt = t; }
       }
