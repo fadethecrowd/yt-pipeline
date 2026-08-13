@@ -9,7 +9,7 @@ import {
   quarantinedVideoIds,
   env,
   voiceover,
-  videoAssembly,
+  videoAssembly as videoAssemblyStage,
   thumbnailGenerator,
   youtubeUpload,
   notify,
@@ -47,8 +47,82 @@ import { resolveAiDoomPilot, assertAiDoomPilotWindow } from "./pilotBinding";
  * carries its own equivalent gate. Neither channel's behaviour changes for the
  * other.
  */
+
+/**
+ * Supervision must still be live at each irreversible boundary.
+ *
+ * Entry authorisation is not a licence for the rest of the run. The pilot gate
+ * and the narration purchase both check the lease, but a pipeline that has
+ * ALREADY passed those checks keeps executing inside one long-lived container:
+ * no restart, no second entry, no second purchase. If the controller dies at
+ * that point the heartbeat goes stale, the lease dies — and nothing would have
+ * asked again before rendering and uploading.
+ *
+ * That is the 2026-08-13 shape exactly, one stage later. The controller died,
+ * the container carried on, and the only reason it stopped short of an upload
+ * is that it happened to be killed by an unrelated redeploy.
+ *
+ * So authority is re-asked immediately before the two actions that cannot be
+ * taken back: starting the render, and uploading. Narration already bought is
+ * simply wasted, which is the correct trade — a few thousand characters is
+ * cheaper than an unattended video on the channel.
+ *
+ * Read-only by construction: `verifySupervision` never writes, so the pipeline
+ * can refuse but can never keep itself alive. Proving a controller is still
+ * there is the controller's job, and a healthy pipeline must never be able to
+ * substitute for one.
+ *
+ * Scoped to the supervised pilot path. Ordinary production and unattended
+ * cycles are unaffected, so this does not quietly make every future upload
+ * depend on a pilot lease.
+ */
+async function assertSupervisedBoundary(
+  ctx: PipelineContext,
+  boundary: string,
+): Promise<StageResult | null> {
+  if (activeCycle) return null;            // unattended: governed by its cycle
+  // The same fail-closed binding the pilot gate uses, never the bare env
+  // lookup: `currentPilot()` returns null when PILOT_ID is merely unset, which
+  // would read as "ordinary production, no lease needed" for a channel a pilot
+  // actually governs. `resolveAiDoomPilot` throws on that ambiguity, and a
+  // throw here is routed to failVideo — fail closed either way.
+  const pilot = await resolveAiDoomPilot();
+  if (!pilot) return null;                 // ordinary production: unchanged
+
+  const sup = await verifySupervision({
+    channel: AI_DOOM_CHANNEL as never,
+    pilotId: pilot.pilotId,
+    videoId: ctx.video?.id,
+  });
+  if (sup.live) {
+    console.log(`[${boundary}] supervised lease ${sup.lease.id} still live`);
+    return null;
+  }
+  // Refusing as a stage failure puts the candidate at FAILED, which is the
+  // quarantine status and is deliberately absent from RESUME_FROM — so a run
+  // stopped here cannot be picked up later against narration that lived only
+  // on this container's disk.
+  const error = `refused at ${boundary}: supervision is no longer live — ${sup.reason}`;
+  console.error(`[${boundary}] ${error}`);
+  return { success: false, error, durationMs: 0 };
+}
+
+/** Render is the first materially costly, irreversible step after narration. */
+async function guardedVideoAssembly(ctx: PipelineContext): Promise<StageResult> {
+  const refusal = await assertSupervisedBoundary(ctx, "videoAssembly");
+  if (refusal) return refusal;
+  return videoAssemblyStage(ctx);
+}
+
 async function guardedYoutubeUpload(ctx: PipelineContext): Promise<StageResult> {
   const start = Date.now();
+
+  // Last check before the only durable external side effect. `guardedUpload`
+  // creates the upload intent and calls videos.insert inside one synchronous
+  // call — no worker consumes intents later — so this single boundary covers
+  // both the intent and the upload itself.
+  const refusal = await assertSupervisedBoundary(ctx, "youtubeUpload");
+  if (refusal) return { ...refusal, durationMs: Date.now() - start };
 
   if (process.env.DISABLE_ELEVEN === "true") {
     // Dry runs assemble nothing real to measure; finalVideoQa skipped on the
@@ -95,7 +169,7 @@ const STAGES: StageDefinition[] = [
   // library for the same verdict, so it gets none.
   { name: "visualFeasibilityGate", execute: visualFeasibilityGate, retries: 0 },
   { name: "voiceover", execute: voiceover, retries: 3 },
-  { name: "videoAssembly", execute: videoAssembly, retries: 3 },
+  { name: "videoAssembly", execute: guardedVideoAssembly, retries: 3 },
   { name: "thumbnailHeadlineGenerator", execute: thumbnailHeadlineGenerator, retries: 2 },
   { name: "thumbnailGenerator", execute: thumbnailGenerator, retries: 2 },
   { name: "seoGenerator", execute: seoGenerator, retries: 2 },
