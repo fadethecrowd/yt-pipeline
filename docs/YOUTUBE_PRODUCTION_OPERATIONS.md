@@ -564,6 +564,57 @@ for the schema.
 
 ---
 
+## 15c. Visual feasibility: why AI Doom has no dominant-concept cap
+
+`no-dominant-concept` (MAX_CONCEPT_SHARE = 0.40) was **retired for AI Doom on
+2026-08-13**. It is still enforced for Wet Circuit. The policy is a table in
+`packages/pipeline-core/src/lib/visualFeasibility.ts`:
+
+```ts
+FEASIBILITY_POLICY = {
+  "ai-doom-scroll": { enforceDominantConceptCap: false },
+  "wet-circuit":    { enforceDominantConceptCap: true },
+}
+```
+
+**Why.** Seven real AI Doom timelines were labelled taxonomy-blind and weighted
+by real on-screen seconds. Human dominant share ran **14.0%–36.6%** and nothing
+reached 40%. The automated measure fired on five of the seven and **every
+firing was a false positive**, overstating concentration by **+23.6pp** on
+average, always in the same direction. Four supervised qualification attempts
+were blocked by it, and the human labels say all four were varied videos
+carrying 8–18 distinct kinds of shot. The cap has **zero demonstrated true
+positives** on this channel. The one genuinely rejected asset, HBM, sits at
+20.4% and was caught by its real defects — 24% fallback cards and an
+insufficient source library.
+
+Five measurement architectures were tried and none produced a trustworthy
+number: the AI_SUBJECTS taxonomy, BGE single-link, BGE complete-link,
+taxonomy/BGE hybrids, and prompt-intent grouping. The failure is structural,
+not a tuning problem: every one either over-merges and fails good videos, or
+over-splits and cannot see real monotony, with no threshold in between.
+
+**Visual variety is still protected**, by the controls that actually caught the
+real defects: `fallback-card-share`, `no-consecutive-cards`,
+`unique-assets-cover-timeline`, `pool-safety-margin`, `usable-duration-margin`,
+`brand-risk-not-load-bearing`, the `concept-diversity` floor (≥3), and the
+no-reuse asset ledger. Only the dominant-share cap is gone, and the share is
+still computed and printed as diagnostics.
+
+**Wet Circuit is deliberately different.** Its taxonomy is closed and
+domain-complete — five concepts naming essentially every legitimate marine
+visual — so there the measure means what it says, and `wc-pipeline`'s own
+`conceptAccounting` enforces it independently.
+
+Evidence is frozen and re-checkable:
+
+```bash
+npx tsx scripts/bench-concentration-policy.ts   # human ground truth + BGE calibration
+npx tsx scripts/bench-hybrid-classification.ts  # why the classifiers failed
+```
+
+---
+
 ## 16. Safety invariants — do not "fix" these
 
 1. **One authorization is at most one video.** Candidate creation and the

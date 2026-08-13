@@ -207,13 +207,18 @@ describe("a bare 'terminal' no longer makes an airport into software", () => {
 // ── The gate itself is unchanged ──────────────────────────────────────────
 
 describe("feasibility enforcement is untouched", () => {
-  test("the dominant-concept cap is still 40% and the diversity floor still 3", () => {
+  test("the cap constant and diversity floor are unchanged", () => {
+    // The cap was RETIRED FOR AI DOOM by policy on 2026-08-13, not by moving
+    // the number: Wet Circuit still enforces exactly 40%. Which channel
+    // enforces it is pinned in tests/feasibility-policy.test.ts.
     assert.equal(MAX_CONCEPT_SHARE, 0.4);
     assert.equal(MIN_DISTINCT_CONCEPTS, 3);
     const vf = readFileSync("packages/pipeline-core/src/lib/visualFeasibility.ts", "utf8");
     assert.match(vf, /export const MAX_CONCEPT_SHARE = 0\.4;/);
-    assert.match(vf, /ok: \(conceptBreakdown\[0\]\?\.share \?\? 0\) <= MAX_CONCEPT_SHARE/,
-      "the cap must still apply to the largest bucket of any kind");
+    assert.match(vf, /policy\.enforceDominantConceptCap/,
+      "enforcement must be a stated per-channel policy");
+    assert.match(vf, /\(conceptBreakdown\[0\]\?\.share \?\? 0\) <= MAX_CONCEPT_SHARE/,
+      "where enforced, the cap still applies to the largest bucket of any kind");
   });
 
   test("the replay of the known-good and known-bad candidates is recorded", () => {

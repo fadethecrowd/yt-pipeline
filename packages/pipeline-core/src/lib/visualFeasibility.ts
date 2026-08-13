@@ -65,6 +65,65 @@ export const DURATION_SAFETY_FACTOR = 1.25;
 /** No single concept may occupy more than this share of projected timeline. */
 export const MAX_CONCEPT_SHARE = 0.4;
 
+/**
+ * Per-channel feasibility policy.
+ *
+ * Stated as a table rather than inferred from an absent variable or a
+ * neutralised threshold: reading `enforceDominantConceptCap: false` should tell
+ * you the cap is off, not leave you deducing it from a 100% limit or a missing
+ * env var. Both channels are listed explicitly so adding a third forces a
+ * decision instead of inheriting one.
+ */
+export interface FeasibilityPolicy {
+  /** Whether `no-dominant-concept` may FAIL a candidate on this channel. */
+  enforceDominantConceptCap: boolean;
+}
+
+/**
+ * AI Doom retired the dominant-concept cap on 2026-08-13, after human
+ * timeline-level calibration showed it had never once been right.
+ *
+ * Seven real AI Doom timelines were labelled taxonomy-blind and weighted by
+ * real on-screen seconds (tests/fixtures/concentration-timelines.json). Human
+ * dominant share ran 14.0%-36.6%; NOTHING reached 40%. The automated measure
+ * fired on five of the seven, and every firing was a false positive — it
+ * overstated concentration by +23.6pp on average, always in the same
+ * direction. Four supervised qualification attempts were blocked by it, and
+ * the human labels say all four were varied videos carrying 8-18 distinct
+ * kinds of shot. The one genuinely rejected asset, HBM, sits at 20.4% and was
+ * caught by its real defects: 24% fallback cards and an insufficient source
+ * library. The cap has no demonstrated true positive on this channel.
+ *
+ * Five measurement architectures were tried and none produced a trustworthy
+ * number: the AI_SUBJECTS taxonomy, BGE single-link, BGE complete-link,
+ * taxonomy/BGE hybrids, and prompt-intent grouping. The failure is structural
+ * rather than a tuning problem — every one either over-merges and fails good
+ * videos or over-splits and cannot see real monotony, with no threshold in
+ * between. The research harnesses and frozen fixtures are kept precisely so
+ * this is re-checkable rather than remembered.
+ *
+ * Visual variety on AI Doom is still protected, by the controls that actually
+ * caught the real defects: fallback-card-share, no-consecutive-cards,
+ * unique-assets-cover-timeline, pool-safety-margin, usable-duration-margin,
+ * brand-risk-not-load-bearing, the concept-diversity floor, and the no-reuse
+ * ledger. Only the dominant-share cap is retired.
+ *
+ * Wet Circuit keeps it, deliberately. Its taxonomy is closed and
+ * domain-complete — five concepts that between them name essentially every
+ * legitimate marine visual — so there the measure means what it says, and it
+ * additionally has its own enforcement in wc-pipeline's conceptAccounting.
+ */
+export const FEASIBILITY_POLICY: Record<ChannelKey, FeasibilityPolicy> = {
+  "ai-doom-scroll": { enforceDominantConceptCap: false },
+  "wet-circuit": { enforceDominantConceptCap: true },
+};
+
+export function feasibilityPolicyFor(channel: ChannelKey): FeasibilityPolicy {
+  const p = FEASIBILITY_POLICY[channel];
+  // Fail closed: an unknown channel enforces every control.
+  return p ?? { enforceDominantConceptCap: true };
+}
+
 /** A topic needs at least this many distinct, concrete visual categories. */
 export const MIN_DISTINCT_CONCEPTS = 3;
 
@@ -467,6 +526,7 @@ export async function assessVisualFeasibility(
   const uniqueUsableAssetsExcludingBrandRisk = accepted.filter((x) => !x.brandRisk).length;
 
   // ── 6. Checks ───────────────────────────────────────────────────────
+  const policy = feasibilityPolicyFor(input.channel);
   const checks: FeasibilityCheck[] = [
     {
       name: "fallback-card-share",
@@ -507,9 +567,15 @@ export async function assessVisualFeasibility(
     },
     {
       name: "no-dominant-concept",
-      ok: (conceptBreakdown[0]?.share ?? 0) <= MAX_CONCEPT_SHARE,
+      // Still measured and still reported on every channel — the number is
+      // useful diagnostics. Whether it may FAIL a candidate is the policy.
+      ok: !policy.enforceDominantConceptCap
+        || (conceptBreakdown[0]?.share ?? 0) <= MAX_CONCEPT_SHARE,
       detail: conceptBreakdown[0]
-        ? `largest concept "${conceptBreakdown[0].concept}" holds ${(conceptBreakdown[0].share * 100).toFixed(0)}% of projected timeline; cap ${MAX_CONCEPT_SHARE * 100}%`
+        ? `largest concept "${conceptBreakdown[0].concept}" holds ${(conceptBreakdown[0].share * 100).toFixed(0)}% of projected timeline` +
+          (policy.enforceDominantConceptCap
+            ? `; cap ${MAX_CONCEPT_SHARE * 100}%`
+            : "; DIAGNOSTIC ONLY — cap retired for this channel, see FEASIBILITY_POLICY")
         : "no concepts projected",
     },
   ];

@@ -195,6 +195,7 @@ export type { BrandCheck, BrandDecision } from "./lib/brandGuard";
 // ── Pre-TTS visual feasibility gate ───────────────────────────────────────
 export {
   assessVisualFeasibility, assertVisuallyFeasible, planPreliminaryBeats,
+  FEASIBILITY_POLICY, feasibilityPolicyFor,
   feasibilityQueries, pexelsOnlySource, formatFeasibility,
   withVisualFeasibilityGate, VisualFeasibilityError,
   MAX_CARD_SHARE, POOL_SAFETY_FACTOR, DURATION_SAFETY_FACTOR,
