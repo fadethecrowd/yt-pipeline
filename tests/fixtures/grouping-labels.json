@@ -1,0 +1,422 @@
+[
+ {
+  "script": "power",
+  "description": "chornobyl nuclear reactor cooling tower video",
+  "label": "cooling tower"
+ },
+ {
+  "script": "power",
+  "description": "cooling towers in autumn landscape at sunset",
+  "label": "cooling tower"
+ },
+ {
+  "script": "ewaste",
+  "description": "inside view of the warehouse",
+  "label": "warehouse"
+ },
+ {
+  "script": "ewaste",
+  "description": "aerial shot of interior of the warehouse",
+  "label": "warehouse"
+ },
+ {
+  "script": "ewaste",
+  "description": "people sorting out through a pile of plastics",
+  "label": "recycling"
+ },
+ {
+  "script": "ewaste",
+  "description": "a man working in a recycling plant",
+  "label": "recycling"
+ },
+ {
+  "script": "ewaste",
+  "description": "stack of electronic waste",
+  "label": "e-waste"
+ },
+ {
+  "script": "ewaste",
+  "description": "lixo reciclado sendo separado na esteira",
+  "label": "recycling"
+ },
+ {
+  "script": "ewaste",
+  "description": "aerial view of expansive open pit mine",
+  "label": "open pit mine"
+ },
+ {
+  "script": "ewaste",
+  "description": "drone footage of trucks on a mining site",
+  "label": "open pit mine"
+ },
+ {
+  "script": "ewaste",
+  "description": "aerial view of expansive quarry and landscape",
+  "label": "quarry"
+ },
+ {
+  "script": "ewaste",
+  "description": "an aerial view of a large sand dune and a large open pit",
+  "label": "quarry"
+ },
+ {
+  "script": "ewaste",
+  "description": "stunning aerial view of a vast quarry landscape",
+  "label": "quarry"
+ },
+ {
+  "script": "ewaste",
+  "description": "drone footage of a truck driving on a mining site",
+  "label": "open pit mine"
+ },
+ {
+  "script": "ewaste",
+  "description": "aerial view of expansive quarry landscape",
+  "label": "quarry"
+ },
+ {
+  "script": "ewaste",
+  "description": "aerial view of a vast open pit quarry",
+  "label": "quarry"
+ },
+ {
+  "script": "ewaste",
+  "description": "aerial view of quarry with turquoise pond",
+  "label": "quarry"
+ },
+ {
+  "script": "ewaste",
+  "description": "aerial view of quarry with turquoise water",
+  "label": "quarry"
+ },
+ {
+  "script": "hbm",
+  "description": "modern high tech manufacturing facility overview",
+  "label": "factory floor"
+ },
+ {
+  "script": "hbm",
+  "description": "modern cleanroom technology manufacturing facility",
+  "label": "factory floor"
+ },
+ {
+  "script": "hbm",
+  "description": "futuristic factory floor with advanced machinery",
+  "label": "factory floor"
+ },
+ {
+  "script": "hbm",
+  "description": "modern semiconductor manufacturing facility",
+  "label": "factory floor"
+ },
+ {
+  "script": "hbm",
+  "description": "healthcare worker in laboratory with ppe",
+  "label": "laboratory"
+ },
+ {
+  "script": "hbm",
+  "description": "close up shot of a printed circuit board",
+  "label": "circuit board"
+ },
+ {
+  "script": "hbm",
+  "description": "close up shot of electronic chip",
+  "label": "circuit board"
+ },
+ {
+  "script": "hbm",
+  "description": "close up view of a motherboard",
+  "label": "circuit board"
+ },
+ {
+  "script": "hbm",
+  "description": "a person holding a set of poker chips",
+  "label": "poker chips"
+ },
+ {
+  "script": "hbm",
+  "description": "circuit board undder magnifying lens",
+  "label": "circuit board"
+ },
+ {
+  "script": "hbm",
+  "description": "playing cards in a casino",
+  "label": "casino"
+ },
+ {
+  "script": "hbm",
+  "description": "a shiny coin spinning",
+  "label": "coin"
+ },
+ {
+  "script": "hbm",
+  "description": "dynamic cryptocurrency market analysis display",
+  "label": "crypto display"
+ },
+ {
+  "script": "hbm",
+  "description": "modern blue industrial building exterior",
+  "label": "industrial building"
+ },
+ {
+  "script": "hbm",
+  "description": "aerial view of large industrial warehouse facility",
+  "label": "industrial building"
+ },
+ {
+  "script": "hbm",
+  "description": "aerial view of large industrial factory",
+  "label": "industrial building"
+ },
+ {
+  "script": "hbm",
+  "description": "aerial view of modern industrial complex",
+  "label": "industrial building"
+ },
+ {
+  "script": "hbm",
+  "description": "close up video of a computer graphics card",
+  "label": "circuit board"
+ },
+ {
+  "script": "ocr",
+  "description": "a man looking at card catalogs in a library",
+  "label": "library"
+ },
+ {
+  "script": "ocr",
+  "description": "passing through immigration in traveling an airport",
+  "label": "airport immigration"
+ },
+ {
+  "script": "ocr",
+  "description": "changi airport immigration area overview",
+  "label": "airport immigration"
+ },
+ {
+  "script": "ocr",
+  "description": "people are sitting in chairs in an airport",
+  "label": "airport"
+ },
+ {
+  "script": "ocr",
+  "description": "video of passport",
+  "label": "passport"
+ },
+ {
+  "script": "ocr",
+  "description": "close up of passports on a white surface",
+  "label": "passport"
+ },
+ {
+  "script": "enterprise",
+  "description": "people brainstorming at the office",
+  "label": "office"
+ },
+ {
+  "script": "enterprise",
+  "description": "people working at the office",
+  "label": "office"
+ },
+ {
+  "script": "enterprise",
+  "description": "men presenting at a meeting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman working using laptop while colleague ask her to give a paper",
+  "label": "office"
+ },
+ {
+  "script": "enterprise",
+  "description": "man presenting in a meeting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman presenting at a business conference",
+  "label": "conference"
+ },
+ {
+  "script": "enterprise",
+  "description": "a man explaining in front of the office team",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman talking at a business conference",
+  "label": "conference"
+ },
+ {
+  "script": "enterprise",
+  "description": "man talking in a meeting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman presenting at a meeting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman presenting at work",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman presenting in a meeting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman wearing corporate attire presenting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman talking at a conference",
+  "label": "conference"
+ },
+ {
+  "script": "enterprise",
+  "description": "a man doing a presentation in a meeting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "man presenting at the office",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "business meeting in a conference room setting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "woman presenting in a business meeting",
+  "label": "meeting"
+ },
+ {
+  "script": "enterprise",
+  "description": "modern workspace with coding on multiple displays",
+  "label": "data center"
+ },
+ {
+  "script": "olmoearth",
+  "description": "a satellite dish near the trees",
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "description": "satellite dishes on grass field",
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "description": "a satellite dish in the middle of a field",
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "description": "low angle shot of a satellite dish",
+  "label": "satellite dish"
+ },
+ {
+  "script": "olmoearth",
+  "description": "man examining soil samples outdoors",
+  "label": "fieldwork"
+ },
+ {
+  "script": "olmoearth",
+  "description": "a female botanist taking notes",
+  "label": "fieldwork"
+ },
+ {
+  "script": "signlang",
+  "description": "a person doing finger language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "women having a conversation using non verbal",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "person doing sign language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "a woman doing sign language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "people communicating in sign language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "person doing non verbal communication with hands",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "man doing sign language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "women having a non verbal communication",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "women doing hand gestures",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "women talking to each other using sign language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "doing sign language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "close up woman doing hand sign",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "hands doing sign language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "people talking using sign language",
+  "label": "sign language"
+ },
+ {
+  "script": "signlang",
+  "description": "university team meeting with diverse staff",
+  "label": "team meeting"
+ },
+ {
+  "script": "signlang",
+  "description": "a team clapping and celebrating",
+  "label": "team meeting"
+ },
+ {
+  "script": "signlang",
+  "description": "community group meeting in bright room",
+  "label": "team meeting"
+ }
+]
