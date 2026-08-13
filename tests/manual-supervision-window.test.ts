@@ -263,6 +263,9 @@ describe("E. narration spend and relock protections are unchanged", () => {
   test("RUN still stages DISABLE_ELEVEN, unlocks last, and relocks", () => {
     assert.deepEqual([...RUN_PLAN], [
       "preflight",
+      // The lease is opened before anything becomes capable, and closed after
+      // the relock — see tests/supervised-lease.test.ts.
+      "lease:open",
       "stage:DISABLE_ELEVEN=false(--skip-deploys)",
       "verify-staged",
       "watermark",
@@ -270,6 +273,7 @@ describe("E. narration spend and relock protections are unchanged", () => {
       "observe",
       "relock:PIPELINE_MODE=auth_check+DISABLE_ELEVEN=true",
       "verify-relock",
+      "lease:close",
     ]);
     const unlock = RUN_PLAN.indexOf("unlock:PIPELINE_MODE=production");
     const relock = RUN_PLAN.indexOf("relock:PIPELINE_MODE=auth_check+DISABLE_ELEVEN=true");

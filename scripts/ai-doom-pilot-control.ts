@@ -28,6 +28,7 @@
 import { VideoStatus } from "@prisma/client";
 import {
   prisma, disconnect, budgetReport, MANUAL_SUPERVISED,
+  openLease, renewLease, closeLease, newControllerToken, reconcileLeases,
 } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig } from "@yt-pipeline/pipeline-core";
 import { evaluateAiDoomPilotWindow } from "../src/pilotBinding";
@@ -81,6 +82,15 @@ export interface ControlDeps {
   now(): Date;
   sleep(ms: number): Promise<void>;
   log(line: string): void;
+  /**
+   * Supervised-lease hooks. Optional so existing tests keep their fakes, but
+   * `realDeps()` always supplies them: a run without a lease is a run whose
+   * safety depends on this process staying alive, which is the failure of
+   * 2026-08-13.
+   */
+  leaseOpen?(): Promise<{ opened: boolean; id?: string; token?: string; reason?: string }>;
+  leaseRenew?(id: string, token: string): Promise<void>;
+  leaseClose?(id: string, reason: string): Promise<void>;
 }
 
 // ── State ─────────────────────────────────────────────────────────────────
@@ -307,6 +317,7 @@ export interface RunResult {
 /** The ordered plan, pure so tests can assert it without executing anything. */
 export const RUN_PLAN = [
   "preflight",
+  "lease:open",
   "stage:DISABLE_ELEVEN=false(--skip-deploys)",
   "verify-staged",
   "watermark",
@@ -314,6 +325,7 @@ export const RUN_PLAN = [
   "observe",
   "relock:PIPELINE_MODE=auth_check+DISABLE_ELEVEN=true",
   "verify-relock",
+  "lease:close",
 ] as const;
 
 const POLL_INTERVAL_MS = 15_000;
@@ -335,6 +347,23 @@ export async function doRun(deps: ControlDeps, confirmed: boolean): Promise<RunR
   if (r.remainingSlots !== 1) return fail("REFUSED", `remainingSlots is ${r.remainingSlots}, expected exactly 1`);
   if (!r.window.allowed) return fail("REFUSED", `outside the execution window — ${r.window.reason}`);
   deps.log(`   ✓ pre-flight clean, phase ARMED_FOR_RUN, window OK`);
+
+  // ── supervised lease ────────────────────────────────────────────────
+  //
+  // Opened BEFORE any variable changes, so there is never a moment where the
+  // environment is production-capable without a durable record saying who is
+  // watching. If this process dies, the lease stops being renewed and the
+  // pipeline refuses to spend or upload — no `finally` required.
+  steps.push("lease:open");
+  let leaseId: string | null = null;
+  let leaseToken: string | null = null;
+  if (deps.leaseOpen) {
+    const l = await deps.leaseOpen();
+    if (!l.opened) return fail("REFUSED", `could not open a supervised lease: ${l.reason}`);
+    leaseId = l.id ?? null;
+    leaseToken = l.token ?? null;
+    deps.log(`   ✓ supervised lease ${leaseId} open`);
+  }
 
   // ── stage narration switch (no restart) ─────────────────────────────
   steps.push("stage:DISABLE_ELEVEN=false(--skip-deploys)");
@@ -362,7 +391,7 @@ export async function doRun(deps: ControlDeps, confirmed: boolean): Promise<RunR
     await deps.setVars(SERVICE, { PIPELINE_MODE: UNLOCK_VALUE }, { skipDeploys: false });
 
     steps.push("observe");
-    const observed = await observeSingleRun(deps, watermark);
+    const observed = await observeSingleRun(deps, watermark, leaseId, leaseToken);
     runId = observed.runId;
     outcome = observed.outcome;
     reason = observed.reason;
@@ -380,6 +409,10 @@ export async function doRun(deps: ControlDeps, confirmed: boolean): Promise<RunR
         { skipDeploys: false },
       );
       steps.push("verify-relock");
+      steps.push("lease:close");
+      if (leaseId && deps.leaseClose) {
+        try { await deps.leaseClose(leaseId, `run ended: ${outcome}`); } catch { /* reconciler will expire it */ }
+      }
       const after = await deps.readVars(SERVICE);
       if (after.PIPELINE_MODE === LOCK_VALUE && after.DISABLE_ELEVEN === "true") {
         deps.log(`   ✓ relocked: PIPELINE_MODE=${LOCK_VALUE} DISABLE_ELEVEN=true`);
@@ -408,8 +441,16 @@ export async function doRun(deps: ControlDeps, confirmed: boolean): Promise<RunR
 async function observeSingleRun(
   deps: ControlDeps,
   watermark: Date,
+  leaseId: string | null = null,
+  leaseToken: string | null = null,
 ): Promise<{ runId: string | null; outcome: RunOutcome; reason: string }> {
   for (let i = 0; i < MAX_POLLS; i++) {
+    // The poll loop IS the heartbeat. Renewing here means supervision is
+    // proven by the same loop that watches the run, so it cannot drift out of
+    // step with whether anyone is actually looking.
+    if (leaseId && leaseToken && deps.leaseRenew) {
+      try { await deps.leaseRenew(leaseId, leaseToken); } catch { /* stale lease fails closed downstream */ }
+    }
     const runs = await deps.runsSince(CHANNEL, watermark);
     const run = runs[runs.length - 1]; // oldest at/after the watermark = ours
     if (run && run.endTime) {
@@ -470,6 +511,8 @@ export interface RelockResult {
  */
 export async function doRelock(deps: ControlDeps): Promise<RelockResult> {
   const activeRunsAtRequest = await deps.activeRunCount();
+  // Relocking by hand is exactly the moment a stale lease must die with it.
+  if (deps.leaseClose) { try { await reconcileLeases(); } catch { /* reported by CHECK */ } }
   await deps.setVars(
     SERVICE,
     { PIPELINE_MODE: LOCK_VALUE, DISABLE_ELEVEN: "true" },
@@ -622,6 +665,18 @@ export function realDeps(): ControlDeps {
     now: () => new Date(),
     sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
     log: (line) => console.log(line),
+    async leaseOpen() {
+      // Expire anything abandoned first, so a previously killed controller
+      // cannot block this channel forever.
+      await reconcileLeases();
+      const token = newControllerToken();
+      const r = await openLease({ channel: CHANNEL as never, pilotId: PILOT_ID, controllerToken: token });
+      return r.opened
+        ? { opened: true, id: r.lease.id, token }
+        : { opened: false, reason: r.reason };
+    },
+    async leaseRenew(id, token) { await renewLease(id, token); },
+    async leaseClose(id, reason) { await closeLease(id, reason); },
   };
 }
 
@@ -661,8 +716,29 @@ function assertKnownFlags(argv: string[], known: string[]): boolean {
   return false;
 }
 
+/**
+ * A spend-authorising run must be watched by a human, not by a detached shell.
+ *
+ * The 2026-08-13 incident began by launching this controller in the background,
+ * where nothing stopped it being killed between the unlock and the relock. The
+ * lease makes that survivable; this makes it unlikely. `--i-am-running-in-the-
+ * foreground` exists as the documented escape hatch for CI, so the refusal is
+ * explicit rather than an unexplained failure on a machine with no TTY.
+ */
+export function foregroundRefusal(argv: string[], isTTY: boolean): string | null {
+  if (!argv.includes("--run")) return null;
+  if (isTTY) return null;
+  if (argv.includes("--i-am-running-in-the-foreground")) return null;
+  return "RUN is not attached to a terminal. A spend-authorising run must be " +
+    "supervised in the foreground — the 2026-08-13 incident was a detached run " +
+    "killed between the unlock and the relock. Re-run it in a terminal, or pass " +
+    "--i-am-running-in-the-foreground if this really is a supervised CI context.";
+}
+
 async function main(): Promise<void> {
-  if (!assertKnownFlags(process.argv, ["--advance-cap", "--arm", "--i-have-reviewed-the-previous-video", "--i-understand-this-activates-the-pilot", "--i-understand-this-spends-credits", "--relock", "--run"])) return;
+  if (!assertKnownFlags(process.argv, ["--advance-cap", "--arm", "--i-am-running-in-the-foreground", "--i-have-reviewed-the-previous-video", "--i-understand-this-activates-the-pilot", "--i-understand-this-spends-credits", "--relock", "--run"])) return;
+  const fg = foregroundRefusal(process.argv, Boolean(process.stdout.isTTY));
+  if (fg) { console.error(`✗ ${fg}`); process.exitCode = 2; return; }
   const mode = selectedMode(process.argv);
   const deps = realDeps();
   if (mode === "AMBIGUOUS") {

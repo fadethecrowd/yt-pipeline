@@ -18,6 +18,7 @@ import {
   openUnattendedGate, isUnattendedMode, unattendedClaimantId,
   createAndAttachCandidate, settleCycle, getCycle,
   MANUAL_SUPERVISED, UNATTENDED,
+  verifySupervision, reconcileLeases,
   type ActiveCycle,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
@@ -298,6 +299,30 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
       const w = assertAiDoomPilotWindow(
         new Date(), pilot, activeCycle ? UNATTENDED : MANUAL_SUPERVISED,
       );
+
+      // ── Supervised-lease gate ─────────────────────────────────────
+      //
+      // A pilot run must be watched by something that is still alive. The
+      // controller opens a durable lease before unlocking and renews it while
+      // it watches; if it dies, the lease goes stale within 90 seconds.
+      //
+      // Startup reconciliation first, so a container that restarts into a
+      // stale environment closes the abandoned lease rather than inheriting
+      // it. Then refuse outright if nothing live remains — which is what makes
+      // a forgotten `PIPELINE_MODE=production` inert instead of dangerous. The
+      // monitors hold no RAILWAY_TOKEN and cannot relock from outside, so this
+      // refusal, not the variable, is the boundary.
+      if (!activeCycle) {
+        await reconcileLeases();
+        const sup = await verifySupervision({
+          channel: AI_DOOM_CHANNEL as never, pilotId: pilot.pilotId,
+        });
+        if (!sup.live) {
+          console.log(`[pipeline] refusing to run a pilot candidate: ${sup.reason}`);
+          return;
+        }
+        console.log(`[pipeline] supervised lease ${sup.lease.id} live until ${sup.lease.expiresAt.toISOString()}`);
+      }
       console.log(`[pipeline] execution window OK — ${w.nowLocal} (${w.reason})`);
       // An unresolved upload from a prior pilot candidate must be reconciled
       // by a human before another candidate is created: it may already be a

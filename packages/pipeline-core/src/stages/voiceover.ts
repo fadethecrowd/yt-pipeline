@@ -5,6 +5,7 @@ import { currentPilot } from "../lib/pilot";
 import { withBudgetWindow } from "../lib/budget";
 import { isUnattendedMode } from "../lib/unattendedGate";
 import { authorizeNarrationWindow } from "../lib/narrationWindow";
+import { verifySupervision } from "../lib/supervisedLeaseStore";
 import { buildSpokenUnits, spokenCharacterCount } from "../lib/spokenUnits";
 import { runVoiceover } from "./voiceoverShared";
 import type { PipelineContext, StageResult, Script } from "../types";
@@ -70,13 +71,25 @@ export async function voiceover(ctx: PipelineContext): Promise<StageResult> {
     ? spokenCharacterCount(buildSpokenUnits(script))
     : 0;
 
+  const pilot = await currentPilot();
+  // Re-checked HERE, at the moment of spend, not merely at authorisation time.
+  // On 2026-08-13 authorisation was granted correctly and the supervising
+  // process was then killed; everything downstream still believed it was
+  // supervised and bought 5,683 characters. A lease that stopped being renewed
+  // makes that purchase refuse instead.
+  const supervision = await verifySupervision({
+    channel, pilotId: pilot?.pilotId, videoId: ctx.video?.id,
+  });
+
   const decision = authorizeNarrationWindow({
     channel,
     stage,
-    pilot: await currentPilot(),
+    pilot,
     submitChars,
     unattended: isUnattendedMode(),
     elevenDisabled: process.env.DISABLE_ELEVEN === "true",
+    supervised: supervision.live,
+    supervisionReason: supervision.live ? undefined : supervision.reason,
   });
 
   if (!decision.open) {

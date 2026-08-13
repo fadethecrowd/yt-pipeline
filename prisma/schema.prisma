@@ -697,3 +697,46 @@ model ProductionCycle {
   @@index([channel, status])
   @@map("production_cycle")
 }
+
+/// Durable proof that a supervised run is still supervised.
+///
+/// `ai-doom-pilot-control --run` removes the auth_check lock and relies on its
+/// own `finally` to put it back. That survives exceptions but not the process
+/// being killed — on 2026-08-13 it was, Railway stayed production-capable, and
+/// the container bought 5,683 characters of narration unattended.
+///
+/// So authority lives here instead of in a process. The controller opens a row
+/// before unlocking, renews `heartbeatAt` while it watches, and closes it when
+/// the run ends. Every expensive action re-checks this row. A killed controller
+/// stops renewing, the lease goes stale, and spend/upload/start all refuse —
+/// without anything having to notice the controller died.
+///
+/// The monitors hold no RAILWAY_TOKEN and cannot relock the environment from
+/// outside, so the Railway variables cannot be the safety boundary. This row is.
+model SupervisedLease {
+  id              String    @id @default(cuid())
+  channel         String // "ai-doom-scroll" | "wet-circuit"
+  pilotId         String
+  /// Identifies the single controller invocation that owns this lease. Only it
+  /// may renew; renewal moves the heartbeat and never extends expiresAt.
+  controllerToken String
+  /// Bound once known, so a lease cannot be reused for another candidate.
+  videoId         String?
+  runId           String?
+  status          String    @default("ACTIVE") // ACTIVE | CLOSED | EXPIRED
+
+  openedAt        DateTime  @default(now())
+  /// Last controller renewal. Absence of renewal is how death is detected.
+  heartbeatAt     DateTime  @default(now())
+  /// Hard ceiling on authority, whatever the renewals say.
+  expiresAt       DateTime
+  closedAt        DateTime?
+  closedReason    String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([channel, status])
+  @@index([status, expiresAt])
+  @@map("supervised_lease")
+}

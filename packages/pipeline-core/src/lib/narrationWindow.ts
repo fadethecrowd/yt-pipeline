@@ -51,6 +51,21 @@ export interface NarrationWindowInput {
   unattended: boolean;
   /** True when DISABLE_ELEVEN hard-blocks narration. */
   elevenDisabled: boolean;
+  /**
+   * Whether a supervised lease is still live for this channel/pilot/candidate.
+   *
+   * Optional so existing callers and Wet Circuit are unaffected, but when the
+   * caller passes `false` this refuses. The AI Doom stage always passes it.
+   *
+   * This is the boundary the 2026-08-13 incident needed. Authorisation was
+   * granted correctly and then the supervisor died; everything downstream
+   * still believed it was supervised, and 5,683 characters were bought with
+   * nobody watching. Re-checking at the moment of spend means a dead
+   * controller stops the purchase even though the earlier checks passed.
+   */
+  supervised?: boolean;
+  /** Why supervision failed, for the log. */
+  supervisionReason?: string;
 }
 
 /**
@@ -76,6 +91,15 @@ export function authorizeNarrationWindow(
   // window can never be the thing that gets narration past DISABLE_ELEVEN.
   if (elevenDisabled) {
     return { open: false, reason: "DISABLE_ELEVEN=true — narration is hard-disabled" };
+  }
+
+  // Checked before the pilot, because a live supervisor is what makes the
+  // pilot's authority current rather than merely historical.
+  if (input.supervised === false) {
+    return {
+      open: false,
+      reason: `no live supervised lease — ${input.supervisionReason ?? "supervision lapsed"}`,
+    };
   }
 
   // Ordinary production has no spend authority. This is the boundary that

@@ -198,6 +198,18 @@ export {
   FEASIBILITY_POLICY, feasibilityPolicyFor,
 } from "./lib/visualFeasibility";
 export {
+  checkSupervisedLease, leaseIsLive, canRenew, leasesNeedingRecovery,
+  environmentNeedsRelock, SAFE_RESTING_STATE,
+  LEASE_MAX_LIFETIME_MS, LEASE_STALE_AFTER_MS, LEASE_HEARTBEAT_MS,
+} from "./lib/supervisedLease";
+export type {
+  SupervisedLeaseRow, SupervisedLeaseStatus, LeaseVerdict, LeaseCheckInput,
+} from "./lib/supervisedLease";
+export {
+  newControllerToken, activeLeaseFor, openLease, renewLease, bindLease,
+  closeLease, verifySupervision, reconcileLeases,
+} from "./lib/supervisedLeaseStore";
+export {
   authorizeNarrationWindow, narrationCeilingChars,
 } from "./lib/narrationWindow";
 export type {
