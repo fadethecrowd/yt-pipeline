@@ -42,7 +42,11 @@ export interface ChannelSpec {
 export const SPECS: Record<ChannelKey, ChannelSpec> = {
   "ai-doom-scroll": {
     key: "ai-doom-scroll", model: "video", pilotId: "ai-doom-private-pilot-1",
-    service: "yt-pipeline", monitorService: "monitor-ai-doom", qualificationTarget: 3,
+    // Must equal the graduation control's target for this channel — this gate
+    // asserts successCount === target, so a stale 3 here reads a legitimately
+    // graduated 2/2 pilot as NOT_GRADUATED and blocks production entirely.
+    // Kept honest by "the two controls agree on every channel's target".
+    service: "yt-pipeline", monitorService: "monitor-ai-doom", qualificationTarget: 2,
   },
   "wet-circuit": {
     key: "wet-circuit", model: "wcVideo", pilotId: "wet-circuit-private-canary-1",

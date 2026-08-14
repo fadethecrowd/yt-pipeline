@@ -9,6 +9,7 @@ import {
   evaluate, doCheck, doRun, doVerify, selectedMode, argValue,
 } from "../scripts/ordinary-production-control";
 import type { OrdinaryDeps, RunRecord, VideoRow } from "../scripts/ordinary-production-control";
+import { SPECS as GRAD_SPECS } from "../scripts/channel-graduation-control";
 
 /**
  * Guarded one-shot ordinary production.
@@ -105,6 +106,36 @@ const row = (over: Partial<VideoRow> = {}): VideoRow => ({
 
 // ── 1-6. Invocation topology ─────────────────────────────────────────────
 
+/**
+ * `qualificationTarget` is declared twice — once in the graduation control that
+ * WRITES the completed pilot, once here in the gate that READS it. This gate
+ * asserts `successCount === target`, so the two numbers are not merely
+ * cosmetically related: if they disagree, a legitimately graduated pilot reads
+ * as NOT_GRADUATED and ordinary production is blocked outright.
+ *
+ * That is exactly what happened on 2026-08-14. AI Doom's target moved 3 → 2
+ * when the human accepted the second qualification video, the pilot completed
+ * correctly at 2/2, and this copy still said 3 — so the channel graduated and
+ * could not produce.
+ */
+describe("the two controls agree on every channel's qualification target", () => {
+  test("each channel's target is the same number in both specs", () => {
+    for (const key of Object.keys(SPECS) as (keyof typeof SPECS)[]) {
+      assert.equal(SPECS[key].qualificationTarget, GRAD_SPECS[key].qualificationTarget,
+        `${key}: ordinary-production and graduation disagree — a graduated pilot ` +
+        "would be unable to produce");
+    }
+  });
+
+  test("both specs describe the same channels and pilots", () => {
+    assert.deepEqual(Object.keys(SPECS).sort(), Object.keys(GRAD_SPECS).sort());
+    for (const key of Object.keys(SPECS) as (keyof typeof SPECS)[]) {
+      assert.equal(SPECS[key].pilotId, GRAD_SPECS[key].pilotId, key);
+      assert.equal(SPECS[key].model, GRAD_SPECS[key].model, key);
+    }
+  });
+});
+
 describe("1-6. direct invocation topology", () => {
   test("1/2. the control calls the channel pipeline once per RUN", async () => {
     for (const spec of [AI, WC]) {
@@ -171,7 +202,20 @@ describe("7-19. CHECK gating", () => {
   });
 
   test("a COMPLETED pilot with the wrong count is NOT_GRADUATED", async () => {
-    const f = makeFake(AI, { pilot: completed(AI, { successCount: 2, successVideoIds: ["a", "b"] }) });
+    // Expressed relative to the spec's own target so it keeps testing "wrong
+    // count" rather than a hardcoded number that a target change turns correct.
+    const short = AI.qualificationTarget - 1;
+    const f = makeFake(AI, { pilot: completed(AI, {
+      successCount: short, successVideoIds: Array.from({ length: short }, (_, i) => `v${i}`),
+    }) });
+    assert.equal((await evaluate(f.deps, AI)).phase, "NOT_GRADUATED");
+  });
+
+  test("a COMPLETED pilot with MORE successes than the target is also refused", async () => {
+    const over = AI.qualificationTarget + 1;
+    const f = makeFake(AI, { pilot: completed(AI, {
+      successCount: over, successVideoIds: Array.from({ length: over }, (_, i) => `v${i}`),
+    }) });
     assert.equal((await evaluate(f.deps, AI)).phase, "NOT_GRADUATED");
   });
 
