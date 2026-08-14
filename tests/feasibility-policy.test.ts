@@ -66,8 +66,13 @@ function monotonePool(n = 60): Candidate[] {
     "industrial factory floor with heavy machinery",
     "factory production line robotic welding",
     "data center server room with racks",
-    "close up of a computer processor chip",
-    "engineer at a laboratory research workstation",
+    // The three minority subjects must be on THIS beat (an automated plant
+    // floor) to survive relevance at all — a processor chip and a lab
+    // workstation are AI-ish but illustrate nothing here, and once they were
+    // demoted the pool fell to two concepts and failed concept-diversity for
+    // a reason that had nothing to do with the cap under test.
+    "robot arm in operation",
+    "machine vision camera inspecting parts",
   ];
   return Array.from({ length: n }, (_, i) =>
     candidate(`m-${i}`, `${subjects[i % subjects.length]} number ${i}`, 26));

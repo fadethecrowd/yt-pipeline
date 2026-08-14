@@ -159,7 +159,7 @@ export type { Candidate, ValidationOutcome, SceneRecordInput } from "./lib/visua
 export {
   scoreRelevance, describeFromPexelsUrl, narrationIsAboutVoiceAI,
   VisualPlan, REJECT_THRESHOLD, buildSearchQueries,
-  classifyConcept,
+  classifyConcept, conceptProfile,
   AI_SUBJECTS,
   MARINE_SUBJECTS,
 } from "./lib/visualRelevance";

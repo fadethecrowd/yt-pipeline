@@ -186,11 +186,14 @@ describe("visual semantic relevance — AI Doom Scroll", () => {
     assert.equal(r.verdict, "REJECT");
   });
 
-  test("strongly on-topic AI footage scores STRONG", () => {
+  test("footage on THIS beat's subject scores STRONG", () => {
+    // The beat is "GPU server racks in a data centre". A robotic arm on an
+    // assembly line is on-topic for the CHANNEL and off-topic for this BEAT,
+    // so it moved out of this list when scoring started asking the second
+    // question — see tests/beat-relevance.test.ts.
     for (const desc of [
       "close up of a cpu",
       "rows of servers in a data center",
-      "robotic arm working on an assembly line",
       "engineer inspecting computer hardware in a server room",
     ]) {
       const r = scoreRelevance({ ...base, description: desc });

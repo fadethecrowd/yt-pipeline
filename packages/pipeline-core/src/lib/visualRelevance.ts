@@ -243,6 +243,33 @@ function termSpecificity(term: string): number {
   return term.trim().split(/[\s-]+/).filter(Boolean).length;
 }
 
+/**
+ * Every concept the text carries evidence for, strongest first.
+ *
+ * `classifyConcept` answers "what is this ONE thing", which is the wrong
+ * question for a narration beat: "a robotic arm on a workbench in a research
+ * lab, with an engineer" is robotics AND research AND cables, and collapsing it
+ * to a single winner threw away the rest. Qualification video #1 classified
+ * exactly that beat as `research`, which is true and useless — it meant nothing
+ * downstream knew the beat was about robots.
+ *
+ * Same matching rules and weights as `classifyConcept`; this simply does not
+ * discard the runners-up. Additive: no existing caller changes.
+ */
+export function conceptProfile(
+  text: string,
+  taxonomy: Record<string, string[]>,
+): { concept: string; score: number; matched: string[] }[] {
+  const hay = tokenize(text);
+  return Object.entries(taxonomy)
+    .map(([concept, terms]) => {
+      const matched = terms.filter((t) => matchesTerm(hay, t));
+      return { concept, score: matched.reduce((a, t) => a + termWeight(t), 0), matched };
+    })
+    .filter((c) => c.score > 0)
+    .sort((a, b) => b.score - a.score || a.concept.localeCompare(b.concept));
+}
+
 /** Weighted evidence: a 2-word phrase outranks any number of single tokens. */
 function termWeight(term: string): number {
   const n = termSpecificity(term);
@@ -407,7 +434,65 @@ export function scoreRelevance(input: RelevanceInput): RelevanceResult {
   // 0.25 and pushed genuinely relevant footage below REJECT_THRESHOLD. Phrase
   // matches now weigh more than bare tokens, which is what "strong evidence
   // for one subject" should mean. The cap and REJECT_THRESHOLD are unchanged.
-  score += Math.min(subjectEvidence, 3) * 0.25; // up to 0.75
+  //
+  // Subject evidence only counts when the subject belongs to THIS BEAT.
+  //
+  // The old line credited any AI_SUBJECTS match at full weight, which asked
+  // "is this asset AI-ish?" rather than "does this illustrate this beat?".
+  // Measured on qualification video #1: 36 of 38 selected clips carried a
+  // concept absent from their own beat, 30 of them scored STRONG, and a CCTV
+  // control room beat an actual robot arm 0.96 to 0.88 on a robotics beat. The
+  // worst case scored 0.96 for "high tech control room with multiple cctv
+  // monitors" while "a robot with a happy face" — a robot, on a beat about
+  // teaching robots — scored 0.56.
+  //
+  // The beat's own text names what it is about, usually several things at once:
+  // "a robotic arm on a workbench in a research lab" profiles as
+  // research:3 robotics:2 network:0.5. `classifyConcept` collapses that to
+  // `research`, so the single top concept is too lossy to compare against;
+  // `conceptProfile` keeps the runners-up, and every genuine robot clip in
+  // video #1 lands inside that profile while every CCTV, audio-mixer, library
+  // and call-centre clip lands outside it.
+  //
+  // Out-of-profile assets are DEMOTED, not banned. They keep a quarter of the
+  // subject credit plus all of their prompt/narration agreement, so they still
+  // qualify as adjacent or generic filler when nothing better exists — which
+  // is what keeps the pool full and the pacing varied. What they can no longer
+  // do is outrank footage of the thing the beat is actually about.
+  //
+  // This is inherently contextual: the same CCTV clip is out-of-profile for a
+  // robotics beat and in-profile for a surveillance beat, because the profile
+  // comes from the beat, not from a list of banned subjects.
+  // Profiles on BOTH sides. Comparing single labels is too lossy in either
+  // direction: "boat sailing on the sea" ties vessel against water and
+  // collapses to `none`, and "robotic arm working on an assembly line" ties
+  // robotics against factory — both would look off-beat while being exactly
+  // right. An overlap test asks the question that actually matters: does this
+  // asset depict ANY of the things this beat is about?
+  const beatProfile = new Set(
+    conceptProfile(`${input.prompt} ${input.narration}`, taxonomy).map((c) => c.concept),
+  );
+  // The asset's PRIMARY subject — its top-scoring concept, plus anything tied
+  // with it. Not its whole profile: "a sound engineer using an audio mixer"
+  // carries a weak incidental `research` from the word "engineer", and letting
+  // that satisfy a robotics-and-research beat would hand an audio mixer full
+  // credit. What the clip is chiefly OF is the honest comparison, and keeping
+  // ties means "boat sailing on the sea" (vessel/water) and "robotic arm on an
+  // assembly line" (robotics/factory) are judged on both of their subjects.
+  const assetScored = conceptProfile(input.description, taxonomy);
+  const topScore = assetScored[0]?.score ?? 0;
+  const assetProfile = assetScored.filter((c) => c.score === topScore).map((c) => c.concept);
+  const shared = assetProfile.filter((c) => beatProfile.has(c));
+  // An empty profile on either side means the beat (or the asset) named nothing
+  // this taxonomy knows, so there is no evidence to demote against; behaviour
+  // is unchanged rather than uniformly punished.
+  const onBeat = beatProfile.size === 0 || assetProfile.length === 0 || shared.length > 0;
+  if (onBeat) {
+    reasons.push(`subject ${shared.length ? `"${shared.join(", ")}"` : `"${best.concept}"`} is what this beat is about`);
+  } else {
+    reasons.push(`subject "${assetProfile.join(", ")}" is not in this beat (${[...beatProfile].join(", ") || "none"})`);
+  }
+  score += Math.min(subjectEvidence, 3) * (onBeat ? 0.25 : 0.0625); // 0.75 vs 0.19
   score += Math.min(promptOverlap, 3) * 0.08;     // up to 0.24
   score += Math.min(narrationOverlap, 3) * 0.05;  // up to 0.15
   // A justified performance visual is the correct choice for a voice-AI

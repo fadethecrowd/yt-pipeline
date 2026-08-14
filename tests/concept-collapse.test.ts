@@ -48,10 +48,23 @@ describe("knowledge-work footage is recognised instead of discarded", () => {
   const PREVIOUSLY_REJECTED = [
     "cozy library aisle with bookshelves",
     "high speed newspaper printing process close up",
-    "people working in a call center",
-    "busy office environment in bangladesh",
     "a girl studying in the library",
   ];
+
+  /**
+   * Office/call-centre footage came from the OCR script's post-office and
+   * customs beats, not from this library-archive one. Beat-level scoring now
+   * judges each against its OWN beat, so they are listed separately rather
+   * than asserted against a beat they never belonged to.
+   */
+  const PREVIOUSLY_REJECTED_WORKPLACE = [
+    "people working in a call center",
+    "busy office environment in bangladesh",
+  ];
+  const WORKPLACE_BEAT = {
+    narration: "Clerks in a busy back office sort stacks of paperwork by hand all day.",
+    prompt: "A busy open-plan office where staff process paper forms at their desks",
+  };
 
   test("it is accepted rather than rejected", () => {
     for (const d of PREVIOUSLY_REJECTED) {
@@ -59,6 +72,14 @@ describe("knowledge-work footage is recognised instead of discarded", () => {
       assert.notEqual(r.verdict, "REJECT",
         `"${d}" is exactly what the prompt asked for and must survive relevance`);
       assert.ok(r.score >= REJECT_THRESHOLD, `${d} scored ${r.score}`);
+    }
+  });
+
+  test("workplace footage survives on a workplace beat", () => {
+    for (const d of PREVIOUSLY_REJECTED_WORKPLACE) {
+      const r = ai(d, WORKPLACE_BEAT.narration, WORKPLACE_BEAT.prompt);
+      assert.notEqual(r.verdict, "REJECT", `${d} scored ${r.score}`);
+      assert.ok(["workplace", "documents"].includes(r.concept), `${d} → ${r.concept}`);
     }
   });
 

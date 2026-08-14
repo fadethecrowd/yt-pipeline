@@ -129,15 +129,21 @@ const HBM_INPUT: FeasibilityInput = {
 
 /** A healthy pool: many distinct, long, on-topic robotics/warehouse clips. */
 function healthyPool(n: number, durationS = 26): Candidate[] {
+  // Beat-appropriate for HBM_SEGMENTS, which are about DRAM, GPUs, wafers,
+  // fabs and packaging. The previous list (robots, warehouses, conveyors,
+  // lidar) was "AI-ish" rather than about these beats, and only counted as a
+  // healthy pool while scoring asked "is this asset on-topic for the channel?"
+  // instead of "does this illustrate this beat?". Still spans four concepts,
+  // so the diversity floor is exercised exactly as before.
   const subjects = [
-    "autonomous mobile robot navigating a warehouse aisle",
-    "industrial robot arm on an assembly line",
-    "modern automated warehouse conveyor system",
-    "computer vision camera scanning packages",
-    "lidar sensor scanning a factory floor",
-    "engineer at a laboratory computer workstation",
-    "programmer reviewing code on a screen",
+    "close up of a computer processor chip",
+    "silicon wafer inspection in a cleanroom",
+    "semiconductor manufacturing production line",
+    "gpu graphics card on a circuit board",
     "data center server room with racks",
+    "engineer inspecting a circuit board in a laboratory",
+    "automated wafer production line in a fab",
+    "motherboard with microchip close up",
   ];
   return Array.from({ length: n }, (_, i) =>
     candidate(`ok-${i}`, subjects[i % subjects.length], durationS),
