@@ -61,6 +61,11 @@ export interface RunRecord {
   status: string;
   startTime: Date;
   endTime: Date | null;
+  /** Durable proof a video reached YouTube. Optional so existing fakes still typecheck. */
+  youtubeId?: string | null;
+  failedStage?: string | null;
+  errorMessage?: string | null;
+  warnings?: unknown;
 }
 
 export interface ControlDeps {
@@ -475,18 +480,50 @@ export async function classifyRunOutcome(
     return { runId: run.id, outcome: "FAILED_AFTER_RESERVATION",
       reason: `${reserved} chars still reserved — settle before any retry` };
   }
-  if (run.status === "SUCCESS") {
+  // A run that reached the end of its stages, whatever the summary called it.
+  //
+  // WARNING does NOT mean "stopped early". `RunSummary.verifyOutputs` emits it
+  // when every stage completed but an expected output is absent — and under a
+  // pilot two are absent BY DESIGN: `allowPublishAt: false` means no
+  // scheduledAt, and `shortsEnabled: false` means no Short. So a textbook
+  // pilot success lands on WARNING.
+  //
+  // This branch previously covered SUCCESS only, and everything else fell
+  // through to "no reservation and no intent, therefore nothing was bought".
+  // That premise is false for WARNING, and it produced the worst possible
+  // report on 2026-08-14: the operator was told FAILED_BEFORE_SPEND for a run
+  // that had charged 5,263 characters and uploaded 3wAZeMbs3nc. An operator
+  // reading that could reasonably have authorised another attempt believing
+  // the first had done nothing.
+  const COMPLETED = ["SUCCESS", "WARNING"];
+  if (COMPLETED.includes(run.status)) {
     const pilot = await deps.readPilot(PILOT_ID);
+    const notes = Array.isArray(run.warnings) && run.warnings.length
+      ? ` [${(run.warnings as string[]).join("; ")}]` : "";
     if (pilot && pilot.successCount > 0) {
       return { runId: run.id, outcome: "SUCCESS",
-        reason: `pilot at ${pilot.successCount}/${pilot.maxSuccesses} — human review required before any further run` };
+        reason: `pilot at ${pilot.successCount}/${pilot.maxSuccesses}` +
+          `${run.youtubeId ? `, youtube ${run.youtubeId}` : ""} — ` +
+          `human review required before any further run${notes}` };
     }
     return { runId: run.id, outcome: "FAILED_BEFORE_SPEND",
-      reason: "run reported SUCCESS but the pilot claimed no slot" };
+      reason: `run completed (${run.status}) but the pilot claimed no slot${notes}` };
   }
-  // A non-success run with no reservation and no intent never bought anything.
+
+  // Genuinely did not finish. Say WHY — "terminal status FAILED" alone left an
+  // operator with nothing to act on.
+  const why = run.failedStage
+    ? `${run.failedStage}: ${(run.errorMessage ?? "no message").slice(0, 300)}`
+    : (run.errorMessage ?? "no failure detail recorded").slice(0, 300);
+
+  // Never assert "no spend" from status alone. If a stopped run still carries a
+  // youtubeId, something reached YouTube and a human must reconcile it.
+  if (run.youtubeId) {
+    return { runId: run.id, outcome: "UPLOAD_AMBIGUOUS",
+      reason: `run ${run.status} but carries youtube ${run.youtubeId} — reconcile before any retry (${why})` };
+  }
   return { runId: run.id, outcome: "FAILED_BEFORE_SPEND",
-    reason: `run terminal status ${run.status}; no reservation and no upload intent outstanding` };
+    reason: `${run.status} at ${why}; no reservation and no upload intent outstanding` };
 }
 
 // ── RELOCK ────────────────────────────────────────────────────────────────
@@ -656,7 +693,10 @@ export function realDeps(): ControlDeps {
       return prisma.pipelineRun.findMany({
         where: { channel, startTime: { gte: since } },
         orderBy: { startTime: "desc" },
-        select: { id: true, channel: true, status: true, startTime: true, endTime: true },
+        select: {
+          id: true, channel: true, status: true, startTime: true, endTime: true,
+          youtubeId: true, failedStage: true, errorMessage: true, warnings: true,
+        },
       }) as unknown as Promise<RunRecord[]>;
     },
     videoById: (id) => prisma.video.findUnique({
