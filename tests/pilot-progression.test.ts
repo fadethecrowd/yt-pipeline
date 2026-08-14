@@ -217,6 +217,24 @@ describe("21-28. graduation completion", () => {
    * pilot: at 2/2 ACTIVE the cap-advance control could still have authorised a
    * third run. Every per-video evidentiary check below is unchanged.
    */
+  /**
+   * Graduation must not read as breakage anywhere. COMPLETED is the terminal
+   * state the graduation control writes and the state ordinary production
+   * requires, so a check that only accepts PREPARED/ACTIVE turns a successful
+   * graduation into a red preflight — which is what happened the moment AI
+   * Doom completed on 2026-08-14.
+   */
+  test("the Monday preflight accepts a graduated pilot", () => {
+    const src = readFileSync("scripts/monday-preflight.ts", "utf8");
+    assert.match(src, /p\.status === "COMPLETED"/,
+      "preflight must treat a graduated pilot as valid, not as a blocker");
+  });
+
+  test("ordinary production requires exactly the COMPLETED state", () => {
+    const src = readFileSync("scripts/ordinary-production-control.ts", "utf8");
+    assert.match(src, /pilot\.status === "COMPLETED"/);
+  });
+
   test("22. the AI Doom qualification target is two reviewed videos", () => {
     assert.equal(AI.qualificationTarget, 2);
   });

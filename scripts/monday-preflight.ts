@@ -154,8 +154,16 @@ async function main(): Promise<void> {
 
   // ── Pilots ──────────────────────────────────────────────────────────
   for (const p of snap.pilots) {
-    ck(p.status === "PREPARED" || p.status === "ACTIVE", `pilot ${p.pilotId} in a runnable state`,
-      `${p.status} ${p.successCount}/${p.maxSuccesses}`);
+    // COMPLETED is a graduated channel, not a broken one. It is the terminal
+    // state the graduation control writes once a human has reviewed and
+    // accepted the required pilot videos, and it is the precondition ordinary
+    // production checks for. Treating it as a blocker made success look like
+    // failure: AI Doom graduated on 2026-08-14 and preflight immediately went
+    // red on a pilot that had done exactly what it was supposed to.
+    ck(p.status === "PREPARED" || p.status === "ACTIVE" || p.status === "COMPLETED",
+      `pilot ${p.pilotId} in a valid state`,
+      `${p.status} ${p.successCount}/${p.maxSuccesses}` +
+      (p.status === "COMPLETED" ? " (graduated)" : ""));
     ck(p.successCount === p.successVideoIds.length,
       `pilot ${p.pilotId} success accounting consistent`,
       `${p.successCount} claimed vs ${p.successVideoIds.length} recorded`);
