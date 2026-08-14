@@ -6,6 +6,7 @@ import { withBudgetWindow } from "../lib/budget";
 import { isUnattendedMode } from "../lib/unattendedGate";
 import { authorizeNarrationWindow } from "../lib/narrationWindow";
 import { verifySupervision } from "../lib/supervisedLeaseStore";
+import { verifyProductionSlot } from "../lib/productionTrancheStore";
 import { buildSpokenUnits, spokenCharacterCount } from "../lib/spokenUnits";
 import { runVoiceover } from "./voiceoverShared";
 import type { PipelineContext, StageResult, Script } from "../types";
@@ -30,12 +31,14 @@ import type { PipelineContext, StageResult, Script } from "../types";
  * correctly against an incomplete spend path.
  *
  * The window is NOT opened just because execution reached this stage.
- * `authorizeNarrationWindow` decides, refuses by default, and refuses
- * specifically for ordinary production, for a pilot that is not ACTIVE or has
- * no slot left, for unattended execution, for a script beyond the channel's
- * durable character ceiling, and whenever DISABLE_ELEVEN is set. When it
- * refuses, this falls through to exactly the previous behaviour: the budget
- * stays 0 and `reserveCredits` fails closed.
+ * `authorizeNarrationWindow` decides and refuses by default. There are exactly
+ * two authorities it accepts: a named ACTIVE pilot, or — since AI Doom
+ * graduated — a finite production tranche slot bound to this exact candidate
+ * and run. It still refuses for a pilot that is not ACTIVE or out of slots, for
+ * unattended execution, for a script beyond the channel's durable character
+ * ceiling, and whenever DISABLE_ELEVEN is set. When it refuses, this falls
+ * through to exactly the previous behaviour: the budget stays 0 and
+ * `reserveCredits` fails closed.
  *
  * Concurrency: a window is an absolute limit on one (channel, stage) row, so
  * two overlapping AI Doom runs could otherwise see each other's allowance.
@@ -81,10 +84,22 @@ export async function voiceover(ctx: PipelineContext): Promise<StageResult> {
   // neither. Before binding was wired the lease could only be checked for
   // channel and pilot, so "supervised" meant "somebody is watching this
   // channel" rather than "somebody authorised this purchase".
-  const supervision = await verifySupervision({
-    channel, pilotId: pilot?.pilotId, videoId: ctx.video?.id,
-    runId: ctx.runId, requireBound: true,
-  });
+  const supervision = pilot
+    ? await verifySupervision({
+        channel, pilotId: pilot.pilotId, videoId: ctx.video?.id,
+        runId: ctx.runId, requireBound: true,
+      })
+    : null;
+
+  // Ordinary production carries no supervised lease — its authority is a finite
+  // tranche slot bound to this exact candidate and run. Re-verified HERE, at
+  // the moment of spend, for the same reason the lease is: a tranche that
+  // expired while this candidate was rendering must not pay for narration.
+  const slot = pilot
+    ? null
+    : await verifyProductionSlot({
+        channel, videoId: ctx.video?.id ?? "", runId: ctx.runId ?? "",
+      });
 
   const decision = authorizeNarrationWindow({
     channel,
@@ -93,8 +108,15 @@ export async function voiceover(ctx: PipelineContext): Promise<StageResult> {
     submitChars,
     unattended: isUnattendedMode(),
     elevenDisabled: process.env.DISABLE_ELEVEN === "true",
-    supervised: supervision.live,
-    supervisionReason: supervision.live ? undefined : supervision.reason,
+    supervised: supervision ? supervision.live : undefined,
+    supervisionReason: supervision && !supervision.live ? supervision.reason : undefined,
+    productionSlot: slot
+      ? {
+          authorized: slot.authorized,
+          reason: slot.authorized ? undefined : slot.reason,
+          slotId: slot.authorized ? slot.slot.id : undefined,
+        }
+      : null,
   });
 
   if (!decision.open) {
@@ -104,7 +126,7 @@ export async function voiceover(ctx: PipelineContext): Promise<StageResult> {
 
   const { auth } = decision;
   console.log(
-    `[voiceover] pilot ${auth.pilotId}: opening a ${auth.submitChars}-char window ` +
+    `[voiceover] ${auth.source} ${auth.pilotId}: opening a ${auth.submitChars}-char window ` +
     `on ${channel}/${stage} (ceiling ${auth.ceilingChars})`,
   );
   return withBudgetWindow(channel, stage, auth.submitChars, () => runVoiceover(ctx, deps));

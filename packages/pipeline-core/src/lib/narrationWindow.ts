@@ -29,6 +29,12 @@ import type { ChannelKey } from "./runtimeTargets";
 export interface NarrationAuthorization {
   channel: ChannelKey;
   stage: TestStage;
+  /**
+   * What authorized this window. A pilot names itself; ordinary production
+   * names the tranche slot it consumed. Never blank — a window with no
+   * traceable authority is exactly what this function exists to prevent.
+   */
+  source: "pilot" | "production-tranche";
   pilotId: string;
   /** Exactly the characters this candidate will submit — the window size. */
   submitChars: number;
@@ -51,6 +57,15 @@ export interface NarrationWindowInput {
   unattended: boolean;
   /** True when DISABLE_ELEVEN hard-blocks narration. */
   elevenDisabled: boolean;
+  /**
+   * Ordinary production's authority: a finite tranche slot bound to this exact
+   * candidate and run, already verified against the durable rows.
+   *
+   * Mutually exclusive with `pilot`. Supplying both is refused rather than
+   * resolved by precedence, because "which authority paid for this?" must have
+   * exactly one answer.
+   */
+  productionSlot?: { authorized: boolean; reason?: string; slotId?: string } | null;
   /**
    * Whether a supervised lease is still live for this channel/pilot/candidate.
    *
@@ -102,25 +117,56 @@ export function authorizeNarrationWindow(
     };
   }
 
-  // Ordinary production has no spend authority. This is the boundary that
-  // stops the new capability becoming a side door: reaching the voiceover
-  // stage is not authorisation, being a named ACTIVE pilot is.
-  if (!pilot) {
-    return { open: false, reason: "no pilot governs this channel — ordinary production may not open a budget" };
-  }
-  if (pilot.status !== "ACTIVE") {
-    return { open: false, reason: `pilot ${pilot.pilotId} is ${pilot.status}, not ACTIVE` };
-  }
-  if (pilot.channel !== channel) {
-    return { open: false, reason: `pilot ${pilot.pilotId} governs ${pilot.channel}, not ${channel}` };
-  }
-  // A pilot with no slot left must not buy narration for a video it may not
-  // produce. The pipeline's own cap check runs earlier; this repeats it here
-  // because the earlier one is not the thing holding the chequebook.
-  if (pilot.maxSuccesses - pilot.successCount <= 0) {
+  // Exactly one authority, named explicitly.
+  //
+  // Reaching the voiceover stage is still not authorisation. What changed at
+  // graduation is only that there are now TWO things that can be: a named
+  // ACTIVE pilot, or a finite production tranche slot bound to this exact
+  // candidate and run. Ambiguity between them is refused rather than resolved
+  // by precedence — a window whose payer is unclear is one nobody can audit.
+  const productionSlot = input.productionSlot ?? null;
+  if (pilot && productionSlot) {
     return {
       open: false,
-      reason: `pilot ${pilot.pilotId} has no slots left (${pilot.successCount}/${pilot.maxSuccesses})`,
+      reason: `ambiguous authority: pilot ${pilot.pilotId} and a production tranche slot both claim this run`,
+    };
+  }
+  let source: "pilot" | "production-tranche";
+  if (pilot) {
+    source = "pilot";
+    if (pilot.status !== "ACTIVE") {
+      return { open: false, reason: `pilot ${pilot.pilotId} is ${pilot.status}, not ACTIVE` };
+    }
+    if (pilot.channel !== channel) {
+      return { open: false, reason: `pilot ${pilot.pilotId} governs ${pilot.channel}, not ${channel}` };
+    }
+    // A pilot with no slot left must not buy narration for a video it may not
+    // produce. The pipeline's own cap check runs earlier; this repeats it here
+    // because the earlier one is not the thing holding the chequebook.
+    if (pilot.maxSuccesses - pilot.successCount <= 0) {
+      return {
+        open: false,
+        reason: `pilot ${pilot.pilotId} has no slots left (${pilot.successCount}/${pilot.maxSuccesses})`,
+      };
+    }
+  } else if (productionSlot) {
+    source = "production-tranche";
+    // The slot verdict is computed against the durable tranche and slot rows by
+    // `verifyProductionSlot`, which checks channel, exact candidate, exact run,
+    // slot still CLAIMED, tranche status and tranche expiry. A false verdict
+    // here is that decision, not a second opinion on it.
+    if (!productionSlot.authorized) {
+      return {
+        open: false,
+        reason: `no production authority — ${productionSlot.reason ?? "tranche slot not valid"}`,
+      };
+    }
+  } else {
+    // Graduated, running ordinarily, and nobody authorized any spending. This
+    // is the resting state of a healthy production channel.
+    return {
+      open: false,
+      reason: "no pilot and no production tranche slot — nothing authorizes narration for this run",
     };
   }
 
@@ -144,6 +190,11 @@ export function authorizeNarrationWindow(
 
   return {
     open: true,
-    auth: { channel, stage, pilotId: pilot.pilotId, submitChars, ceilingChars },
+    auth: {
+      channel, stage, source, submitChars, ceilingChars,
+      // Ordinary production has no pilot to name, so the slot identifies the
+      // authority instead. Both remain traceable to a durable row.
+      pilotId: pilot ? pilot.pilotId : (productionSlot?.slotId ?? "production-tranche"),
+    },
   };
 }

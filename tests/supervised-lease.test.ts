@@ -276,7 +276,19 @@ describe("the controller opens before unlocking and closes after relocking", () 
   test("the voiceover stage re-checks supervision at spend time", () => {
     const src = readFileSync("packages/pipeline-core/src/stages/voiceover.ts", "utf8");
     assert.match(src, /verifySupervision\(/);
-    assert.match(src, /supervised: supervision\.live/);
+    // Under a pilot the lease verdict is still what gates the purchase. The
+    // check is now conditional only because a graduated, pilot-less production
+    // run has no lease to consult — it presents a tranche slot instead.
+    assert.match(src, /supervised: supervision \? supervision\.live : undefined/);
+    assert.match(src, /requireBound: true/);
+  });
+
+  test("a pilot run still consults the lease, never the tranche", () => {
+    const src = readFileSync("packages/pipeline-core/src/stages/voiceover.ts", "utf8");
+    // Both are resolved from `pilot`, and each is null in the other's mode, so
+    // one execution can never present two authorities.
+    assert.match(src, /const supervision = pilot\s*\n\s*\? await verifySupervision/);
+    assert.match(src, /const slot = pilot\s*\n\s*\? null\s*\n\s*: await verifyProductionSlot/);
   });
 
   test("the reconciler never starts, spends, or touches a candidate", () => {

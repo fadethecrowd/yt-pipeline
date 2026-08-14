@@ -223,11 +223,26 @@ export interface UploadPolicy {
   source: "pilot" | "normal";
 }
 
-export function uploadPolicyFor(pilot: PilotConfig | null, normalSlot: Date | null): UploadPolicy {
+export function uploadPolicyFor(
+  pilot: PilotConfig | null,
+  normalSlot: Date | null,
+  /**
+   * Ordinary production's own policy, from the tranche that authorized it.
+   *
+   * Shorts used to be unconditionally on for any non-pilot run. That is a
+   * SECOND upload path which no qualification video ever exercised — both were
+   * long-form only — so the first ordinary production run would have debuted an
+   * untested content generator and an untested upload at the same time as the
+   * production controller itself. A tranche states what it authorizes, and
+   * omitting it means Shorts off: unknown authority grants nothing.
+   */
+  productionPolicy?: { shortsEnabled: boolean } | null,
+): UploadPolicy {
   if (!pilot) {
     return {
       privacyStatus: "private", scheduledSlot: normalSlot,
-      shortsEnabled: true, requireGuardedUpload: true, source: "normal",
+      shortsEnabled: productionPolicy?.shortsEnabled ?? false,
+      requireGuardedUpload: true, source: "normal",
     };
   }
   if (pilot.privacyStatus !== "private") {

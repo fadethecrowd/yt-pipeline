@@ -19,6 +19,7 @@ import {
   createAndAttachCandidate, settleCycle, getCycle,
   MANUAL_SUPERVISED, UNATTENDED,
   verifySupervision, reconcileLeases, activeLeaseFor, bindLease,
+  claimSlot,
   type ActiveCycle,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
@@ -172,6 +173,55 @@ async function bindSupervisedIdentity(
   console.log(
     `[pipeline] supervised lease ${live.id} bound to candidate ${videoId} run ${runId}` +
     `${bound.alreadyBound ? " (already bound — unchanged)" : ""}`,
+  );
+  return null;
+}
+
+/**
+ * Take one authorized production attempt for this exact candidate and run.
+ *
+ * The mirror of `bindSupervisedIdentity`, for the other kind of authority. A
+ * graduated channel has no pilot and no supervised lease, so what stands
+ * between it and unbounded spending is a finite tranche: a human said N
+ * attempts, until when, and each candidate consumes exactly one.
+ *
+ * Claimed HERE, at the same moment the lease binds, because that is the first
+ * instant both identities exist and it is still three stages before anything is
+ * bought. Claiming later would mean a candidate had already been worked on
+ * under no authorization; claiming earlier would consume an attempt for a
+ * candidate that might never exist.
+ *
+ * ATTEMPTS, NOT SUCCESSES. The slot is consumed by starting, and is never
+ * returned — a candidate that fails quality or feasibility has still used the
+ * attempt it was given. Refunding failures would turn N into "N successes,
+ * plus however many failures it took", which is not a bound.
+ *
+ * Only for ordinary production. Pilots keep their own authority, and an
+ * unattended cycle is governed by its cycle, so both return early untouched.
+ */
+async function claimProductionAttempt(
+  videoId: string,
+  runId: string | undefined,
+): Promise<StageResult | null> {
+  if (activeCycle) return null;            // unattended: governed by its cycle
+  const pilot = await resolveAiDoomPilot();
+  if (pilot) return null;                  // pilot run: pilot authority applies
+
+  if (!runId) {
+    const error = "refused at claimProductionAttempt: no run identity available " +
+      "— a production candidate must be bound to its run before it may spend";
+    console.error(`[pipeline] ${error}`);
+    return { success: false, error, durationMs: 0 };
+  }
+  const claim = await claimSlot({ channel: AI_DOOM_CHANNEL as never, videoId, runId });
+  if (!claim.ok) {
+    const error = `refused at claimProductionAttempt: ${claim.reason}`;
+    console.error(`[pipeline] ${error}`);
+    return { success: false, error, durationMs: 0 };
+  }
+  console.log(
+    `[pipeline] production tranche slot ${claim.slot.id} (index ${claim.slot.slotIndex}) ` +
+    `claimed for candidate ${videoId} run ${runId}`,
   );
   return null;
 }
@@ -529,6 +579,16 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
           "bindSupervisedIdentity", resumeBind.error ?? "bind refused");
         return;
       }
+      // A resumed candidate already holds its slot from the run that created
+      // it; `claimSlot` is unique on videoId, so this refuses rather than
+      // consuming a second attempt for the same candidate.
+      const resumeClaim = await claimProductionAttempt(stuckVideo.id, summary?.runId);
+      if (resumeClaim) {
+        summary?.markFailed("claimProductionAttempt", new Error(resumeClaim.error ?? "claim refused"));
+        await failVideo({ topic: stuckVideo.topic, video: stuckVideo },
+          "claimProductionAttempt", resumeClaim.error ?? "claim refused");
+        return;
+      }
 
       // Rebuild context from DB fields
       const ctx: PipelineContext = {
@@ -671,6 +731,12 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
     if (freshBind) {
       summary?.markFailed("bindSupervisedIdentity", new Error(freshBind.error ?? "bind refused"));
       await failVideo(ctx, "bindSupervisedIdentity", freshBind.error ?? "bind refused");
+      return;
+    }
+    const freshClaim = await claimProductionAttempt(video.id, summary?.runId);
+    if (freshClaim) {
+      summary?.markFailed("claimProductionAttempt", new Error(freshClaim.error ?? "claim refused"));
+      await failVideo(ctx, "claimProductionAttempt", freshClaim.error ?? "claim refused");
       return;
     }
 

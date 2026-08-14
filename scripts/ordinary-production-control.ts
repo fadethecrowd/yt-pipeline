@@ -23,7 +23,7 @@
  *
  * LOCAL ONLY. No runtime imports this.
  */
-import { prisma, disconnect, budgetReport } from "@yt-pipeline/pipeline-core";
+import { prisma, disconnect, budgetReport, trancheReport, settleSlot } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig } from "@yt-pipeline/pipeline-core";
 import { nextPublishSlot, describeSlot } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
@@ -78,9 +78,16 @@ export interface OrdinaryDeps {
   activeRunCount(): Promise<number>;
   unresolvedIntentCount(): Promise<number>;
   futureScheduled(model: string, after: Date): Promise<Date[]>;
+  /** Live finite production authorization for this channel, if any. */
+  trancheState(channel: string): Promise<{
+    phase: string; live: boolean; remaining: number; reason: string;
+    shortsEnabled: boolean; expiresAt: Date | null;
+  }>;
   runsSince(channel: string, since: Date): Promise<RunRecord[]>;
   rowsSince(model: string, since: Date): Promise<VideoRow[]>;
   rowById(model: string, id: string): Promise<VideoRow | null>;
+  /** Records what became of a consumed attempt. Never returns capacity. */
+  settleSlot(videoId: string, outcome: "SUCCESS" | "FAILED" | "AMBIGUOUS", detail: string): Promise<boolean>;
   /** Calls the channel's real runPipeline exactly once. */
   invokePipeline(channel: ChannelKey): Promise<void>;
   now(): Date;
@@ -97,6 +104,7 @@ export type Phase =
   | "MONITOR_UNHEALTHY"
   | "SOURCE_MISMATCH"
   | "SERVICE_UNLOCKED"
+  | "NOT_AUTHORIZED"
   | "READY_FOR_ONE_SHOT";
 
 export interface Check { ok: boolean; label: string; detail: string }
@@ -164,6 +172,19 @@ export async function evaluate(deps: OrdinaryDeps, spec: ChannelSpec): Promise<C
   }
   add(true, "occupied future slots", String(occupied.length));
 
+  // ── Finite spend authorization ────────────────────────────────────
+  //
+  // Graduation lets the channel produce; it does not pay for anything. A
+  // tranche does, for a bounded number of attempts and a bounded time. No
+  // tranche is NOT a fault — it is the resting state of a healthy production
+  // channel, and it is reported as NOT_AUTHORIZED rather than as a failure.
+  const tr = await deps.trancheState(spec.key);
+  add(tr.live, "finite production authorization live",
+    tr.live
+      ? `${tr.remaining} attempt(s) remaining, Shorts ${tr.shortsEnabled ? "ON" : "off"}, ` +
+        `expires ${tr.expiresAt?.toISOString() ?? "?"}`
+      : tr.reason);
+
   // ── Phase ─────────────────────────────────────────────────────────
   let phase: Phase;
   if (unresolved > 0) phase = "RECONCILIATION_REQUIRED";
@@ -173,6 +194,7 @@ export async function evaluate(deps: OrdinaryDeps, spec: ChannelSpec): Promise<C
   else if (!canonical) phase = "SOURCE_MISMATCH";
   else if (!monMode || !monHealthy) phase = "MONITOR_UNHEALTHY";
   else if (reserved !== 0 || nz.length > 0) phase = "BUDGET_NOT_CLEAN";
+  else if (!tr.live) phase = "NOT_AUTHORIZED";
   else phase = checks.every((c) => c.ok) ? "READY_FOR_ONE_SHOT" : "NOT_GRADUATED";
 
   return { checks, phase, ready: phase === "READY_FOR_ONE_SHOT", targetSlot, pilot };
@@ -184,6 +206,12 @@ export async function doCheck(deps: OrdinaryDeps, spec: ChannelSpec): Promise<Ch
   for (const c of r.checks) deps.log(`   ${c.ok ? "✓" : "✗"} ${c.label.padEnd(44)} ${c.detail}`);
   deps.log(`   target slot : ${r.targetSlot ? describeSlot(r.targetSlot) : "none"}`);
   deps.log(`   PHASE       : ${r.phase}`);
+  if (r.phase === "NOT_AUTHORIZED") {
+    deps.log("   → nothing may spend. Authorize a finite tranche first:");
+    deps.log("     npx tsx scripts/production-tranche-control.ts --channel " +
+      `${spec.key} --authorize --count 1 ` +
+      "--i-understand-this-authorizes-real-production-spend");
+  }
   return r;
 }
 
@@ -318,19 +346,34 @@ export async function doRun(
     invocations, steps,
   };
 
+  // ── Settle the tranche slot from the CLASSIFIED outcome ───────────
+  //
+  // Never from `run.status`: a completed pilot-style WARNING is a success, and
+  // "no outstanding reservation" has already been shown not to mean "no spend".
+  // Anything we cannot classify confidently settles to RECONCILIATION_REQUIRED,
+  // which leaves the attempt consumed — an ambiguous outcome must never quietly
+  // return capacity to the pool.
+  const settle = async (o: "SUCCESS" | "FAILED" | "AMBIGUOUS", why: string) => {
+    if (video?.id) await deps.settleSlot(video.id, o, why);
+  };
+
   if (unresolved > 0) {
+    await settle("AMBIGUOUS", `${unresolved} unresolved upload intent(s)`);
     return { ...base, outcome: "UPLOAD_AMBIGUOUS",
       reason: `${unresolved} unresolved upload intent(s) — reconcile before any future run` };
   }
   if (reserved > 0) {
+    await settle("AMBIGUOUS", `${reserved} chars still reserved`);
     return { ...base, outcome: "FAILED_AFTER_RESERVATION",
       reason: `${reserved} chars still reserved — settle before any future run` };
   }
   if (threw) {
+    await settle("FAILED", `pipeline threw: ${threw}`);
     return { ...base, outcome: "FAILED_BEFORE_SPEND",
       reason: `pipeline threw with no reservation and no intent outstanding: ${threw}` };
   }
   if (!run) {
+    await settle("AMBIGUOUS", "no pipeline run appeared after the watermark");
     return { ...base, outcome: "OBSERVATION_FAILED",
       reason: "no pipeline run appeared after the watermark" };
   }
@@ -341,6 +384,7 @@ export async function doRun(
   // e1dc803, where a completed upload was reported as FAILED_BEFORE_SPEND.
   const COMPLETED = ["SUCCESS", "WARNING"];
   if (COMPLETED.includes(run.status) && video?.youtubeId && video.scheduledAt) {
+    await settle("SUCCESS", `uploaded ${video.youtubeId}, scheduled`);
     return { ...base, outcome: "SUCCESS_SCHEDULED",
       reason: `run ${run.status} — scheduled for ${video.scheduledAt.toISOString()} ` +
         `(${describeSlot(video.scheduledAt)})` };
@@ -350,6 +394,7 @@ export async function doRun(
   // an upload completed; whatever the run status says, "never bought a thing"
   // is the one thing it cannot mean.
   if (video?.youtubeId) {
+    await settle("AMBIGUOUS", `run ${run.status} but youtubeId ${video.youtubeId} exists`);
     return { ...base, outcome: "UPLOAD_AMBIGUOUS",
       reason: `run ${run.status} but video ${video.id} carries youtubeId ${video.youtubeId}` +
         `${video.scheduledAt ? "" : " with no scheduledAt"} — reconcile before any future run` };
@@ -359,6 +404,7 @@ export async function doRun(
   const status = video?.status ?? run.status;
   const outcome: Outcome =
     status === "QUALITY_FAILED" ? "QUALITY_FAILED" : "FAILED_BEFORE_SPEND";
+  await settle("FAILED", `run ${run.status}, video status ${status}`);
   return { ...base, outcome, reason: `run ${run.status}, video status ${status}` };
 }
 
@@ -441,6 +487,14 @@ export function realDeps(): OrdinaryDeps {
     unresolvedIntentCount: () => prisma.uploadIntent.count({
       where: { NOT: { state: { in: ["PERSISTED", "RECONCILED_HISTORICAL_UPLOAD"] } } },
     }),
+    async trancheState(channel) {
+      const r = await trancheReport(channel);
+      return {
+        phase: r.phase, live: r.live, remaining: r.remaining, reason: r.reason,
+        shortsEnabled: r.tranche?.shortsEnabled ?? false,
+        expiresAt: r.tranche?.expiresAt ?? null,
+      };
+    },
     async futureScheduled(model, after) {
       const rows = await models[model]!.findMany({
         where: { scheduledAt: { gt: after } }, select: { scheduledAt: true },
@@ -465,6 +519,7 @@ export function realDeps(): OrdinaryDeps {
       where: { id },
       select: { id: true, youtubeId: true, status: true, scheduledAt: true, createdAt: true },
     }),
+    settleSlot: (videoId, outcome, detail) => settleSlot(videoId, outcome, detail),
     async invokePipeline(channel) {
       // Imported lazily so CHECK never loads a pipeline module.
       if (channel === "ai-doom-scroll") {

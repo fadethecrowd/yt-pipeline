@@ -81,10 +81,43 @@ describe("the window refuses by default", () => {
     assert.equal(ask({ elevenDisabled: true, submitChars: 10 }).open, false);
   });
 
-  test("ordinary production has no spend authority", () => {
+  /**
+   * Graduation did not change this: reaching the voiceover stage still
+   * authorises nothing. What changed is that there are now TWO things that can
+   * authorise — a named ACTIVE pilot, or a finite production tranche slot bound
+   * to this exact candidate and run. With neither, a graduated channel is
+   * financially inert, which is its correct resting state.
+   */
+  test("ordinary production with no tranche has no spend authority", () => {
     const d = ask({ pilot: null });
     assert.equal(d.open, false);
-    assert.match((d as { reason: string }).reason, /ordinary production/);
+    assert.match((d as { reason: string }).reason, /no pilot and no production tranche slot/);
+  });
+
+  test("a graduated channel cannot spend on an unauthorized slot", () => {
+    const d = ask({ pilot: null, productionSlot: { authorized: false, reason: "tranche expired" } });
+    assert.equal(d.open, false);
+    assert.match((d as { reason: string }).reason, /no production authority/);
+    assert.match((d as { reason: string }).reason, /tranche expired/);
+  });
+
+  test("a valid production tranche slot opens the window", () => {
+    const d = ask({ pilot: null, productionSlot: { authorized: true, slotId: "slot-1" } });
+    assert.equal(d.open, true);
+    assert.equal((d as { auth: { source: string } }).auth.source, "production-tranche");
+    assert.equal((d as { auth: { pilotId: string } }).auth.pilotId, "slot-1");
+  });
+
+  test("pilot and production authority together is refused, not resolved", () => {
+    const d = ask({ productionSlot: { authorized: true, slotId: "slot-1" } });
+    assert.equal(d.open, false);
+    assert.match((d as { reason: string }).reason, /ambiguous authority/);
+  });
+
+  test("a pilot window still names the pilot as its source", () => {
+    const d = ask({});
+    assert.equal(d.open, true);
+    assert.equal((d as { auth: { source: string } }).auth.source, "pilot");
   });
 
   test("unattended execution may not open a window even under an ACTIVE pilot", () => {

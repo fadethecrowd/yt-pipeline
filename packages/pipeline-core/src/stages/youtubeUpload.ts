@@ -18,6 +18,7 @@ import { sha256File, sha256Manifest } from "../lib/approvedArtifact";
 import { sceneRecordsFor } from "../lib/visuals";
 import { currentTestStage } from "../lib/testStage";
 import { nextPublishSlot, describeSlot } from "../lib/publishSlot";
+import { trancheShortsEnabled } from "../lib/productionTrancheStore";
 import type { PipelineContext, StageResult, UploadResult } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -108,7 +109,10 @@ export async function youtubeUpload(
   // the pilot: ordinary production still receives its scheduled slot, so this
   // does not quietly redefine all PRODUCTION uploads as private forever.
   const pilot = await currentPilot();
-  const policy = uploadPolicyFor(pilot, await getNextPublishSlot());
+  // Ordinary production's Shorts policy comes from the tranche that authorized
+  // this candidate, not from a default. No tranche, no Shorts.
+  const policy = uploadPolicyFor(pilot, await getNextPublishSlot(),
+    pilot ? null : { shortsEnabled: await trancheShortsEnabled(ctx.video?.id ?? "") });
   if (policy.source === "pilot") {
     console.log(`[youtubeUpload] pilot ${pilot!.pilotId}: private, no publishAt, guarded intent`);
   }

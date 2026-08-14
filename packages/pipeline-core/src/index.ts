@@ -213,6 +213,22 @@ export {
 export {
   authorizeNarrationWindow, narrationCeilingChars,
 } from "./lib/narrationWindow";
+export {
+  canAuthorizeTranche, canClaimSlot, checkSlotAuthority, liveTranche,
+  remainingCandidates, settlementFor, classifyTranchePhase,
+  tranchesNeedingRecovery,
+  TRANCHE_MAX_LIFETIME_MS, TRANCHE_DEFAULT_LIFETIME_MS, TRANCHE_MAX_CANDIDATES,
+} from "./lib/productionTranche";
+export type {
+  ProductionTrancheRow, ProductionTrancheSlotRow, ProductionTrancheStatus,
+  TrancheSlotStatus, TranchePhase, AuthorizeRequest, ClaimRequest,
+  SlotAuthorityVerdict,
+} from "./lib/productionTranche";
+export {
+  currentTranche, slotsFor, authorizeTranche, claimSlot, verifyProductionSlot,
+  trancheShortsEnabled, settleSlot, closeTranche, reconcileTranches, trancheReport,
+} from "./lib/productionTrancheStore";
+export type { TrancheReport } from "./lib/productionTrancheStore";
 export type {
   NarrationAuthorization, NarrationWindowDecision, NarrationWindowInput,
 } from "./lib/narrationWindow";

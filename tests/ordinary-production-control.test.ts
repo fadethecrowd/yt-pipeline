@@ -59,13 +59,22 @@ interface FakeOpts {
   rows?: VideoRow[];
   invokeThrows?: boolean;
   onInvoke?: () => void;
+  tranche?: {
+    phase: string; live: boolean; remaining: number; reason: string;
+    shortsEnabled: boolean; expiresAt: Date | null;
+  };
 }
-interface Fake { deps: OrdinaryDeps; invoked: ChannelSeen[]; envSeen: (string | undefined)[] }
+interface Settled { videoId: string; outcome: string; detail: string }
+interface Fake {
+  deps: OrdinaryDeps; invoked: ChannelSeen[]; envSeen: (string | undefined)[];
+  settled: Settled[];
+}
 type ChannelSeen = string;
 
 function makeFake(spec = AI, o: FakeOpts = {}): Fake {
   const invoked: ChannelSeen[] = [];
   const envSeen: (string | undefined)[] = [];
+  const settled: Settled[] = [];
   const state = { unresolved: o.unresolved ?? 0, reserved: o.reserved ?? 0 };
   const deps: OrdinaryDeps = {
     async readPilot() { return o.pilot === undefined ? completed(spec) : o.pilot; },
@@ -79,6 +88,18 @@ function makeFake(spec = AI, o: FakeOpts = {}): Fake {
     async activeRunCount() { return o.active ?? 0; },
     async unresolvedIntentCount() { return state.unresolved; },
     async futureScheduled() { return o.occupied ?? []; },
+    // A live N=1 tranche by default: these fixtures exercise the OTHER gates,
+    // and every one of them predates finite authorization. The tranche-specific
+    // cases set this explicitly.
+    async trancheState() {
+      return o.tranche ?? {
+        phase: "AUTHORIZED", live: true, remaining: 1,
+        reason: "1 candidate attempt(s) remaining",
+        shortsEnabled: false,
+        expiresAt: new Date(SAT.getTime() + 3600_000),
+      };
+    },
+    async settleSlot(videoId, outcome, detail) { settled.push({ videoId, outcome, detail }); return true; },
     async runsSince() { return o.runs ?? []; },
     async rowsSince() { return o.rows ?? []; },
     async rowById(_m, id) { return (o.rows ?? []).find((r) => r.id === id) ?? null; },
@@ -93,7 +114,7 @@ function makeFake(spec = AI, o: FakeOpts = {}): Fake {
   };
   // Let a test flip state mid-run.
   (deps as unknown as { _state: typeof state })._state = state;
-  return { deps, invoked, envSeen };
+  return { deps, invoked, envSeen, settled };
 }
 
 const run = (id: string, status: string): RunRecord => ({

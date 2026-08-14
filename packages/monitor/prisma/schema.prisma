@@ -863,3 +863,89 @@ model SupervisedLease {
   @@index([status, expiresAt])
   @@map("supervised_lease")
 }
+
+enum ProductionTrancheStatus {
+  ACTIVE
+  EXHAUSTED
+  EXPIRED
+  CLOSED
+}
+
+enum TrancheSlotStatus {
+  CLAIMED
+  SETTLED_SUCCESS
+  SETTLED_FAILED
+  RECONCILIATION_REQUIRED
+}
+
+/// Finite, expiring authorization for ordinary production spend.
+///
+/// Graduation proves a channel MAY produce; it grants no money. This does:
+/// a human authorizes exactly N candidate attempts, each of which may open one
+/// candidate-scoped narration window, and when N is consumed or the clock runs
+/// out the channel is financially inert again. There is deliberately no
+/// "production is enabled" flag anywhere — spend needs a row that says how much.
+model ProductionTranche {
+  id                  String                  @id @default(cuid())
+  channel             String
+  /// Candidate ATTEMPTS authorized, not successes. A failure still consumes one.
+  maxCandidates       Int
+  /// Monotonic. Only ever rises, and never past maxCandidates.
+  consumedCandidates  Int                     @default(0)
+  status              ProductionTrancheStatus @default(ACTIVE)
+
+  /// First-tranche policy: Shorts are a second, unqualified upload path, so a
+  /// tranche states explicitly whether it authorizes them.
+  shortsEnabled       Boolean                 @default(false)
+
+  /// Free-text record of who authorized it and why.
+  authorizedBy        String
+  /// The commit the authorization was granted against.
+  policyCommit        String?
+
+  authorizedAt        DateTime                @default(now())
+  expiresAt           DateTime
+  closedAt            DateTime?
+  closedReason        String?
+
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  slots               ProductionTrancheSlot[]
+
+  @@index([channel, status])
+  @@index([status, expiresAt])
+  @@map("production_tranche")
+}
+
+/// One consumed candidate attempt, bound to the exact execution that took it.
+///
+/// The slot is created at the moment candidate and run identity both exist, so
+/// there is never an unclaimed-but-in-use slot that a second candidate could
+/// adopt — the same lesson the supervised lease learned the hard way.
+model ProductionTrancheSlot {
+  id            String            @id @default(cuid())
+  trancheId     String
+  channel       String
+  /// Position within the tranche. Unique per tranche, so capacity cannot be
+  /// exceeded even if two claimers somehow reached the insert together.
+  slotIndex     Int
+  status        TrancheSlotStatus @default(CLAIMED)
+
+  videoId       String
+  runId         String
+
+  claimedAt     DateTime          @default(now())
+  settledAt     DateTime?
+  outcome       String?
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  tranche       ProductionTranche @relation(fields: [trancheId], references: [id])
+
+  @@unique([trancheId, slotIndex])
+  @@unique([videoId])
+  @@index([channel, status])
+  @@map("production_tranche_slot")
+}

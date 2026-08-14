@@ -44,7 +44,27 @@ describe("pilot uploads can never carry a publish time", () => {
     const p = uploadPolicyFor(null, SLOT);
     assert.equal(p.source, "normal");
     assert.equal(p.scheduledSlot, SLOT, "the pilot restriction must not redefine all production");
+    assert.equal(p.privacyStatus, "private", "staging is private-until-publishAt");
+  });
+
+  /**
+   * Shorts are a SECOND upload path that no qualification video ever exercised
+   * — both were long-form only. Defaulting them on meant the first ordinary
+   * production run would debut an untested generator and an untested upload
+   * alongside the production controller itself. The authorising tranche says
+   * what it authorises; absent one, nothing is authorised.
+   */
+  test("Shorts are off unless the authorizing tranche enables them", () => {
+    assert.equal(uploadPolicyFor(null, SLOT).shortsEnabled, false,
+      "no tranche policy must not mean Shorts on");
+    assert.equal(uploadPolicyFor(null, SLOT, { shortsEnabled: false }).shortsEnabled, false);
+  });
+
+  test("a future tranche can enable Shorts without changing long-form", () => {
+    const p = uploadPolicyFor(null, SLOT, { shortsEnabled: true });
     assert.equal(p.shortsEnabled, true);
+    assert.equal(p.scheduledSlot, SLOT, "long-form scheduling is unaffected either way");
+    assert.equal(p.privacyStatus, "private");
   });
 
   test("a pilot that declares non-private or permits publishing is refused", () => {
