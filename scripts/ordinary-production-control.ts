@@ -330,11 +330,28 @@ export async function doRun(
     return { ...base, outcome: "OBSERVATION_FAILED",
       reason: "no pipeline run appeared after the watermark" };
   }
-  if (run.status === "SUCCESS" && video?.youtubeId && video.scheduledAt) {
+  // WARNING is a finished run, not a stopped one. `RunSummary.verifyOutputs`
+  // emits it when every stage COMPLETED but an expected output is missing, so
+  // an upload that simply produced no Short lands here. Treating only SUCCESS
+  // as "finished" is the same defect fixed for the pilot controller in
+  // e1dc803, where a completed upload was reported as FAILED_BEFORE_SPEND.
+  const COMPLETED = ["SUCCESS", "WARNING"];
+  if (COMPLETED.includes(run.status) && video?.youtubeId && video.scheduledAt) {
     return { ...base, outcome: "SUCCESS_SCHEDULED",
-      reason: `scheduled for ${video.scheduledAt.toISOString()} (${describeSlot(video.scheduledAt)})` };
+      reason: `run ${run.status} — scheduled for ${video.scheduledAt.toISOString()} ` +
+        `(${describeSlot(video.scheduledAt)})` };
   }
-  // A terminal non-success with clean budget and no intent never bought a thing.
+  // Never infer "no spend" from status while a video exists on the channel.
+  // A youtubeId is evidence that narration was bought, a render happened and
+  // an upload completed; whatever the run status says, "never bought a thing"
+  // is the one thing it cannot mean.
+  if (video?.youtubeId) {
+    return { ...base, outcome: "UPLOAD_AMBIGUOUS",
+      reason: `run ${run.status} but video ${video.id} carries youtubeId ${video.youtubeId}` +
+        `${video.scheduledAt ? "" : " with no scheduledAt"} — reconcile before any future run` };
+  }
+  // A terminal non-success with clean budget, no intent and no video never
+  // bought a thing.
   const status = video?.status ?? run.status;
   const outcome: Outcome =
     status === "QUALITY_FAILED" ? "QUALITY_FAILED" : "FAILED_BEFORE_SPEND";

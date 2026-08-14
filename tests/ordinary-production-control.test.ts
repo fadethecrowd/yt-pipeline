@@ -380,6 +380,43 @@ describe("26-43. RUN outcomes", () => {
     assert.equal(f.invoked.length, 1);
   });
 
+  /**
+   * The same defect the pilot controller carried until e1dc803: only SUCCESS
+   * counted as a finished run, so a completed upload whose run ended WARNING
+   * was reported as "stopped before spending". An operator reading that could
+   * reasonably authorise another run believing the first did nothing.
+   */
+  test("a WARNING run that uploaded and scheduled is a success, not a pre-spend failure", async () => {
+    const f = makeFake(AI, { runs: [run("run-w", "WARNING")], rows: [row({ id: "vid-w" })] });
+    const r = await doRun(f.deps, AI, true);
+    assert.equal(r.outcome, "SUCCESS_SCHEDULED",
+      "this is the bug: WARNING read as FAILED_BEFORE_SPEND");
+    assert.equal(r.youtubeId, "yt-new");
+    assert.match(r.reason, /WARNING/, "the operator must still see the run ended WARNING");
+  });
+
+  test("an upload with no schedule is ambiguous, never 'never bought a thing'", async () => {
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ id: "vid-x", youtubeId: "yt-live", scheduledAt: null, status: "FAILED" })],
+    });
+    const r = await doRun(f.deps, AI, true);
+    assert.equal(r.outcome, "UPLOAD_AMBIGUOUS");
+    assert.match(r.reason, /yt-live/, "the operator must be told a video exists");
+    assert.match(r.reason, /no scheduledAt/);
+    assert.match(r.reason, /reconcile/);
+  });
+
+  test("a video with no youtubeId is still classified from status", async () => {
+    // The narrowing must not swallow the genuine pre-spend cases.
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ status: "FAILED", youtubeId: null, scheduledAt: null })],
+    });
+    const r = await doRun(f.deps, AI, true);
+    assert.equal(r.outcome, "FAILED_BEFORE_SPEND");
+  });
+
   test("43. no run appearing at all is an observation failure", async () => {
     const f = makeFake(AI, { runs: [], rows: [] });
     const r = await doRun(f.deps, AI, true);

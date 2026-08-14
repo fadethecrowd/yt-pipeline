@@ -18,7 +18,7 @@ import {
   openUnattendedGate, isUnattendedMode, unattendedClaimantId,
   createAndAttachCandidate, settleCycle, getCycle,
   MANUAL_SUPERVISED, UNATTENDED,
-  verifySupervision, reconcileLeases,
+  verifySupervision, reconcileLeases, activeLeaseFor, bindLease,
   type ActiveCycle,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
@@ -93,6 +93,10 @@ async function assertSupervisedBoundary(
     channel: AI_DOOM_CHANNEL as never,
     pilotId: pilot.pilotId,
     videoId: ctx.video?.id,
+    runId: ctx.runId,
+    // By this point the execution has an identity, so a lease that still names
+    // none is refused rather than treated as authorising everything.
+    requireBound: true,
   });
   if (sup.live) {
     console.log(`[${boundary}] supervised lease ${sup.lease.id} still live`);
@@ -105,6 +109,71 @@ async function assertSupervisedBoundary(
   const error = `refused at ${boundary}: supervision is no longer live — ${sup.reason}`;
   console.error(`[${boundary}] ${error}`);
   return { success: false, error, durationMs: 0 };
+}
+
+/**
+ * Stamp the concrete execution identity onto the supervised lease.
+ *
+ * Called at the two — and only two — moments a candidate becomes durable: the
+ * fresh-candidate create, and the resume of a stuck one. Both sit before any
+ * stage that spends, renders or uploads, so from the first expensive action
+ * onward the lease names exactly one candidate and one run.
+ *
+ * Qualification video #1 is why this exists. Its lease was opened, heartbeated
+ * for twenty minutes and closed correctly, but `bindLease` was never called, so
+ * the lease stayed a generic "some AI Doom pilot candidate may proceed"
+ * authorization for its entire life. Nothing went wrong that day; nothing was
+ * stopping it from going wrong either.
+ *
+ * This is the correct trust point because it is the earliest instant at which
+ * the thing to be authorised actually exists. Earlier, there is no identity to
+ * bind. Later — at narration, say — the candidate would already have been
+ * created and worked on under an unbound lease, which is the state we are
+ * trying to eliminate.
+ *
+ * NARROWING ONLY. Binding cannot open, renew, extend or re-own a lease; the
+ * pipeline still holds no controller token and still cannot keep itself alive.
+ * All it can do is convert authority it was already operating under into
+ * something strictly more specific. If it fails, the run fails closed rather
+ * than continuing under the broader authority — the loser of a bind race must
+ * not proceed just because a live lease exists.
+ */
+async function bindSupervisedIdentity(
+  videoId: string,
+  runId: string | undefined,
+): Promise<StageResult | null> {
+  if (activeCycle) return null;            // unattended: governed by its cycle
+  const pilot = await resolveAiDoomPilot();
+  if (!pilot) return null;                 // ordinary production: unchanged
+
+  if (!runId) {
+    const error = "refused at bindSupervisedIdentity: no run identity available " +
+      "— a supervised pilot candidate must be bound to its run before it proceeds";
+    console.error(`[pipeline] ${error}`);
+    return { success: false, error, durationMs: 0 };
+  }
+  const live = await activeLeaseFor(AI_DOOM_CHANNEL);
+  if (!live) {
+    const error = "refused at bindSupervisedIdentity: no supervised lease to bind";
+    console.error(`[pipeline] ${error}`);
+    return { success: false, error, durationMs: 0 };
+  }
+  const bound = await bindLease(live.id, {
+    channel: AI_DOOM_CHANNEL as never,
+    pilotId: pilot.pilotId,
+    videoId,
+    runId,
+  });
+  if (!bound.bound) {
+    const error = `refused at bindSupervisedIdentity: ${bound.reason}`;
+    console.error(`[pipeline] ${error}`);
+    return { success: false, error, durationMs: 0 };
+  }
+  console.log(
+    `[pipeline] supervised lease ${live.id} bound to candidate ${videoId} run ${runId}` +
+    `${bound.alreadyBound ? " (already bound — unchanged)" : ""}`,
+  );
+  return null;
 }
 
 /** Render is the first materially costly, irreversible step after narration. */
@@ -449,10 +518,23 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
       );
       summary?.setVideoId(stuckVideo.id);
 
+      // A resumed candidate is a NEW run. The lease must be bound to THIS run,
+      // never inherit authority from the run that originally stalled it — that
+      // earlier run's lease is closed, and this one is minted fresh, so the
+      // bind is an ordinary unbound → bound transition.
+      const resumeBind = await bindSupervisedIdentity(stuckVideo.id, summary?.runId);
+      if (resumeBind) {
+        summary?.markFailed("bindSupervisedIdentity", new Error(resumeBind.error ?? "bind refused"));
+        await failVideo({ topic: stuckVideo.topic, video: stuckVideo },
+          "bindSupervisedIdentity", resumeBind.error ?? "bind refused");
+        return;
+      }
+
       // Rebuild context from DB fields
       const ctx: PipelineContext = {
         topic: stuckVideo.topic,
         video: stuckVideo,
+        runId: summary?.runId,
         script: (stuckVideo.scriptJson as unknown as Script) ?? undefined,
         voiceoverUrls: stuckVideo.voiceoverUrls,
         videoUrl: stuckVideo.videoPath ?? undefined,
@@ -578,9 +660,19 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
         ) as Awaited<ReturnType<typeof createVideo>>
       : await createVideo(prisma);
 
-    const ctx: PipelineContext = { topic, video };
+    const ctx: PipelineContext = { topic, video, runId: summary?.runId };
     summary?.setVideoId(video.id);
     console.log(`[pipeline] Video ${video.id} created for topic "${topic.title}"`);
+
+    // Earliest point at which this execution has a durable identity, and still
+    // three stages before anything is bought. From here the lease authorises
+    // this candidate and this run, or the run stops.
+    const freshBind = await bindSupervisedIdentity(video.id, summary?.runId);
+    if (freshBind) {
+      summary?.markFailed("bindSupervisedIdentity", new Error(freshBind.error ?? "bind refused"));
+      await failVideo(ctx, "bindSupervisedIdentity", freshBind.error ?? "bind refused");
+      return;
+    }
 
     // ── Stages 2–8 ───────────────────────────────────────────────────
 

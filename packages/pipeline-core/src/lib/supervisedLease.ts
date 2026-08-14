@@ -89,6 +89,20 @@ export interface LeaseCheckInput {
   pilotId?: string;
   /** Optional narrowing: the candidate this action belongs to. */
   videoId?: string;
+  /** Optional narrowing: the run this action belongs to. */
+  runId?: string;
+  /**
+   * Require the lease to already name a concrete execution.
+   *
+   * Set at the protected boundaries — narration, render, upload — which are
+   * only ever reached after a candidate and run exist. Before that identity
+   * exists an unbound lease is legitimate, so the startup gate leaves this off.
+   *
+   * Without it, "unbound" reads as "matches everything": qualification video #1
+   * ran to completion under a lease whose videoId and runId were never set, so
+   * every boundary check it passed was really only a channel/pilot check.
+   */
+  requireBound?: boolean;
 }
 
 export type LeaseVerdict =
@@ -102,7 +116,7 @@ export type LeaseVerdict =
  * mean spending or publishing with nobody watching.
  */
 export function checkSupervisedLease(input: LeaseCheckInput): LeaseVerdict {
-  const { lease, now, channel, pilotId, videoId } = input;
+  const { lease, now, channel, pilotId, videoId, runId, requireBound } = input;
 
   if (!lease) return { live: false, reason: "no supervised lease exists" };
   if (lease.status !== "ACTIVE") {
@@ -116,8 +130,24 @@ export function checkSupervisedLease(input: LeaseCheckInput): LeaseVerdict {
   }
   // Bound only once the candidate is known. An unbound lease may still be
   // adopted by the first candidate; a bound one may never be reused by another.
+  //
+  // At a protected boundary the identity must already exist, so "unbound" is a
+  // refusal rather than a wildcard — otherwise a controller that died between
+  // opening the lease and binding it would leave a live, generic authorization
+  // that any candidate could spend under.
+  if (requireBound && (!lease.videoId || !lease.runId)) {
+    return {
+      live: false,
+      reason: `lease ${lease.id} is not bound to an execution ` +
+        `(candidate=${lease.videoId ?? "none"} run=${lease.runId ?? "none"}) — ` +
+        `it authorises no specific candidate at this boundary`,
+    };
+  }
   if (videoId && lease.videoId && lease.videoId !== videoId) {
     return { live: false, reason: `lease ${lease.id} is bound to candidate ${lease.videoId}, not ${videoId}` };
+  }
+  if (runId && lease.runId && lease.runId !== runId) {
+    return { live: false, reason: `lease ${lease.id} is bound to run ${lease.runId}, not ${runId}` };
   }
   if (now.getTime() >= lease.expiresAt.getTime()) {
     return { live: false, reason: `lease ${lease.id} expired at ${lease.expiresAt.toISOString()}` };
@@ -160,6 +190,81 @@ export function canRenew(
     return { ok: false, reason: "lease has passed its hard expiry and cannot be renewed" };
   }
   return { ok: true };
+}
+
+export interface BindRequest {
+  channel: ChannelKey;
+  pilotId: string;
+  videoId: string;
+  runId: string;
+  /**
+   * Proven ownership, when the caller has it.
+   *
+   * The controller holds the token; the pipeline it launched deliberately does
+   * not, because a process that could present the token could also renew, and
+   * "the pipeline may not renew itself" is the invariant this whole mechanism
+   * exists to protect. Binding is safe to allow without it because binding can
+   * only ever REMOVE authority — it turns a lease that authorises any candidate
+   * into one that authorises exactly one, and the atomic unbound-only
+   * precondition means the first execution wins and every later one is refused.
+   */
+  controllerToken?: string;
+}
+
+export type BindVerdict =
+  | { ok: true; alreadyBound: boolean }
+  | { ok: false; reason: string };
+
+/**
+ * May this execution stamp its identity onto this lease?
+ *
+ * Narrowing is monotonic: unbound → one concrete (candidate, run), and never
+ * again. Both ids move together, so there is no half-bound state in which a
+ * second execution could claim the remaining slot.
+ *
+ * A repeat of the SAME identity is allowed and reports `alreadyBound`, so a
+ * retried bind after a lost response is not an error. A DIFFERENT identity is
+ * always refused, however live the lease is.
+ */
+export function canBind(
+  lease: SupervisedLeaseRow | null,
+  req: BindRequest,
+  now: Date,
+): BindVerdict {
+  if (!lease) return { ok: false, reason: "no lease to bind" };
+  if (lease.status !== "ACTIVE") return { ok: false, reason: `lease is ${lease.status}` };
+  if (lease.channel !== req.channel) {
+    return { ok: false, reason: `lease ${lease.id} belongs to ${lease.channel}, not ${req.channel}` };
+  }
+  if (lease.pilotId !== req.pilotId) {
+    return { ok: false, reason: `lease ${lease.id} belongs to pilot ${lease.pilotId}, not ${req.pilotId}` };
+  }
+  if (req.controllerToken !== undefined && lease.controllerToken !== req.controllerToken) {
+    return { ok: false, reason: "bind token does not match the lease owner" };
+  }
+  // A lease past its hard expiry, or one whose controller has stopped beating,
+  // authorises nothing — so it must not be able to acquire a fresh identity
+  // and look specific.
+  if (now.getTime() >= lease.expiresAt.getTime()) {
+    return { ok: false, reason: "lease has passed its hard expiry and cannot be bound" };
+  }
+  const sinceBeat = now.getTime() - lease.heartbeatAt.getTime();
+  if (sinceBeat > LEASE_STALE_AFTER_MS) {
+    return {
+      ok: false,
+      reason: `lease last renewed ${Math.round(sinceBeat / 1000)}s ago ` +
+        `(stale after ${LEASE_STALE_AFTER_MS / 1000}s) — the controller is gone`,
+    };
+  }
+  if (lease.videoId === null && lease.runId === null) return { ok: true, alreadyBound: false };
+  if (lease.videoId === req.videoId && lease.runId === req.runId) {
+    return { ok: true, alreadyBound: true };
+  }
+  return {
+    ok: false,
+    reason: `lease ${lease.id} is already bound to candidate ${lease.videoId ?? "none"} ` +
+      `run ${lease.runId ?? "none"} — it cannot be re-scoped to ${req.videoId}/${req.runId}`,
+  };
 }
 
 /**

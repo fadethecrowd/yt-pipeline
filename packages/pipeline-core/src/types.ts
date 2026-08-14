@@ -36,6 +36,12 @@ export interface SEOMetadata {
 export interface PipelineContext {
   topic: Topic;
   video: Video;
+  /**
+   * The identity of the run executing this context, minted by `RunSummary`
+   * before any stage starts. Present so the protected boundaries can prove
+   * WHICH run they are, not merely that some run is supervised.
+   */
+  runId?: string;
   script?: Script;
   voiceoverUrls?: string[];
   videoUrl?: string;

@@ -17,6 +17,7 @@
  *   - entry point calls summary.persist() inside finally so even unhandled
  *     throws produce a row
  */
+import { randomUUID } from "node:crypto";
 import { prisma } from "./db";
 
 export type PipelineChannel = "ai-doom-scroll" | "wet-circuit";
@@ -37,6 +38,23 @@ const PRECEDENCE: Record<PipelineRunStatusValue, number> = {
 };
 
 export class RunSummary {
+  /**
+   * This run's identity, minted at construction rather than assigned by the
+   * database at the end.
+   *
+   * `persist()` writes the `pipeline_run` row only once the run is over, so for
+   * the whole time the run is actually doing anything — buying narration,
+   * rendering, uploading — there was no run id in existence to authorise
+   * against. The supervised lease could therefore never be scoped to a run,
+   * only to a candidate.
+   *
+   * Minting the id up front costs nothing (the column is a plain string key)
+   * and makes the run nameable from its first moment, which is what lets the
+   * lease bind candidate and run together before any spend. The row that
+   * appears at the end carries this same id.
+   */
+  readonly runId: string = randomUUID();
+
   private readonly channel: PipelineChannel;
   private readonly runMode: PipelineMode;
   private readonly startTime: Date;
@@ -191,6 +209,7 @@ export class RunSummary {
     try {
       await prisma.pipelineRun.create({
         data: {
+          id: this.runId,
           channel: this.channel,
           runMode: this.runMode,
           status: this.status,

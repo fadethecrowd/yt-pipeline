@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "./db";
 import {
-  checkSupervisedLease, canRenew, leasesNeedingRecovery,
+  checkSupervisedLease, canRenew, canBind, leasesNeedingRecovery,
   LEASE_MAX_LIFETIME_MS,
 } from "./supervisedLease";
 import type {
-  SupervisedLeaseRow, LeaseVerdict,
+  SupervisedLeaseRow, LeaseVerdict, BindRequest,
 } from "./supervisedLease";
 import type { ChannelKey } from "./runtimeTargets";
 
@@ -91,14 +91,64 @@ export async function renewLease(
   return n === 1 ? { renewed: true } : { renewed: false, reason: "conditional update matched no row" };
 }
 
-/** Bind the candidate/run once known, so the lease cannot be reused elsewhere. */
+/**
+ * Bind the candidate/run once known, so the lease cannot be reused elsewhere.
+ *
+ * This existed from the start and was never called, which is why qualification
+ * video #1 ran under a lease that named no candidate and no run: every
+ * downstream check it passed was really only a channel/pilot check, and the
+ * lease stayed adoptable by any candidate for its whole life.
+ *
+ * The previous body could not have closed that gap safely even if it had been
+ * called. It accepted either id alone, so a lease could sit half-bound; it
+ * re-bound an already-bound lease to different values without complaint; it
+ * checked neither channel, pilot, ownership, expiry nor staleness; and it
+ * returned `void`, so a caller could not fail closed on refusal.
+ *
+ * Now: `canBind` decides, and one conditional UPDATE applies it. Both ids move
+ * together under `videoId IS NULL AND runId IS NULL`, so the transition is
+ * atomic and monotonic — the database, not the caller, arbitrates the race, and
+ * two executions starting together cannot both come away believing they own it.
+ * A crash mid-statement leaves either a valid unbound lease or a valid fully
+ * bound one; there is no partial identity to settle.
+ *
+ * Deliberately does NOT touch heartbeatAt or expiresAt: binding narrows
+ * authority and must never extend it.
+ */
 export async function bindLease(
-  id: string, bind: { videoId?: string; runId?: string },
-): Promise<void> {
-  await lease().updateMany({
-    where: { id, status: "ACTIVE" },
-    data: { ...(bind.videoId ? { videoId: bind.videoId } : {}), ...(bind.runId ? { runId: bind.runId } : {}) },
-  });
+  id: string,
+  req: BindRequest,
+  now = new Date(),
+): Promise<{ bound: true; alreadyBound: boolean } | { bound: false; reason: string }> {
+  const row = (await lease().findUnique({ where: { id } })) as SupervisedLeaseRow | null;
+  const allowed = canBind(row, req, now);
+  if (!allowed.ok) return { bound: false, reason: allowed.reason };
+  // Re-binding the identical identity changed nothing, so report it without a
+  // write rather than racing an UPDATE whose precondition can no longer hold.
+  if (allowed.alreadyBound) return { bound: true, alreadyBound: true };
+
+  const n = await prisma.$executeRawUnsafe(
+    `UPDATE "supervised_lease"
+        SET "videoId"=$2, "runId"=$3, "updatedAt"=NOW()
+      WHERE "id"=$1 AND "status"='ACTIVE'
+        AND "channel"=$4 AND "pilotId"=$5
+        AND "videoId" IS NULL AND "runId" IS NULL
+        AND "expiresAt" > $6`,
+    id, req.videoId, req.runId, req.channel, req.pilotId, now,
+  );
+  if (n === 1) return { bound: true, alreadyBound: false };
+  // Lost the race, or the lease moved under us. Re-read so an execution that
+  // bound the identical identity concurrently still succeeds, and one that
+  // lost to a DIFFERENT execution is told exactly who won.
+  const after = (await lease().findUnique({ where: { id } })) as SupervisedLeaseRow | null;
+  const recheck = canBind(after, req, now);
+  if (recheck.ok && recheck.alreadyBound) return { bound: true, alreadyBound: true };
+  return {
+    bound: false,
+    reason: recheck.ok
+      ? "conditional update matched no row"
+      : recheck.reason,
+  };
 }
 
 /** Terminal. Idempotent: closing an already-closed lease changes nothing. */
@@ -115,12 +165,14 @@ export async function closeLease(
 
 /** The live-lease question, answered from durable state. */
 export async function verifySupervision(input: {
-  channel: ChannelKey; pilotId?: string; videoId?: string; now?: Date;
+  channel: ChannelKey; pilotId?: string; videoId?: string; runId?: string;
+  requireBound?: boolean; now?: Date;
 }): Promise<LeaseVerdict> {
   const row = await activeLeaseFor(input.channel);
   return checkSupervisedLease({
     lease: row, now: input.now ?? new Date(),
-    channel: input.channel, pilotId: input.pilotId, videoId: input.videoId,
+    channel: input.channel, pilotId: input.pilotId,
+    videoId: input.videoId, runId: input.runId, requireBound: input.requireBound,
   });
 }
 

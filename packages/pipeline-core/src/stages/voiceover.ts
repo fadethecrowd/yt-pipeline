@@ -77,8 +77,13 @@ export async function voiceover(ctx: PipelineContext): Promise<StageResult> {
   // process was then killed; everything downstream still believed it was
   // supervised and bought 5,683 characters. A lease that stopped being renewed
   // makes that purchase refuse instead.
+  // Scoped to THIS candidate and THIS run, and refusing a lease that names
+  // neither. Before binding was wired the lease could only be checked for
+  // channel and pilot, so "supervised" meant "somebody is watching this
+  // channel" rather than "somebody authorised this purchase".
   const supervision = await verifySupervision({
     channel, pilotId: pilot?.pilotId, videoId: ctx.video?.id,
+    runId: ctx.runId, requireBound: true,
   });
 
   const decision = authorizeNarrationWindow({

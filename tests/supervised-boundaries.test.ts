@@ -103,7 +103,10 @@ describe("a boundary refuses whenever supervision is not live", () => {
 describe("the pipeline may refuse but never renew", () => {
   test("the boundary helper only reads supervision", () => {
     const h = SRC.indexOf("async function assertSupervisedBoundary");
-    const body = SRC.slice(h, SRC.indexOf("async function guardedVideoAssembly"));
+    // Ends at the START of the bind helper's doc comment, not its declaration:
+    // that comment names bindLease in prose while explaining why binding is the
+    // one mutation the pipeline may make.
+    const body = SRC.slice(h, SRC.indexOf("/**\n * Stamp the concrete execution identity"));
     assert.match(body, /verifySupervision\(/);
     for (const forbidden of ["renewLease", "openLease", "bindLease", "closeLease"]) {
       assert.ok(!body.includes(forbidden),
@@ -111,10 +114,40 @@ describe("the pipeline may refuse but never renew", () => {
     }
   });
 
+  /**
+   * Binding is the ONE lease mutation the pipeline is allowed, because it is
+   * the only one that cannot increase authority: it turns "any candidate may
+   * proceed" into "this candidate may proceed" and can never go back. Opening,
+   * renewing and closing all create or sustain authority, and remain the
+   * controller's alone.
+   */
+  test("binding is the only lease mutation the pipeline may perform", () => {
+    for (const forbidden of ["renewLease", "openLease", "closeLease"]) {
+      assert.ok(!SRC.includes(forbidden),
+        `src/pipeline.ts must never call ${forbidden}`);
+    }
+    const h = SRC.indexOf("async function bindSupervisedIdentity");
+    const body = SRC.slice(h, SRC.indexOf("/** Render is the first materially"));
+    assert.match(body, /bindLease\(/);
+    // Every bindLease call site lives inside that one helper.
+    assert.equal(SRC.split("bindLease(").length - 1, body.split("bindLease(").length - 1);
+  });
+
+  test("binding refuses rather than proceeding under the broader authority", () => {
+    const h = SRC.indexOf("async function bindSupervisedIdentity");
+    const body = SRC.slice(h, SRC.indexOf("/** Render is the first materially"));
+    assert.match(body, /if \(!bound\.bound\)/,
+      "a failed bind must stop the run, not fall through to the unbound lease");
+    assert.match(body, /success: false/);
+  });
+
   test("no pipeline stage renews the lease anywhere", () => {
     assert.ok(!/renewLease/.test(SRC), "src/pipeline.ts must never renew supervision");
     const vo = readFileSync("packages/pipeline-core/src/stages/voiceover.ts", "utf8");
     assert.ok(!/renewLease/.test(vo), "the spend path must never renew supervision");
+    for (const f of ["renewLease", "openLease", "closeLease"]) {
+      assert.ok(!vo.includes(f), `the spend path must never call ${f}`);
+    }
   });
 
   test("only the controller renews", () => {
