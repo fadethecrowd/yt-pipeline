@@ -203,54 +203,70 @@ describe("21-28. graduation completion", () => {
   const AI = SPECS["ai-doom-scroll"];
   const WC = SPECS["wet-circuit"];
 
-  test("21/22. AI Doom refuses completion at 1/1 and 2/2", async () => {
-    for (const [c, m, ids] of [[1, 1, ["v1"]], [2, 2, ["v1", "v2"]]] as const) {
-      const f = gfake(pilot({ successCount: c, maxSuccesses: m, successVideoIds: [...ids] }));
-      const r = await evaluate(f.deps, AI);
-      assert.equal(r.phase, "CAP_EXHAUSTED_REVIEW_REQUIRED");
-      assert.equal((await doComplete(f.deps, AI, true)).completed, false);
-      assert.equal(f.completes.length, 0);
-    }
+  test("21. AI Doom refuses completion below its qualification target", async () => {
+    const f = gfake(pilot({ successCount: 1, maxSuccesses: 1, successVideoIds: ["v1"] }));
+    const r = await evaluate(f.deps, AI);
+    assert.equal(r.phase, "CAP_EXHAUSTED_REVIEW_REQUIRED");
+    assert.equal((await doComplete(f.deps, AI, true)).completed, false);
+    assert.equal(f.completes.length, 0);
   });
 
-  test("23. AI Doom 3/3 with three valid reviewed outputs completes with one CAS", async () => {
-    const f = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }));
+  /**
+   * The target is two because a human decided two was enough evidence, on
+   * 2026-08-14, having watched both. Lowering it from three is what CLOSES the
+   * pilot: at 2/2 ACTIVE the cap-advance control could still have authorised a
+   * third run. Every per-video evidentiary check below is unchanged.
+   */
+  test("22. the AI Doom qualification target is two reviewed videos", () => {
+    assert.equal(AI.qualificationTarget, 2);
+  });
+
+  test("23. AI Doom 2/2 with two valid reviewed outputs completes with one CAS", async () => {
+    const f = gfake(pilot({ successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] }));
     assert.equal((await evaluate(f.deps, AI)).phase, "READY_TO_COMPLETE");
     const r = await doComplete(f.deps, AI, true);
     assert.equal(r.completed, true);
-    assert.deepEqual(f.completes, [3]);
+    assert.deepEqual(f.completes, [2], "the CAS must assert the target, not a stale 3");
+  });
+
+  test("a pilot beyond the target is not silently accepted", async () => {
+    // 3/3 no longer matches a target of 2; the confirmed-count check refuses
+    // rather than completing against the wrong number.
+    const f = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }));
+    assert.notEqual((await evaluate(f.deps, AI)).phase, "READY_TO_COMPLETE");
+    assert.equal((await doComplete(f.deps, AI, true)).completed, false);
   });
 
   test("completion without the acknowledgement mutates nothing", async () => {
-    const f = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }));
+    const f = gfake(pilot({ successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] }));
     assert.equal((await doComplete(f.deps, AI, false)).completed, false);
     assert.equal(f.completes.length, 0);
   });
 
   test("24. a failed QA verdict refuses", async () => {
-    const f = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }),
+    const f = gfake(pilot({ successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] }),
       { qa: [qrow({ overall: "FAIL" })] });
     assert.notEqual((await evaluate(f.deps, AI)).phase, "READY_TO_COMPLETE");
     assert.equal((await doComplete(f.deps, AI, true)).completed, false);
   });
 
   test("a missing success row or missing youtubeId refuses", async () => {
-    const missing = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }),
-      { rows: { a: vrow("a"), b: null, c: vrow("c") } });
+    const missing = gfake(pilot({ successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] }),
+      { rows: { a: vrow("a"), b: null } });
     assert.notEqual((await evaluate(missing.deps, AI)).phase, "READY_TO_COMPLETE");
-    const noYt = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }),
-      { rows: { a: vrow("a"), b: vrow("b", { youtubeId: null }), c: vrow("c") } });
+    const noYt = gfake(pilot({ successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] }),
+      { rows: { a: vrow("a"), b: vrow("b", { youtubeId: null }) } });
     assert.notEqual((await evaluate(noYt.deps, AI)).phase, "READY_TO_COMPLETE");
   });
 
   test("a scheduled (non-private) success refuses", async () => {
-    const f = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }),
-      { rows: { a: vrow("a"), b: vrow("b", { scheduledAt: new Date() }), c: vrow("c") } });
+    const f = gfake(pilot({ successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] }),
+      { rows: { a: vrow("a"), b: vrow("b", { scheduledAt: new Date() }) } });
     assert.notEqual((await evaluate(f.deps, AI)).phase, "READY_TO_COMPLETE");
   });
 
   test("25/26. unresolved intent and active run refuse", async () => {
-    const full = { successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] };
+    const full = { successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] };
     assert.equal((await evaluate(gfake(pilot(full), { unresolved: 1 }).deps, AI)).phase,
       "RECONCILIATION_REQUIRED");
     assert.notEqual((await evaluate(gfake(pilot(full), { active: 1 }).deps, AI)).phase,
@@ -258,20 +274,20 @@ describe("21-28. graduation completion", () => {
   });
 
   test("nonzero reservation or open budget refuses", async () => {
-    const full = { successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] };
+    const full = { successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] };
     assert.notEqual((await evaluate(gfake(pilot(full), { reserved: 400 }).deps, AI)).phase, "READY_TO_COMPLETE");
     assert.notEqual((await evaluate(gfake(pilot(full),
       { limits: [{ key: "c/PRODUCTION", limit: 4000 }] }).deps, AI)).phase, "READY_TO_COMPLETE");
   });
 
   test("an unlocked service refuses", async () => {
-    const f = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }),
+    const f = gfake(pilot({ successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] }),
       { vars: { PIPELINE_MODE: "production", DISABLE_ELEVEN: "true" } });
     assert.notEqual((await evaluate(f.deps, AI)).phase, "READY_TO_COMPLETE");
   });
 
   test("11/27. a CAS matching zero rows refuses", async () => {
-    const f = gfake(pilot({ successCount: 3, maxSuccesses: 3, successVideoIds: ["a", "b", "c"] }),
+    const f = gfake(pilot({ successCount: 2, maxSuccesses: 2, successVideoIds: ["a", "b"] }),
       { completeRows: 0 });
     const r = await doComplete(f.deps, AI, true);
     assert.equal(r.completed, false);
@@ -326,7 +342,9 @@ describe("21-28. graduation completion", () => {
 
 describe("18-20. shared invariants", () => {
   test("qualification targets are explicit per channel", () => {
-    assert.equal(SPECS["ai-doom-scroll"].qualificationTarget, 3);
+    // AI Doom's target moved 3 → 2 on 2026-08-14 when the human accepted
+    // KD2QDUsr0HA as the second and final qualification video.
+    assert.equal(SPECS["ai-doom-scroll"].qualificationTarget, 2);
     assert.equal(SPECS["wet-circuit"].qualificationTarget, 1);
     assert.equal(SPECS["ai-doom-scroll"].model, "video");
     assert.equal(SPECS["wet-circuit"].model, "wcVideo");

@@ -40,7 +40,20 @@ export interface ChannelSpec {
 export const SPECS: Record<ChannelKey, ChannelSpec> = {
   "ai-doom-scroll": {
     key: "ai-doom-scroll", model: "video", pilotId: "ai-doom-private-pilot-1",
-    service: "yt-pipeline", qualificationTarget: 3,
+    // Two, not three. The target is a HUMAN judgement about how much evidence
+    // is enough, and on 2026-08-14 the human made it: video #1 (3wAZeMbs3nc)
+    // was approved with one visual-relevance defect, that defect was fixed in
+    // 1a62b13, and video #2 (KD2QDUsr0HA) was reviewed and approved on the
+    // corrected code — "good enough, not perfect, but fine for what we're
+    // doing". A third video was explicitly not authorised.
+    //
+    // Lowering this is what CLOSES the pilot rather than loosening it. Every
+    // evidentiary check is unchanged and still applies to every success: each
+    // must be UPLOADED, carry a youtubeId, be unscheduled, and have a PASSing
+    // QA record bound to its artifact. What changes is only how many such
+    // videos are demanded. Leaving it at 3 would have kept the pilot ACTIVE
+    // and left --advance-cap able to authorise a third run nobody wanted.
+    service: "yt-pipeline", qualificationTarget: 2,
   },
   "wet-circuit": {
     key: "wet-circuit", model: "wcVideo", pilotId: "wet-circuit-private-canary-1",
