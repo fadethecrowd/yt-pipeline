@@ -103,11 +103,13 @@ export function classifyMonitorHealth(input: {
   const banner = new RegExp(
     `\\[monitor:health\\] ═══ Health tick \\(${channel}\\) at (\\S+) ═══`);
   let lastTick: Date | null = null;
+  let tickCount = 0;
   for (const l of lines) {
     const m = banner.exec(l);
     if (!m) continue;
     const t = new Date(m[1]!);
     if (Number.isNaN(t.getTime())) continue;
+    tickCount++;
     if (!lastTick || t.getTime() > lastTick.getTime()) lastTick = t;
   }
   if (!lastTick) {
@@ -127,14 +129,23 @@ export function classifyMonitorHealth(input: {
     };
   }
 
-  if (lines.some((l) => l.includes("[monitor:health] ALERT "))) {
-    return { healthy: false, reason: "the monitor reported ALERT finding(s) in this window" };
-  }
-  if (!lines.some((l) => l.includes(`[monitor:health] ${channel}: healthy — `))) {
+  // Every tick logs its findings, and logs a healthy verdict ONLY when it had
+  // none. So a window in which every banner is matched by a verdict is a window
+  // in which every tick was clean.
+  //
+  // Counting rather than looking for the presence of an ALERT line, because
+  // presence never clears: a resolved finding stays in the log buffer until it
+  // rolls out, which would keep production blocked long after the monitor had
+  // recovered. Counting self-heals as soon as the failing ticks age out, and is
+  // order-independent, which matters because the log order is not reliable.
+  const healthyCount = lines.filter(
+    (l) => l.includes(`[monitor:health] ${channel}: healthy — `)).length;
+  if (healthyCount < tickCount) {
+    const alert = lines.find((l) => l.includes("[monitor:health] ALERT "));
     return {
       healthy: false,
-      reason: `no healthy verdict for ${channel} since the last tick ` +
-        `(${lastTick.toISOString()}) — findings may be present`,
+      reason: `${tickCount - healthyCount} of ${tickCount} recent health tick(s) reported findings` +
+        (alert ? ` — e.g. ${alert.slice(alert.indexOf("ALERT")).slice(0, 120)}` : ""),
     };
   }
   return {

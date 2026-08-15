@@ -154,7 +154,8 @@ describe("1-14. what counts as a live monitor", () => {
     const mixed = [tick("2026-08-15T00:18:40.096Z"), healthy("wet-circuit")].join("\n");
     const r = ask({ logs: mixed });
     assert.equal(r.healthy, false);
-    assert.match(r.reason, /no healthy verdict for ai-doom-scroll/);
+    assert.match(r.reason, /1 of 1 recent health tick\(s\) reported findings/,
+      "another channel's healthy line does not clear this channel's tick");
   });
 
   test("13. a fresh tick reporting findings is not masked by an older healthy line", () => {
@@ -165,7 +166,30 @@ describe("1-14. what counts as a live monitor", () => {
     ].join("\n");
     const r = ask({ logs: withAlert });
     assert.equal(r.healthy, false);
-    assert.match(r.reason, /ALERT/);
+    assert.match(r.reason, /1 of 2 recent health tick\(s\) reported findings/);
+    assert.match(r.reason, /ALERT/, "the operator is shown an example finding");
+  });
+
+  /**
+   * The real RUN_FAILED alert from 2026-08-15. It is a true finding — a
+   * production run did fail — and it correctly blocks the next run. What must
+   * NOT happen is that it blocks forever: the monitor drops it after 24h, and
+   * readiness has to follow, not stay stuck on a line still in the log buffer.
+   */
+  test("a resolved finding stops blocking once the monitor stops reporting it", () => {
+    const during = [
+      tick("2026-08-15T00:51:48.925Z"),
+      "[monitor:health] ALERT RUN_FAILED 00959a09: terminal status FAILED",
+    ].join("\n");
+    assert.equal(ask({ logs: during, now: new Date("2026-08-15T00:55:00.000Z") }).healthy, false);
+
+    // Later ticks are clean; the stale ALERT line is still in the buffer.
+    const after = [
+      "[monitor:health] ALERT RUN_FAILED 00959a09: terminal status FAILED",
+      tick("2026-08-16T01:18:40.096Z"), healthy(),
+    ].join("\n");
+    assert.equal(ask({ logs: after, now: new Date("2026-08-16T01:20:00.000Z") }).healthy, true,
+      "presence of an old ALERT line must not block production indefinitely");
   });
 
   test("14. a tick with an unparseable timestamp is ignored, not trusted", () => {
