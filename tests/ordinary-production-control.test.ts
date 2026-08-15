@@ -84,7 +84,11 @@ function makeFake(spec = AI, o: FakeOpts = {}): Fake {
     async deployedSource() {
       return o.source ?? { branch: "main", commit: "73ca139f34cd2ac7" };
     },
-    async monitorHealthy() { return o.healthy ?? true; },
+    async monitorHealth() {
+      return (o.healthy ?? true)
+        ? { healthy: true, reason: "last tick 5 min ago, healthy" }
+        : { healthy: false, reason: "synthetic unhealthy monitor" };
+    },
     async totalReserved() { return state.reserved; },
     async controlledLimits() { return o.limits ?? [{ key: "c/PRODUCTION", limit: 0 }]; },
     async activeRunCount() { return o.active ?? 0; },

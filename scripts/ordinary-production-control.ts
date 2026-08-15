@@ -59,6 +59,90 @@ export const SPECS: Record<ChannelKey, ChannelSpec> = {
 /** The canonical release every service must be running. */
 export const CANONICAL_BRANCH = "main";
 
+/**
+ * Is the channel's monitor actually alive and reporting healthy?
+ *
+ * The monitor keeps no durable heartbeat — health exists only as log output —
+ * so this reads its logs. The previous version took the LAST line containing
+ * `[monitor:health]` and asked whether it said "healthy —". That was wrong in
+ * three separate ways, and on 2026-08-15 it refused a production run against a
+ * perfectly healthy monitor:
+ *
+ *   1. Both the tick BANNER and the healthy VERDICT carry the `[monitor:health]`
+ *      prefix, and Railway does not guarantee ordering within a batch. The live
+ *      logs showed the 00:18 verdict printed BEFORE its own banner, so the last
+ *      matching line was the banner — which does not contain "healthy —".
+ *   2. It was not channel-scoped, so another channel's monitor could answer for
+ *      this one.
+ *   3. It had no freshness check at all: a "healthy —" line from three days ago
+ *      passed just as well as one from a minute ago. It could fail while healthy
+ *      AND pass while dead.
+ *
+ * Now: find the newest tick banner FOR THIS CHANNEL, require it to be recent
+ * relative to the monitor's own configured cadence, and require the window to
+ * contain this channel's healthy verdict and no ALERT findings. Unknown state —
+ * no banner, unparseable time, unknown cadence — is unhealthy, because "we
+ * cannot tell whether anything is watching" is not a reason to spend money.
+ */
+export interface MonitorHealth { healthy: boolean; reason: string }
+
+export function classifyMonitorHealth(input: {
+  logs: string; channel: string; intervalMs: number | null; now: Date;
+}): MonitorHealth {
+  const { logs, channel, intervalMs, now } = input;
+  if (!intervalMs || !Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return { healthy: false, reason: "monitor poll interval is unknown — cannot judge freshness" };
+  }
+  const lines = logs.split("\n").filter((l) => l.includes("[monitor:health]"));
+  if (lines.length === 0) {
+    return { healthy: false, reason: "no [monitor:health] output in the retrieved log window" };
+  }
+
+  // Newest tick banner for THIS channel. Ordering is not trusted — every
+  // timestamp is parsed and the maximum taken.
+  const banner = new RegExp(
+    `\\[monitor:health\\] ═══ Health tick \\(${channel}\\) at (\\S+) ═══`);
+  let lastTick: Date | null = null;
+  for (const l of lines) {
+    const m = banner.exec(l);
+    if (!m) continue;
+    const t = new Date(m[1]!);
+    if (Number.isNaN(t.getTime())) continue;
+    if (!lastTick || t.getTime() > lastTick.getTime()) lastTick = t;
+  }
+  if (!lastTick) {
+    return { healthy: false, reason: `no health tick for ${channel} in the retrieved log window` };
+  }
+
+  // One missed tick is tolerated; two means the monitor has stopped ticking.
+  // Derived from the monitor's own POLL_INTERVAL_MS rather than a second magic
+  // number living in this file.
+  const maxAgeMs = intervalMs * 2;
+  const ageMs = now.getTime() - lastTick.getTime();
+  if (ageMs > maxAgeMs) {
+    return {
+      healthy: false,
+      reason: `last health tick ${Math.round(ageMs / 60_000)} min ago exceeds ` +
+        `${Math.round(maxAgeMs / 60_000)} min (2× the monitor's ${Math.round(intervalMs / 60_000)} min cadence)`,
+    };
+  }
+
+  if (lines.some((l) => l.includes("[monitor:health] ALERT "))) {
+    return { healthy: false, reason: "the monitor reported ALERT finding(s) in this window" };
+  }
+  if (!lines.some((l) => l.includes(`[monitor:health] ${channel}: healthy — `))) {
+    return {
+      healthy: false,
+      reason: `no healthy verdict for ${channel} since the last tick ` +
+        `(${lastTick.toISOString()}) — findings may be present`,
+    };
+  }
+  return {
+    healthy: true,
+    reason: `last tick ${Math.round(ageMs / 60_000)} min ago, ${channel} healthy`,
+  };
+}
+
 // ── Injected surface ──────────────────────────────────────────────────────
 
 export interface RunRecord {
@@ -75,7 +159,8 @@ export interface OrdinaryDeps {
   readVars(service: string): Promise<Record<string, string>>;
   /** Deployed source for a service: branch + commit, or null for a CLI upload. */
   deployedSource(service: string): Promise<{ branch: string | null; commit: string | null }>;
-  monitorHealthy(service: string): Promise<boolean>;
+  /** Monitor liveness for a channel, with the reason when it is not live. */
+  monitorHealth(service: string, channel: string): Promise<MonitorHealth>;
   totalReserved(): Promise<number>;
   controlledLimits(): Promise<{ key: string; limit: number }[]>;
   activeRunCount(): Promise<number>;
@@ -157,8 +242,8 @@ export async function evaluate(deps: OrdinaryDeps, spec: ChannelSpec): Promise<C
   const mvars = await deps.readVars(spec.monitorService);
   const monMode = mvars.MONITOR_MODE === "health_only";
   add(monMode, "monitor MONITOR_MODE=health_only", mvars.MONITOR_MODE ?? "<unset>");
-  const monHealthy = await deps.monitorHealthy(spec.monitorService);
-  add(monHealthy, "monitor reports healthy", monHealthy ? "healthy" : "findings present");
+  const mon = await deps.monitorHealth(spec.monitorService, spec.key);
+  add(mon.healthy, "monitor reports healthy", mon.reason);
 
   // ── Global ────────────────────────────────────────────────────────
   const reserved = await deps.totalReserved();
@@ -205,7 +290,7 @@ export async function evaluate(deps: OrdinaryDeps, spec: ChannelSpec): Promise<C
   else if (!graduated) phase = "NOT_GRADUATED";
   else if (!locked || vars.DISABLE_ELEVEN !== "true") phase = "SERVICE_UNLOCKED";
   else if (!canonical) phase = "SOURCE_MISMATCH";
-  else if (!monMode || !monHealthy) phase = "MONITOR_UNHEALTHY";
+  else if (!monMode || !mon.healthy) phase = "MONITOR_UNHEALTHY";
   else if (reserved !== 0 || nz.length > 0) phase = "BUDGET_NOT_CLEAN";
   else if (!tr.live) phase = "NOT_AUTHORIZED";
   else phase = checks.every((c) => c.ok) ? "READY_FOR_ONE_SHOT" : "NOT_GRADUATED";
@@ -219,6 +304,10 @@ export async function doCheck(deps: OrdinaryDeps, spec: ChannelSpec): Promise<Ch
   for (const c of r.checks) deps.log(`   ${c.ok ? "✓" : "✗"} ${c.label.padEnd(44)} ${c.detail}`);
   deps.log(`   target slot : ${r.targetSlot ? describeSlot(r.targetSlot) : "none"}`);
   deps.log(`   PHASE       : ${r.phase}`);
+  if (r.phase === "MONITOR_UNHEALTHY") {
+    const m = r.checks.find((c) => c.label === "monitor reports healthy");
+    deps.log(`   → monitor: ${m?.detail ?? "unknown"}`);
+  }
   if (r.phase === "NOT_AUTHORIZED") {
     deps.log("   → nothing may spend. Authorize a finite tranche first:");
     deps.log("     npx tsx scripts/production-tranche-control.ts --channel " +
@@ -503,11 +592,17 @@ export function realDeps(): OrdinaryDeps {
       }
       return { branch: null, commit: null };
     },
-    async monitorHealthy(service) {
-      const out = await railway(["logs", "--service", service, "--environment", "production"]);
-      const lines = out.split("\n").filter((l) => l.includes("[monitor:health]"));
-      const last = lines[lines.length - 1] ?? "";
-      return last.includes("healthy —");
+    async monitorHealth(service, channel) {
+      const logs = await railway(["logs", "--service", service, "--environment", "production"]);
+      // The threshold comes from the monitor's OWN configured cadence, read from
+      // the service it belongs to, so the two cannot drift apart.
+      let intervalMs: number | null = null;
+      try {
+        const vars = JSON.parse(await railway(["variables", "--service", service, "--json"]));
+        const raw = Number((vars as Record<string, string>).POLL_INTERVAL_MS);
+        intervalMs = Number.isFinite(raw) && raw > 0 ? raw : null;
+      } catch { intervalMs = null; }
+      return classifyMonitorHealth({ logs, channel, intervalMs, now: new Date() });
     },
     async totalReserved() { return (await budgetReport()).totalReserved; },
     async controlledLimits() {
