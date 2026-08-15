@@ -59,6 +59,8 @@ interface FakeOpts {
   rows?: VideoRow[];
   invokeThrows?: boolean;
   onInvoke?: () => void;
+  /** null models a run that never persisted; omit to use the first fixture run. */
+  startedRunId?: string | null;
   tranche?: {
     phase: string; live: boolean; remaining: number; reason: string;
     shortsEnabled: boolean; expiresAt: Date | null;
@@ -108,6 +110,12 @@ function makeFake(spec = AI, o: FakeOpts = {}): Fake {
       envSeen.push(process.env.PILOT_ID);
       o.onInvoke?.();
       if (o.invokeThrows) throw new Error("pipeline exploded");
+      // The real implementation constructs a RunSummary and returns its id.
+      // `undefined` models the pre-fix bug: an execution with no identity.
+      return { runId: o.startedRunId === undefined ? (o.runs?.[0]?.id ?? null) : o.startedRunId };
+    },
+    async runById(runId) {
+      return (o.runs ?? []).find((r) => r.id === runId) ?? null;
     },
     now: () => SAT,
     log: () => {},
@@ -409,7 +417,7 @@ describe("26-43. RUN outcomes", () => {
     const f = makeFake(AI, { runs: [run("r", "SUCCESS")], rows: [row()] });
     const st = (f.deps as unknown as { _state: { unresolved: number } })._state;
     const orig = f.deps.invokePipeline.bind(f.deps);
-    f.deps.invokePipeline = async (c) => { await orig(c); st.unresolved = 1; };
+    f.deps.invokePipeline = async (c) => { const r = await orig(c); st.unresolved = 1; return r; };
     const r = await doRun(f.deps, AI, true);
     assert.equal(r.outcome, "UPLOAD_AMBIGUOUS");
     assert.match(r.reason, /reconcile before any future run/);
@@ -420,7 +428,7 @@ describe("26-43. RUN outcomes", () => {
     const f = makeFake(AI, { runs: [run("r", "FAILED")], rows: [row({ status: "FAILED" })] });
     const st = (f.deps as unknown as { _state: { reserved: number } })._state;
     const orig = f.deps.invokePipeline.bind(f.deps);
-    f.deps.invokePipeline = async (c) => { await orig(c); st.reserved = 4000; };
+    f.deps.invokePipeline = async (c) => { const r = await orig(c); st.reserved = 4000; return r; };
     const r = await doRun(f.deps, AI, true);
     assert.equal(r.outcome, "FAILED_AFTER_RESERVATION");
     assert.match(r.reason, /settle before any future run/);

@@ -23,7 +23,9 @@
  *
  * LOCAL ONLY. No runtime imports this.
  */
-import { prisma, disconnect, budgetReport, trancheReport, settleSlot } from "@yt-pipeline/pipeline-core";
+import {
+  prisma, disconnect, budgetReport, trancheReport, settleSlot, RunSummary,
+} from "@yt-pipeline/pipeline-core";
 import type { PilotConfig } from "@yt-pipeline/pipeline-core";
 import { nextPublishSlot, describeSlot } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
@@ -61,6 +63,7 @@ export const CANONICAL_BRANCH = "main";
 
 export interface RunRecord {
   id: string; channel: string; status: string; startTime: Date; endTime: Date | null;
+  videoId?: string | null;
 }
 export interface VideoRow {
   id: string; youtubeId: string | null; status: string;
@@ -88,8 +91,18 @@ export interface OrdinaryDeps {
   rowById(model: string, id: string): Promise<VideoRow | null>;
   /** Records what became of a consumed attempt. Never returns capacity. */
   settleSlot(videoId: string, outcome: "SUCCESS" | "FAILED" | "AMBIGUOUS", detail: string): Promise<boolean>;
-  /** Calls the channel's real runPipeline exactly once. */
-  invokePipeline(channel: ChannelKey): Promise<void>;
+  /**
+   * Calls the channel's real runPipeline exactly once, and returns the identity
+   * of the execution it started.
+   *
+   * Returning the id is the whole point: the controller used to find "the
+   * newest run row after a timestamp", which cannot see a run that failed
+   * before any row was written, and could in principle attach to somebody
+   * else's run. An execution now names itself.
+   */
+  invokePipeline(channel: ChannelKey): Promise<{ runId: string | null }>;
+  /** The run with exactly this id, or null if none was persisted. */
+  runById(runId: string): Promise<RunRecord | null>;
   now(): Date;
   log(line: string): void;
 }
@@ -314,10 +327,12 @@ export async function doRun(
   // ── The single invocation ─────────────────────────────────────────
   steps.push("invoke-once");
   let threw: string | null = null;
+  let startedRunId: string | null = null;
   try {
     await withEnv(buildRunEnv(spec), async () => {
       invocations++;
-      await deps.invokePipeline(spec.key);
+      const started = await deps.invokePipeline(spec.key);
+      startedRunId = started.runId;
     });
   } catch (err) {
     // Never retried. One authorisation, one attempt.
@@ -326,13 +341,31 @@ export async function doRun(
   }
 
   // ── Identity ──────────────────────────────────────────────────────
+  //
+  // By exact id first. "Newest row after a timestamp" was never a correlation,
+  // only a guess that usually happened to be right — and on 2026-08-14 it was
+  // wrong in the way that matters: the pipeline created a candidate and failed
+  // with a known reason, no run row existed to find, and the controller
+  // reported OBSERVATION_FAILED as though nothing had been observed at all.
+  //
+  // The watermark scan is kept as a fallback for the case the id genuinely
+  // never reached the database (persistence is deliberately non-fatal), so a
+  // run that happened is still noticed rather than silently dropped.
   steps.push("identify-run");
-  const runs = await deps.runsSince(spec.key, watermark);
-  const run = runs.length ? runs[runs.length - 1]! : null;
+  let run: RunRecord | null = startedRunId ? await deps.runById(startedRunId) : null;
+  if (!run) {
+    const runs = await deps.runsSince(spec.key, watermark);
+    run = runs.length ? runs[runs.length - 1]! : null;
+  }
 
   steps.push("identify-video");
-  const rows = await deps.rowsSince(spec.model, watermark);
-  const video = rows.length ? rows[rows.length - 1]! : null;
+  // The run names its own candidate. Falling back to "newest row" only when it
+  // does not, which is how an early failure before setVideoId still resolves.
+  let video: VideoRow | null = run?.videoId ? await deps.rowById(spec.model, run.videoId) : null;
+  if (!video) {
+    const rows = await deps.rowsSince(spec.model, watermark);
+    video = rows.length ? rows[rows.length - 1]! : null;
+  }
 
   steps.push("classify");
   const unresolved = await deps.unresolvedIntentCount();
@@ -505,7 +538,7 @@ export function realDeps(): OrdinaryDeps {
       return prisma.pipelineRun.findMany({
         where: { channel, startTime: { gte: since } },
         orderBy: { startTime: "desc" },
-        select: { id: true, channel: true, status: true, startTime: true, endTime: true },
+        select: { id: true, channel: true, status: true, startTime: true, endTime: true, videoId: true },
       }) as unknown as RunRecord[];
     },
     async rowsSince(model, since) {
@@ -521,14 +554,43 @@ export function realDeps(): OrdinaryDeps {
     }),
     settleSlot: (videoId, outcome, detail) => settleSlot(videoId, outcome, detail),
     async invokePipeline(channel) {
-      // Imported lazily so CHECK never loads a pipeline module.
-      if (channel === "ai-doom-scroll") {
-        const { runPipeline } = await import("../src/pipeline");
-        await runPipeline();
-        return;
+      // A RunSummary is what gives an execution its identity: it mints `runId`
+      // at construction, and everything downstream — the production tranche
+      // claim, the narration window, this controller's own correlation — is
+      // scoped to that id.
+      //
+      // This used to call `runPipeline()` bare. `src/index.ts`, the ordinary
+      // container entry point, has always constructed one; the controller
+      // bypasses that entry point to keep Railway locked, and inherited none of
+      // it. So `summary?.runId` was undefined, `claimProductionAttempt`
+      // correctly refused a candidate with no run identity, and no run row was
+      // ever persisted for the controller to find.
+      //
+      // Persisted in a `finally`, mirroring the entry point, so a run that
+      // fails early still leaves exactly one terminal row.
+      const runMode = process.env.DISABLE_ELEVEN === "true" ? "DRY_RUN" : "LIVE";
+      const summary = new RunSummary(channel, runMode);
+      try {
+        if (channel === "ai-doom-scroll") {
+          const { runPipeline } = await import("../src/pipeline");
+          await runPipeline(summary);
+        } else {
+          const { runPipeline } = await import("../packages/wc-pipeline/src/pipeline");
+          await runPipeline(summary);
+        }
+      } catch (err) {
+        summary.markFailed("__controller__", err);
+        throw err;
+      } finally {
+        await summary.persist();
       }
-      const { runPipeline } = await import("../packages/wc-pipeline/src/pipeline");
-      await runPipeline();
+      return { runId: summary.runId };
+    },
+    async runById(runId) {
+      return prisma.pipelineRun.findUnique({
+        where: { id: runId },
+        select: { id: true, channel: true, status: true, startTime: true, endTime: true, videoId: true },
+      }) as unknown as RunRecord | null;
     },
     now: () => new Date(),
     log: (l) => console.log(l),
