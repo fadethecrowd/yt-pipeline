@@ -133,6 +133,86 @@ export function charsForRuntime(channel: ChannelKey, targetVideoS: number): numb
   return Math.round((targetVideoS - TITLE_CARD_S) * CHARS_PER_SECOND[channel]);
 }
 
+/**
+ * How optimistic `CHARS_PER_SECOND` is against real rendered videos.
+ *
+ * The rate was measured from a single approved diagnostic. Two full production
+ * videos have since been rendered and measured end to end:
+ *
+ *   3wAZeMbs3nc — 5,263 chars → 424.2 s  = 12.52 chars/s  (model predicts -2.6%)
+ *   KD2QDUsr0HA — 5,528 chars → 449.6 s  = 12.41 chars/s  (model predicts -3.5%)
+ *
+ * So the model consistently predicts a SHORTER video than reality by about
+ * 3.2%. That direction matters: a script written to exactly the ceiling would
+ * render past the ceiling. The gate keeps the measured rate — it is accurate
+ * enough to enforce, and erring short means it under-reports overflow rather
+ * than inventing it — but anything TARGETING a length must leave this much
+ * room, or it is aiming at a number it will systematically miss.
+ */
+export const RATE_OPTIMISM = 0.032;
+
+export interface ScriptBudget {
+  /** The runtime the finished video must land inside. */
+  minS: number;
+  maxS: number;
+  /** What the script should aim for — comfortably inside, not at the edge. */
+  targetS: number;
+  /** Spoken characters implied by each of those, at the channel's measured pace. */
+  minChars: number;
+  maxChars: number;
+  targetChars: number;
+  charsPerSecond: number;
+}
+
+/**
+ * The one length contract for a channel, stage and format.
+ *
+ * Written because the pipeline had three of them. `scriptGenerator` computed
+ * its own budget from an inline copy of 12.86 — but only when
+ * TARGET_RUNTIME_SECONDS happened to be set, which the qualification scripts
+ * did and ordinary production did not, so production fell back to the bare
+ * string "3-6 minutes" with no numeric budget at all. Meanwhile the feasibility
+ * gate enforced 5–8 minutes from THIS module, and the narration ceiling came
+ * from `charsForRuntime`. On 2026-08-15 that produced a 6,181-character script
+ * whose own generator reported "~312s total" and which the gate correctly
+ * measured at 8.1 minutes.
+ *
+ * `maxChars` is deliberately BELOW `charsForRuntime(maxS)`: the ceiling is what
+ * the gate allows, and a generator aiming at exactly the gate's limit will
+ * cross it as soon as the rate errs, which it measurably does.
+ */
+export function scriptBudget(
+  channel: ChannelKey,
+  format: Format,
+  stage: TestStage,
+): ScriptBudget {
+  const range = runtimeRange(channel, format, stage);
+  const rate = CHARS_PER_SECOND[channel];
+  if (!rate) {
+    throw new RuntimeTargetError(`no measured speech rate for channel "${channel}"`);
+  }
+  // Aim at the middle of the envelope, not the top. Both published production
+  // videos landed at 424 s and 450 s inside a 300–480 s range; writing toward
+  // the ceiling leaves nothing for the model to overshoot into.
+  const targetS = range.upperS > range.maxS ? range.midS : Math.min(range.upperS, range.maxS);
+  return {
+    minS: range.minS,
+    maxS: range.maxS,
+    targetS,
+    minChars: charsForRuntime(channel, range.minS),
+    maxChars: Math.floor(charsForRuntime(channel, range.maxS) * (1 - RATE_OPTIMISM)),
+    targetChars: Math.floor(charsForRuntime(channel, targetS) * (1 - RATE_OPTIMISM)),
+    charsPerSecond: rate,
+  };
+}
+
+/** The runtime this many spoken characters will actually produce, title card included. */
+export function runtimeForChars(channel: ChannelKey, chars: number): number {
+  const rate = CHARS_PER_SECOND[channel];
+  if (!rate) throw new RuntimeTargetError(`no measured speech rate for channel "${channel}"`);
+  return chars / rate + TITLE_CARD_S;
+}
+
 export function fmt(s: number): string {
   const m = Math.floor(s / 60);
   return `${m}:${String(Math.round(s % 60)).padStart(2, "0")}`;
