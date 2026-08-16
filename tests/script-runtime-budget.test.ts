@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  scriptBudget, runtimeForChars, charsForRuntime, runtimeRange,
+  scriptBudget, segmentBudgets, runtimeForChars, charsForRuntime, runtimeRange,
   CHARS_PER_SECOND, TITLE_CARD_S, RATE_OPTIMISM, RuntimeTargetError,
 } from "@yt-pipeline/pipeline-core";
-import { correctionDecision, MAX_CORRECTABLE_OVERFLOW } from "../src/stages/scriptGenerator";
+import { measureLength, MAX_LENGTH_REPAIRS } from "../src/stages/scriptGenerator";
 
 /**
  * Why a script the generator called "~312s total" was measured at 8.1 minutes.
@@ -160,130 +160,166 @@ describe("9-13. the gate's model is the one that matches reality", () => {
   });
 });
 
-// ── 14-30. The bounded correction ────────────────────────────────────────
+// ── 14-31. Bounded length repair ─────────────────────────────────────────
 
-describe("14-30. exactly one shortening pass, narrowly eligible", () => {
+describe("14-31. bounded, deterministic length repair", () => {
   const b = scriptBudget(AI, LF, PROD);
-  const decide = (spokenChars: number) =>
-    correctionDecision({ spokenChars, maxChars: b.maxChars, targetChars: b.targetChars });
-
-  test("14. the real failed script is eligible for exactly one correction", () => {
-    const d = decide(6181);
-    assert.equal(d.needed, true);
-    assert.equal(d.eligible, true);
-    assert.ok(d.overflowRatio > 0 && d.overflowRatio <= MAX_CORRECTABLE_OVERFLOW);
-    assert.equal(d.targetChars, b.targetChars);
+  const m = (spokenChars: number) => measureLength({
+    spokenChars, targetChars: b.targetChars, maxChars: b.maxChars, minChars: b.minChars,
   });
 
-  test("21/22. correction targets headroom, never the ceiling", () => {
-    const d = decide(6181);
-    assert.ok(d.targetChars < d.maxChars, "trimming to the cap would land back outside");
-    assert.ok(runtimeForChars(AI, d.targetChars) < b.maxS);
-  });
-
-  test("a script inside budget is never corrected", () => {
-    for (const chars of [b.targetChars, b.maxChars, b.maxChars - 1]) {
-      const d = decide(chars);
-      assert.equal(d.needed, false, `${chars} triggered a correction`);
-      assert.equal(d.eligible, false);
+  test("16/17. per-segment budgets are derived and sum to the total", () => {
+    for (const n of [4, 5, 6]) {
+      const seg = segmentBudgets(b, n);
+      assert.equal(seg.length, n);
+      assert.equal(seg.reduce((a, x) => a + x.targetChars, 0), b.targetChars, `${n} segments`);
+      assert.equal(seg.reduce((a, x) => a + x.maxChars, 0), b.maxChars, `${n} segments`);
     }
   });
 
-  test("29. overflow beyond the band is not a trim job", () => {
-    const far = Math.ceil(b.maxChars * (1 + MAX_CORRECTABLE_OVERFLOW + 0.01));
-    const d = decide(far);
-    assert.equal(d.needed, true);
-    assert.equal(d.eligible, false);
-    assert.match(d.reason, /beyond the/);
+  test("the first and last segments carry the hook and CTA, so they run longer", () => {
+    const seg = segmentBudgets(b, 6);
+    assert.ok(seg[0]!.targetChars > seg[2]!.targetChars);
+    assert.ok(seg[5]!.targetChars > seg[2]!.targetChars);
   });
 
-  test("the eligibility boundary is exact", () => {
-    const edge = Math.floor(b.maxChars * (1 + MAX_CORRECTABLE_OVERFLOW));
-    assert.equal(decide(edge).eligible, true);
-    assert.equal(decide(Math.ceil(b.maxChars * (1 + MAX_CORRECTABLE_OVERFLOW)) + 1).eligible, false);
-  });
-
-  test("20. there is exactly one correction call site and no loop", () => {
-    assert.equal((SRC.match(/shortenScript\(/g) ?? []).length, 2,
-      "one definition, one call — a second call site would be a loop");
-    assert.ok(!/while\s*\(|for\s*\(;;/.test(SRC.slice(SRC.indexOf("correctionDecision({"))),
-      "the correction must not be inside a loop");
-  });
-
-  test("15/16/17. correction touches no identity and no authorization", () => {
-    // It rewrites a script in memory. It cannot create a candidate, a run, or
-    // consume tranche capacity, because it references none of them.
-    const region = SRC.slice(SRC.indexOf("async function shortenScript"));
-    for (const forbidden of ["claimSlot", "video.create", "RunSummary", "productionTranche", "settleSlot"]) {
-      assert.ok(!region.includes(forbidden), `the correction must not touch ${forbidden}`);
+  test("a nonsensical segment count fails closed", () => {
+    for (const n of [0, -1, 2.5, Number.NaN]) {
+      assert.throws(() => segmentBudgets(b, n), RuntimeTargetError, `${n}`);
     }
   });
 
-  test("18/19. correction cannot spend, and runs before narration exists", () => {
-    // "voiceover" appears in the schema example and a comment about which
-    // fields the voiceover stage reads; what must not exist is any spend CALL.
-    for (const forbidden of ["withBudgetWindow(", "reserveCredits(", "elevenlabs", "authorizeNarrationWindow("]) {
-      assert.ok(!SRC.toLowerCase().includes(forbidden.toLowerCase()),
-        `the script stage must not reference ${forbidden}`);
+  test("18. a script inside the envelope needs no repair", () => {
+    for (const chars of [b.minChars, b.targetChars, b.maxChars]) {
+      assert.equal(m(chars).verdict, "OK", `${chars}`);
     }
   });
 
-  test("23/24. the corrected script is judged from the beginning", () => {
-    // Correction happens inside scriptGenerator, before quality and the runtime
-    // check run at all, so no earlier PASS can be carried forward.
-    assert.ok(SRC.indexOf("correctionDecision({") < SRC.indexOf("hookSegment"),
-      "correction must precede everything downstream");
-    assert.match(SRC, /no earlier PASS is\s*\n\s*\* carried forward|judged from the beginning/);
+  test("19/20. the real 7226-char script is OVER and gets repair attempts", () => {
+    const state = m(7226);
+    assert.equal(state.verdict, "OVER");
+    assert.ok(state.spokenChars / state.maxChars - 1 > 0.20, "this is the 22% case");
+    // The old rule refused anything past 15%; the bound is now on attempts.
+    assert.equal(MAX_LENGTH_REPAIRS, 2);
   });
 
-  test("25/26. a corrected script that still misses is not corrected again", () => {
-    // The decision is computed once; the block has no retry path.
-    assert.equal((SRC.match(/correctionDecision\(\{/g) ?? []).length, 1);
-    // And a still-over script simply proceeds to the checks, which refuse it.
-    const stillOver = decide(b.maxChars + 10);
-    assert.equal(stillOver.needed, true);
+  test("the previous 15% eligibility band is gone", () => {
+    assert.ok(!/MAX_CORRECTABLE_OVERFLOW|0\.15/.test(SRC),
+      "a threshold nobody measured must not decide whether repair is attempted");
   });
 
-  test("27/28. only length overflow triggers it", () => {
-    // The decision function takes character counts and nothing else — it cannot
-    // see quality scores, asset pools or policy verdicts.
-    const d = decide(6181);
-    assert.deepEqual(Object.keys(d).sort(),
-      ["eligible", "maxChars", "needed", "overflowRatio", "reason", "spokenChars", "targetChars"].sort());
+  test("29. a short script is repaired toward target, not ignored", () => {
+    const state = m(3000);
+    assert.equal(state.verdict, "UNDER");
+    assert.match(state.detail, /under the .* minimum/);
   });
 
-  test("30. nothing in the correction path refunds a tranche attempt", () => {
-    const store = readFileSync("packages/pipeline-core/src/lib/productionTrancheStore.ts", "utf8");
-    assert.ok(!/consumedCandidates: *\{ *decrement/.test(store));
-    assert.ok(!SRC.includes("consumedCandidates"));
+  test("21/22/23. repair keeps the candidate, run and tranche untouched", () => {
+    const region = SRC.slice(SRC.indexOf("async function repairScriptLength"));
+    for (const forbidden of ["claimSlot", "video.create", "RunSummary", "settleSlot",
+                             "withBudgetWindow", "reserveCredits", "elevenlabs"]) {
+      assert.ok(!region.toLowerCase().includes(forbidden.toLowerCase()),
+        `repair must not touch ${forbidden}`);
+    }
+  });
+
+  test("24/25/26. the ladder is generate → repair → regenerate, counting each time", () => {
+    const ladder = SRC.slice(SRC.indexOf("// ── Bounded length repair"), SRC.indexOf("// The model's own"));
+    assert.match(ladder, /attempt <= MAX_LENGTH_REPAIRS/);
+    assert.match(ladder, /attempt === 1\s*\n?\s*\? await repairScriptLength/);
+    assert.match(ladder, /: await generateScript\(anthropic, ctx\)/);
+    assert.match(ladder, /state = measure\(script\)/, "every step must re-count from the text");
+  });
+
+  test("27/28. after the bound it terminates — no third action, no loop", () => {
+    const ladder = SRC.slice(SRC.indexOf("// ── Bounded length repair"), SRC.indexOf("// The model's own"));
+    assert.match(ladder, /if \(state\.verdict !== "OK"\) \{/);
+    assert.match(ladder, /success: false/);
+    assert.match(ladder, /repair attempt\(s\)/);
+    // The only loop is the bounded for; nothing recurses.
+    assert.equal((ladder.match(/for \(/g) ?? []).length, 1);
+    assert.ok(!/while \(/.test(ladder));
+  });
+
+  test("30/31. qualityGate only ever sees a length-valid script", () => {
+    const pipeline = readFileSync("src/pipeline.ts", "utf8");
+    const gen = pipeline.indexOf('name: "scriptGenerator"');
+    const qa = pipeline.indexOf('name: "qualityGate"');
+    const vf = pipeline.indexOf('name: "visualFeasibilityGate"');
+    assert.ok(gen < qa && qa < vf, "ordering must stay generate → quality → feasibility");
+    // Length is settled inside scriptGenerator, so an over-budget script never
+    // reaches the judge.
+    const ladder = SRC.slice(SRC.indexOf("// ── Bounded length repair"), SRC.indexOf("// The model's own"));
+    assert.match(ladder, /return \{\s*\n?\s*success: false/);
+    // A returned failure is not retried — withRetry only retries a throw — so
+    // the ladder is exactly one generation plus MAX_LENGTH_REPAIRS actions.
+    const retry = readFileSync("packages/pipeline-core/src/lib/retry.ts", "utf8");
+    assert.match(retry, /catch \(err\)/);
+    assert.ok(!/if \(!result\.success\) continue/.test(retry));
+  });
+
+  test("32/33/34. the downstream gate and its limits are untouched", () => {
+    const range = runtimeRange(AI, LF, PROD);
+    assert.equal(range.minS, 300);
+    assert.equal(range.maxS, 480);
+    assert.equal(charsForRuntime(AI, range.maxS), 6121, "the hard ceiling must not move");
+    const vf = readFileSync("src/stages/visualFeasibilityGate.ts", "utf8");
+    assert.ok(vf.length > 0, "the gate still exists and still runs after quality");
+  });
+
+  test("35. the model's self-reported duration stays diagnostic", () => {
+    assert.match(SRC, /model self-reported/);
+    assert.ok(!/estimatedTotalDuration > |estimatedTotalDuration <|estimatedTotalDuration >=/.test(SRC),
+      "nothing may branch on the model's own duration claim");
   });
 });
 
-// ── No-spend replay of the real candidate ────────────────────────────────
+// ── No-spend replay of both real failures ────────────────────────────────
 
-describe("replay: cmstndj720001mbhnung9cual under the corrected contract", () => {
-  test("old estimate, new estimate, and what would happen now", () => {
-    const b = scriptBudget(AI, LF, PROD);
-    const chars = 6181;
-    const projected = runtimeForChars(AI, chars);
-    const d = correctionDecision({ spokenChars: chars, maxChars: b.maxChars, targetChars: b.targetChars });
-
-    // What the generator claimed, versus what the text actually implies.
-    assert.ok(projected > 480, "the model's ~312s claim was never reachable from this text");
-
-    // Under the new contract the generator would have been told to write to
-    // targetChars, and this script would be trimmed once toward it.
-    assert.equal(d.eligible, true);
-    assert.ok(d.targetChars < chars);
-
-    // And a script that lands on target passes the envelope with room to spare.
-    const after = runtimeForChars(AI, d.targetChars);
-    assert.ok(after >= b.minS && after <= b.maxS,
-      `trimmed script projects ${after.toFixed(1)}s, outside ${b.minS}-${b.maxS}s`);
+describe("replay: both real pre-spend rejections under the new contract", () => {
+  const b = scriptBudget(AI, LF, PROD);
+  const m = (spokenChars: number) => measureLength({
+    spokenChars, targetChars: b.targetChars, maxChars: b.maxChars, minChars: b.minChars,
   });
 
-  test("the historical candidate is not touched by any of this", () => {
-    // Nothing here reads or writes that row; the replay is arithmetic only.
-    assert.ok(!SRC.includes("cmstndj720001mbhnung9cual"));
+  /** A: cmstndj720001mbhnung9cual — 6181 chars, refused at 8.1 min. */
+  test("A. the 6,181-char script is OVER and repairable", () => {
+    const state = m(6181);
+    assert.equal(state.verdict, "OVER");
+    assert.ok(runtimeForChars(AI, 6181) > b.maxS, "reproduces the original refusal");
+    // 4.3% over: one targeted rewrite is very likely to land it.
+    assert.ok(state.spokenChars / state.maxChars - 1 < 0.05);
+    assert.ok(m(b.targetChars).verdict === "OK", "the target it is trimmed toward is valid");
+  });
+
+  /** B: cmsvv9n9e0008mb34c3tkappb — 7226 chars, refused at 9.4 min. */
+  test("B. the 7,226-char script is OVER, 22% over, and still gets both actions", () => {
+    const state = m(7226);
+    assert.equal(state.verdict, "OVER");
+    assert.ok(Math.abs(runtimeForChars(AI, 7226) / 60 - 9.4) < 0.1, "reproduces the 9.4 min");
+    const overPct = (state.spokenChars / state.maxChars - 1) * 100;
+    assert.ok(overPct > 20 && overPct < 25, `${overPct.toFixed(1)}% over`);
+    // The old rule stopped here. The bound is now on attempts, not on a guess
+    // about which overages are winnable.
+    assert.equal(MAX_LENGTH_REPAIRS, 2);
+  });
+
+  test("B. its segment allocation is stated, and a landed repair fits", () => {
+    const seg = segmentBudgets(b, 6);
+    assert.equal(seg.reduce((a, x) => a + x.maxChars, 0), b.maxChars);
+    // 7226 across 6 segments is ~1204 each against a ~948 middle budget: every
+    // segment has a concrete number to cut toward.
+    assert.ok(7226 / 6 > seg[2]!.maxChars);
+    // A repair that reaches target is inside the envelope with room to spare.
+    const after = runtimeForChars(AI, b.targetChars);
+    assert.ok(after >= b.minS && after <= b.maxS, `${after.toFixed(1)}s`);
+    assert.equal(m(b.targetChars).verdict, "OK");
+  });
+
+  test("neither historical row is referenced by any of this", () => {
+    for (const id of ["cmstndj720001mbhnung9cual", "cmsvv9n9e0008mb34c3tkappb",
+                      "ef5999ea", "00959a09"]) {
+      assert.ok(!SRC.includes(id), `${id} must not be special-cased`);
+    }
   });
 });

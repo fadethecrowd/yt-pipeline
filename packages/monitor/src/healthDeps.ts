@@ -2,6 +2,7 @@ import { prisma } from "./lib/prisma";
 import { youtube } from "./lib/youtube";
 import { sendAlert } from "./telegram";
 import type { HealthDeps } from "./healthTick";
+import type { RunView } from "./lib/videoHealth";
 
 export { startHealthLoop, runHealthTick } from "./healthTick";
 export type { HealthDeps, HealthTickResult } from "./healthTick";
@@ -36,6 +37,7 @@ export function realHealthDeps(channel: "ai-doom-scroll" | "wet-circuit"): Healt
   const model = channel === "ai-doom-scroll" ? "video" : "wcVideo";
   const table = (prisma as unknown as Record<string, {
     findMany(a: unknown): Promise<{ id: string; youtubeId: string | null; status: string; scheduledAt: Date | null }[]>;
+    findUnique(a: unknown): Promise<unknown>;
   }>)[model]!;
 
   return {
@@ -64,12 +66,54 @@ export function realHealthDeps(channel: "ai-doom-scroll" | "wet-circuit"): Healt
     }),
 
     async recentRuns() {
-      return prisma.pipelineRun.findMany({
+      const runs = await prisma.pipelineRun.findMany({
         where: { channel, startTime: { gte: new Date(Date.now() - RECENT_RUN_WINDOW_MS) } },
-        select: { id: true, status: true, startTime: true, endTime: true },
+        select: { id: true, status: true, startTime: true, endTime: true, videoId: true, youtubeId: true },
         orderBy: { startTime: "desc" },
         take: 20,
       });
+      // Gather the durable evidence that lets a terminal FAILED be told apart
+      // from an incident. Only for runs that actually failed — a successful run
+      // needs none of this, and the queries are not free.
+      const reserved = (await prisma.creditBudget.findMany({
+        where: { channel, NOT: { testStage: "DIAGNOSTIC" } },
+        select: { reservedChars: true },
+      })).reduce((a, b) => a + b.reservedChars, 0);
+
+      const out: RunView[] = [];
+      for (const r of runs) {
+        const base = { id: r.id, status: r.status, startTime: r.startTime, endTime: r.endTime };
+        if (r.status !== "FAILED" && r.status !== "CRITICAL") { out.push(base); continue; }
+        const video = r.videoId ? await table.findUnique({
+          where: { id: r.videoId },
+          select: { status: true, youtubeId: true, videoPath: true, scheduledAt: true },
+        }) as unknown as {
+          status: string; youtubeId: string | null; videoPath: string | null;
+          scheduledAt: Date | null;
+        } | null : null;
+        // Usage is keyed by either the run or the candidate; count both so a
+        // row recorded against only one of them still counts as spend.
+        const narrationRows = r.videoId
+          ? await prisma.elevenLabsUsage.count({
+              where: { OR: [{ runId: r.id }, { videoId: r.videoId }] } })
+          : await prisma.elevenLabsUsage.count({ where: { runId: r.id } });
+        const uploadIntents = r.videoId
+          ? await prisma.uploadIntent.count({ where: { videoId: r.videoId } })
+          : 0;
+        out.push({
+          ...base,
+          evidence: video ? {
+            narrationRows,
+            reservedChars: reserved,
+            candidateTerminal: video.status === "FAILED",
+            hasRenderArtifact: !!video.videoPath,
+            uploadIntents,
+            youtubeId: video.youtubeId ?? r.youtubeId ?? null,
+            scheduledAt: video.scheduledAt ?? null,
+          } : undefined,   // no candidate row = unknown = blocking
+        });
+      }
+      return out;
     },
 
     async budgets() {

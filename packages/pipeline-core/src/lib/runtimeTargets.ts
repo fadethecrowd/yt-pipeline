@@ -206,6 +206,44 @@ export function scriptBudget(
   };
 }
 
+/**
+ * Per-segment spoken-character allocation for a script.
+ *
+ * The model does not reliably obey a single total. Giving it a number per
+ * segment turns one large budget it can drift past into several small ones it
+ * can check as it writes, and gives the repair pass somewhere specific to cut.
+ *
+ * Weighted, not equal: the first segment carries the folded hook and the last
+ * carries the CTA, so both legitimately run longer than a middle body segment.
+ * The weights sum to the segment count, so the allocations sum to the budget.
+ */
+export function segmentBudgets(
+  budget: ScriptBudget,
+  segments: number,
+): { index: number; targetChars: number; maxChars: number }[] {
+  if (!Number.isInteger(segments) || segments < 1) {
+    throw new RuntimeTargetError(`segment count ${segments} is not a positive integer`);
+  }
+  const weights = Array.from({ length: segments }, (_, i) =>
+    i === 0 ? 1.15 : i === segments - 1 ? 1.1 : 1);
+  const total = weights.reduce((a, b) => a + b, 0);
+  const norm = weights.map((w) => (w / total) * segments);
+  const alloc = (n: number, i: number) => Math.round((n / segments) * norm[i]!);
+  const out = norm.map((_, i) => ({
+    index: i,
+    targetChars: alloc(budget.targetChars, i),
+    maxChars: alloc(budget.maxChars, i),
+  }));
+  // Rounding must never push the sum past the canonical budget; the remainder
+  // lands on the longest segment, where it is least likely to distort pacing.
+  for (const key of ["targetChars", "maxChars"] as const) {
+    const want = key === "targetChars" ? budget.targetChars : budget.maxChars;
+    const diff = want - out.reduce((a, b) => a + b[key], 0);
+    out[0]![key] += diff;
+  }
+  return out;
+}
+
 /** The runtime this many spoken characters will actually produce, title card included. */
 export function runtimeForChars(channel: ChannelKey, chars: number): number {
   const rate = CHARS_PER_SECOND[channel];

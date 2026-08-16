@@ -176,7 +176,7 @@ export type { SyncAnchor } from "./lib/syncAnchors";
 export {
   runtimeRange, checkRuntime, charsForRuntime, fmt as fmtRuntime,
   CONFIGURED_RANGE, OBSERVED_RANGE, CHARS_PER_SECOND, TITLE_CARD_S,
-  RuntimeTargetError, scriptBudget, runtimeForChars, RATE_OPTIMISM,
+  RuntimeTargetError, scriptBudget, runtimeForChars, RATE_OPTIMISM, segmentBudgets,
 } from "./lib/runtimeTargets";
 export type { ScriptBudget } from "./lib/runtimeTargets";
 export type { RuntimeRange, RuntimeCheck, Format } from "./lib/runtimeTargets";

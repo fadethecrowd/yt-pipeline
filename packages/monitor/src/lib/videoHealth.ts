@@ -117,7 +117,87 @@ export function checkUploadSafety(unresolvedIntents: number): HealthFinding[] {
     detail: `${unresolvedIntents} intent(s) not PERSISTED/RECONCILED — a video may exist that we have not recorded` }];
 }
 
-export interface RunView { id: string; status: string; startTime: Date; endTime: Date | null }
+export interface RunView {
+  id: string; status: string; startTime: Date; endTime: Date | null;
+  /**
+   * Durable evidence about what this run actually DID, so a terminal FAILED can
+   * be told apart from an incident. Undefined means "not supplied", which is
+   * treated as unknown and therefore blocking — a caller that cannot produce
+   * the evidence must not get the benefit of the doubt.
+   */
+  evidence?: RunSpendEvidence;
+}
+
+/**
+ * What a run touched, from the systems that actually record it.
+ *
+ * Deliberately narrow and all durable: narration accounting, reservations, the
+ * render artifact, upload intents and the published id. No proxies, no
+ * inference from stage names.
+ */
+export interface RunSpendEvidence {
+  /** Rows in elevenlabs_usage attributable to this run or its candidate. */
+  narrationRows: number;
+  /** Characters still reserved against the channel's budget. */
+  reservedChars: number;
+  /** The candidate reached a terminal FAILED state rather than being mid-flight. */
+  candidateTerminal: boolean;
+  /** A render artifact exists on the candidate. */
+  hasRenderArtifact: boolean;
+  uploadIntents: number;
+  youtubeId: string | null;
+  scheduledAt: Date | null;
+}
+
+export type RunClassification =
+  | { blocking: false; reason: string }
+  | { blocking: true; reason: string };
+
+/**
+ * Did this failed run stop before doing anything irreversible?
+ *
+ * A candidate refused by a deliberate pre-spend gate — quality, script length,
+ * visual feasibility — is the safety system working, not an incident. Treating
+ * it identically to a failure after spend meant one safe rejection locked
+ * production out for the 24 hours the finding lived, which is an operational
+ * cost with no safety benefit.
+ *
+ * The distinction is drawn from durable accounting, never from `status`, never
+ * from the stage name. Every piece of evidence must be present AND clean;
+ * anything missing, ambiguous or non-zero blocks. Unknown stays unhealthy.
+ */
+export function classifyFailedRun(r: RunView): RunClassification {
+  const e = r.evidence;
+  if (!e) {
+    return { blocking: true, reason: "no spend evidence available — cannot prove it stopped before spend" };
+  }
+  if (!e.candidateTerminal) {
+    return { blocking: true, reason: "candidate is not in a terminal state" };
+  }
+  if (e.narrationRows > 0) {
+    return { blocking: true, reason: `${e.narrationRows} narration usage row(s) — provider spend occurred` };
+  }
+  if (e.reservedChars > 0) {
+    return { blocking: true, reason: `${e.reservedChars} char(s) still reserved — settle before another run` };
+  }
+  if (e.hasRenderArtifact) {
+    return { blocking: true, reason: "a render artifact exists — the run went past the pre-spend boundary" };
+  }
+  if (e.uploadIntents > 0) {
+    return { blocking: true, reason: `${e.uploadIntents} upload intent(s) — an upload may have happened` };
+  }
+  if (e.youtubeId) {
+    return { blocking: true, reason: `youtubeId ${e.youtubeId} exists — a video may be on the channel` };
+  }
+  if (e.scheduledAt) {
+    return { blocking: true, reason: `carries a publish time ${e.scheduledAt.toISOString()}` };
+  }
+  return {
+    blocking: false,
+    reason: "no narration, no reservation, no render, no upload intent, no video — " +
+      "rejected before anything irreversible",
+  };
+}
 
 /** D. Pipeline health. */
 export function checkPipelineHealth(
@@ -134,8 +214,16 @@ export function checkPipelineHealth(
       continue;
     }
     if (r.status === "FAILED" || r.status === "CRITICAL") {
-      out.push({ code: "RUN_FAILED", severity: "ALERT", subject: r.id,
-        detail: `terminal status ${r.status} at ${r.endTime.toISOString()}` });
+      const c = classifyFailedRun(r);
+      if (c.blocking) {
+        out.push({ code: "RUN_FAILED", severity: "ALERT", subject: r.id,
+          detail: `terminal status ${r.status} at ${r.endTime.toISOString()} — ${c.reason}` });
+      } else {
+        // Recorded and visible, but not an active finding: the candidate was
+        // refused by a gate before it could spend, which is the system working.
+        out.push({ code: "CANDIDATE_REJECTED_BEFORE_SPEND", severity: "OK", subject: r.id,
+          detail: `terminal status ${r.status} at ${r.endTime.toISOString()} — ${c.reason}` });
+      }
     }
   }
   return out;

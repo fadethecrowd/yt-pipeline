@@ -114,7 +114,11 @@ export async function runHealthTick(
     say(`${f.severity} ${f.code} ${f.subject}: ${f.detail}`);
   }
 
-  const d = dedupeAlerts({ findings: report.findings, state: alertState, now });
+  // Only ACTIVE findings are conditions. An OK-severity finding is a recorded
+  // diagnostic — a candidate refused before it could spend, say — and must not
+  // page anyone or hold the channel unhealthy.
+  const active = report.findings.filter((f) => f.severity !== "OK");
+  const d = dedupeAlerts({ findings: active, state: alertState, now });
 
   if (d.resolved.length > 0) {
     say(`${d.resolved.length} condition(s) cleared`);
@@ -127,8 +131,12 @@ export async function runHealthTick(
     say(`${d.suppressed.length} unchanged finding(s) suppressed ` +
       "— already notified, awaiting the re-notify interval");
   }
-  if (report.findings.length === 0) {
-    say(`${channel}: healthy — ${scheduled.length} scheduled video(s) checked`);
+  if (active.length === 0) {
+    // The verdict readiness reads. Diagnostics above do not suppress it: a tick
+    // that found nothing ACTIVE is a clean tick, whatever it recorded for the
+    // audit trail.
+    say(`${channel}: healthy — ${scheduled.length} scheduled video(s) checked` +
+      (report.findings.length > 0 ? ` (${report.findings.length} diagnostic note(s))` : ""));
   }
 
   return {
