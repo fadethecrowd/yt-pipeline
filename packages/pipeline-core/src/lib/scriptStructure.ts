@@ -72,6 +72,66 @@ export interface StructureResult {
   rejections: string[];
 }
 
+/**
+ * Drop repeated sentences that belong to a dedicated field, keeping the last.
+ *
+ * The model writes outro boilerplate — "I read every comment" — into the body
+ * of the final segment as well as it living in the CTA field. Folding then
+ * places the field's copy after it, and the line is spoken twice. The dedicated
+ * field is canonical, and folding puts it last, so the earlier copy is the one
+ * that goes. Sentence-aligned, so nothing is left dangling.
+ */
+function dedupeFieldSentences(narration: string, part: string): string | null {
+  if (!part) return null;
+  const sentences = narration.split(/(?<=[.!?])\s+/);
+  const np = normalize(part);
+  const counts = new Map<string, number>();
+  for (const x of sentences) {
+    const n = normalize(x);
+    if (n.split(" ").length >= 5 && np.includes(n)) counts.set(n, (counts.get(n) ?? 0) + 1);
+  }
+  const repeated = new Set([...counts].filter(([, n]) => n > 1).map(([k]) => k));
+  if (repeated.size === 0) return null;
+  const lastIndex = new Map<string, number>();
+  sentences.forEach((x, i) => { const n = normalize(x); if (repeated.has(n)) lastIndex.set(n, i); });
+  const kept = sentences.filter((x, i) => {
+    const n = normalize(x);
+    return !repeated.has(n) || lastIndex.get(n) === i;
+  });
+  const out = kept.join(" ").trim();
+  return out.length > 0 && out !== narration ? out : null;
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  let n = 0, i = 0;
+  while ((i = haystack.indexOf(needle, i)) !== -1) { n++; i += needle.length; }
+  return n;
+}
+
+/**
+ * Drop every occurrence of `part` except the last.
+ *
+ * The dedicated field is canonical and folding places it at the end, so the
+ * copy the model wrote into the body is the one to remove. Sentence-aligned, so
+ * no fragment is left behind.
+ */
+function stripEarlierOccurrence(narration: string, part: string): string | null {
+  const sentences = narration.split(/(?<=[.!?])\s+/);
+  const np = normalize(part);
+  const hits: number[] = [];
+  for (let i = 0; i < sentences.length; i++) {
+    if (np.includes(normalize(sentences[i]!)) && normalize(sentences[i]!).length > 0) hits.push(i);
+  }
+  if (hits.length === 0) return null;
+  // Keep the trailing run (the folded field); drop earlier ones.
+  const lastRunStart = hits.filter((h) => h >= sentences.length - hits.length);
+  const drop = new Set(hits.filter((h) => !lastRunStart.includes(h)));
+  if (drop.size === 0) return null;
+  const kept = sentences.filter((_, i) => !drop.has(i)).join(" ").trim();
+  return kept.length > 0 ? kept : null;
+}
+
 /** The longest prefix of `part` that `body` starts with, normalised. */
 function leadingOverlap(body: string, part: string): number {
   const nb = normalize(body), np = normalize(part);
@@ -136,8 +196,23 @@ export function validateScriptStructure(script: ScriptLike): StructureResult {
 
     const code = label === "HOOK" ? "HOOK_DUPLICATED" : "CTA_DUPLICATED";
     if (exact) {
-      // The unit builder will NOT re-add it; the segment already reads it once.
-      issues.push({ code, detail: `segment contains the ${label} verbatim`, repaired: false });
+      // Containing it ONCE is the designed state: folding is the single origin
+      // of hook and CTA text, and nothing re-derives it. Containing it TWICE
+      // means the model also wrote the line into the body, which the dedicated
+      // field then duplicated — the field is canonical, so the body copy goes.
+      const extra = countOccurrences(nseg, npart);
+      if (extra < 2) return;
+      const repairedText = stripEarlierOccurrence(seg.narration, part);
+      if (repairedText) {
+        seg.narration = repairedText;
+        issues.push({
+          code, detail: `${label} appeared ${extra} times; removed the body copy and kept the dedicated field`,
+          repaired: true,
+        });
+        return;
+      }
+      rejections.push(`${label} appears ${extra} times in its segment and cannot be deduplicated safely`);
+      issues.push({ code, detail: `${extra} occurrences, not repairable`, repaired: false });
       return;
     }
     const repaired = label === "HOOK" ? stripLeadingDuplicate(seg.narration, part) : null;
@@ -156,7 +231,19 @@ export function validateScriptStructure(script: ScriptLike): StructureResult {
   };
 
   check(segs[0]!, hook, "HOOK");
-  check(segs[segs.length - 1]!, cta, "CTA");
+  // A sentence of the dedicated field written into the body as well: the field
+  // is canonical, so the body copy is removed before anything is judged.
+  const lastSeg = segs[segs.length - 1]!;
+  const deduped = dedupeFieldSentences(lastSeg.narration, cta);
+  if (deduped) {
+    lastSeg.narration = deduped;
+    issues.push({
+      code: "CTA_DUPLICATED",
+      detail: "removed a CTA line the model had also written into the body",
+      repaired: true,
+    });
+  }
+  check(lastSeg, cta, "CTA");
 
   // Any sentence spoken twice anywhere, measured on the assembled units —
   // which is the text ElevenLabs actually receives.

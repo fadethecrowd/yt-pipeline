@@ -47,7 +47,13 @@ LENGTH BUDGET — this is a hard budget, not a suggestion:
 - Each segment's narration must be approximately ${perSegment} words (±15%).
 - TOTAL narration across hook + all ${segments} segments + CTA must be about ${words} words (${b.targetChars} characters).
 - NEVER exceed ${maxWords} words (${b.maxChars} characters) in total. A script over that budget is rejected before it is ever voiced, and the work is wasted. Going long is a failure, not thoroughness.
-- Count as you write. Stop when the budget is met`;
+- Count as you write. Stop when the budget is met.
+
+The hook and the CTA are separate dedicated fields. Write them ONCE, there.
+Do NOT repeat the hook's wording at the start of segment 0, and do NOT write
+CTA or outro boilerplate — "like and subscribe", "drop a comment", "I read
+every comment" — into any segment body. Segment bodies carry the substance
+only; the outro is added from the CTA field automatically.`;
 }
 
 const TITLE_CARD_OFFSET = 4; // seconds — matches videoAssembly title card duration
@@ -221,7 +227,10 @@ async function generateScript(
     return { error: `Script validation failed: ${issues}` };
   }
 
-  return { script: foldHookAndCtaIntoSegments(validation.data) };
+  // Unfolded on purpose: folding is now the LAST transformation, so length
+  // enforcement measures the model's actual bodies rather than bodies inflated
+  // with structural text it would then trim away.
+  return { script: validation.data };
 }
 
 /**
@@ -305,7 +314,15 @@ export async function enforceScriptLength(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const units = () => buildSpokenUnits(script).map((u) => u.text.length);
   const total = () => spokenCharacterCount(buildSpokenUnits(script));
-  /** What buildSpokenUnits adds on top of this segment's narration. */
+  /**
+   * What `buildSpokenUnits` adds on top of this segment's narration.
+   *
+   * Enforcement now runs BEFORE folding, so the narration is the model's own
+   * body and the unit is that body plus the hook or CTA the unit builder
+   * supplies. Measuring the difference covers the folding overhead exactly,
+   * without having to predict it — and because the trim only ever touches the
+   * body, the structural text can no longer be eaten to make room for itself.
+   */
   const overhead = (i: number) => units()[i]! - script.segments[i]!.narration.length;
   const report = () => units()
     .map((n, i) => `  segment ${i}: ${n} / ${budgets[i]!.targetChars} / ${budgets[i]!.maxChars}`)
@@ -419,6 +436,10 @@ export async function scriptGenerator(
     if (!enforced.ok) {
       return { success: false, error: enforced.error, durationMs: Date.now() - start };
     }
+
+    // Folding is the last transformation. From here the narration is the whole
+    // spoken text, and nothing downstream re-derives the hook or CTA.
+    script = foldHookAndCtaIntoSegments(script);
 
     // Length enforcement is what CREATES the duplication it is checked for:
     // trimming a folded segment leaves only a prefix of the hook, and
