@@ -323,6 +323,147 @@ interface ScoredCandidate {
   usableS: number;
 }
 
+/**
+ * Move a long clip to a beat that cannot close itself, and backfill its origin.
+ *
+ * Called once, only when the projected timeline contains adjacent fallback
+ * cards. Returns a note per repair applied; an empty list means nothing could
+ * be improved and the checks below will fail the candidate exactly as before.
+ *
+ * A swap is only offered when every one of these holds, so no gate can be
+ * traded away to satisfy another:
+ *
+ *   - the donated asset can close the carding beat outright (usableS >= the
+ *     residual), so the card disappears rather than shrinking
+ *   - the donated asset is genuinely relevant to the beat it moves TO, judged
+ *     by the same `scoreRelevance` and the same REJECT_THRESHOLD as any other
+ *     assignment — relevance is never relaxed to avoid a card
+ *   - the backfill asset is unused, so no asset appears twice
+ *   - the backfill covers exactly the seconds it replaces, so the donor beat
+ *     does not acquire a card of its own and the timeline still adds up
+ *   - the backfill is relevant to the beat it moves INTO, on the same terms
+ *
+ * Ranked so the best repair is taken first: prefer the strongest relevance on
+ * the carding beat, then avoid brand-risk footage, then prefer the strongest
+ * backfill. Ties break on asset id so the plan is reproducible.
+ */
+function repairConsecutiveCards(input: {
+  predicted: PredictedBeat[];
+  accepted: ScoredCandidate[];
+  ledger: AssetLedger;
+  channel: ChannelKey;
+  segments: OutlineSegment[];
+}): string[] {
+  const { predicted, accepted, ledger, channel, segments } = input;
+  const notes: string[] = [];
+
+  const pairs: number[] = [];
+  for (let i = 1; i < predicted.length; i++) {
+    if (predicted[i]!.hasCard && predicted[i - 1]!.hasCard) pairs.push(i);
+  }
+  if (pairs.length === 0) return notes;
+
+  const byId = new Map(accepted.map((a) => [a.candidate.assetId, a]));
+  const promptFor = (b: PredictedBeat) =>
+    (segments[b.segmentIndex] ?? segments[segments.length - 1])!.visual_prompt;
+  const rel = (b: PredictedBeat, description: string) =>
+    scoreRelevance({ channel, narration: b.narration, prompt: promptFor(b), description });
+
+  for (const i of pairs) {
+    // Fixing either member breaks the adjacency; try the one with the smaller
+    // residual first, since it is the easier beat to close.
+    const targets = [predicted[i]!, predicted[i - 1]!]
+      .filter((b) => b.hasCard)
+      .sort((a, b) => a.cardSecondsS - b.cardSecondsS);
+
+    for (const target of targets) {
+      if (!target.hasCard) continue;
+      const need = target.cardSecondsS;
+
+      interface Option {
+        donorBeat: PredictedBeat; donorIdx: number; donorAsset: ScoredCandidate;
+        backfill: ScoredCandidate; targetScore: number; targetVerdict: string;
+        backfillScore: number; brandRisk: boolean;
+      }
+      const options: Option[] = [];
+
+      for (const donorBeat of predicted) {
+        if (donorBeat.index === target.index) continue;
+        for (let fi = 0; fi < donorBeat.fragments.length; fi++) {
+          const frag = donorBeat.fragments[fi]!;
+          const donorAsset = byId.get(frag.assetId);
+          if (!donorAsset || donorAsset.usableS < need) continue;
+
+          // Must be a legitimate assignment on the beat it moves to.
+          const tScore = rel(target, donorAsset.candidate.description ?? "");
+          if (tScore.verdict === "REJECT" || tScore.score < REJECT_THRESHOLD) continue;
+
+          for (const backfill of accepted) {
+            if (!ledger.isAvailable(backfill.candidate.assetId)) continue;
+            if (backfill.candidate.assetId === donorAsset.candidate.assetId) continue;
+            // Must cover exactly the seconds it replaces.
+            if (backfill.usableS < frag.durationS) continue;
+            const fit = fitFragment(frag.durationS, backfill.usableS);
+            if (!fit || Math.abs(fit.useS - frag.durationS) > 0.01) continue;
+            const bScore = rel(donorBeat, backfill.candidate.description ?? "");
+            if (bScore.verdict === "REJECT" || bScore.score < REJECT_THRESHOLD) continue;
+            options.push({
+              donorBeat, donorIdx: fi, donorAsset, backfill,
+              targetScore: tScore.score, targetVerdict: tScore.verdict,
+              backfillScore: bScore.score,
+              brandRisk: donorAsset.brandRisk || backfill.brandRisk,
+            });
+            break; // best available backfill for this donor fragment is enough
+          }
+        }
+      }
+      if (options.length === 0) continue;
+
+      options.sort((a, b) =>
+        Number(a.brandRisk) - Number(b.brandRisk) ||
+        b.targetScore - a.targetScore ||
+        b.backfillScore - a.backfillScore ||
+        a.donorAsset.candidate.assetId.localeCompare(b.donorAsset.candidate.assetId));
+      const pick = options[0]!;
+
+      // Apply: the donor's clip closes the carding beat, and an unused clip
+      // takes its place. Durations are preserved on both sides.
+      const frag = pick.donorBeat.fragments[pick.donorIdx]!;
+      const bRel = rel(pick.donorBeat, pick.backfill.candidate.description ?? "");
+      pick.donorBeat.fragments[pick.donorIdx] = {
+        assetId: pick.backfill.candidate.assetId,
+        description: pick.backfill.candidate.description ?? "",
+        durationS: frag.durationS,
+        relevanceScore: bRel.score,
+        verdict: bRel.verdict,
+        concept: bRel.concept,
+        brandRisk: pick.backfill.brandRisk,
+      };
+      ledger.claim(pick.backfill.candidate.assetId);
+
+      const tRel = rel(target, pick.donorAsset.candidate.description ?? "");
+      target.fragments.push({
+        assetId: pick.donorAsset.candidate.assetId,
+        description: pick.donorAsset.candidate.description ?? "",
+        durationS: need,
+        relevanceScore: tRel.score,
+        verdict: tRel.verdict,
+        concept: tRel.concept,
+        brandRisk: pick.donorAsset.brandRisk,
+      });
+      target.cardSecondsS = 0;
+      target.hasCard = false;
+
+      notes.push(
+        `repaired consecutive cards at beat ${target.index}: moved ${pick.donorAsset.candidate.assetId} ` +
+        `(${tRel.verdict} ${tRel.score.toFixed(2)}) from beat ${pick.donorBeat.index} to close ${need.toFixed(1)}s, ` +
+        `backfilled with ${pick.backfill.candidate.assetId} (${bRel.verdict} ${bRel.score.toFixed(2)})`);
+      break; // this pair is resolved
+    }
+  }
+  return notes;
+}
+
 // ── The gate ──────────────────────────────────────────────────────────────
 
 export async function assessVisualFeasibility(
@@ -475,6 +616,35 @@ export async function assessVisualFeasibility(
       hasCard: remaining > 0.5,
     });
   }
+
+  // ── 4b. Bounded repair of consecutive fallback cards ────────────────
+  //
+  // Two cards in a row is a real defect and stays prohibited. But it is often
+  // an ARRANGEMENT defect rather than a shortage: the assignment loop above is
+  // greedy and single-pass, and the ledger allows each asset once, so a long
+  // clip can be spent on an early beat that a short clip would have served just
+  // as well. A later beat is then left with 6-12 seconds it cannot close,
+  // because `fitFragment` refuses anything that would leave a sliver — and by
+  // then every asset long enough is already claimed.
+  //
+  // The candidate that motivated this had 237 usable assets for 23 beats, 2
+  // predicted cards, every other check passing, and failed on a single adjacent
+  // pair. Refusing it wasted an authorized production attempt over an ordering
+  // artefact.
+  //
+  // So: one pass, deterministic, and only ever a SWAP. A long asset already
+  // assigned elsewhere moves to the carding beat, and the beat it came from is
+  // backfilled with an unused asset that covers exactly the same seconds. Total
+  // screen time, uniqueness and coverage are unchanged by construction; the
+  // only thing that changes is which beat gets which clip.
+  //
+  // Everything is re-checked afterwards against the repaired timeline — this
+  // runs BEFORE the statistics and the checks below, so nothing is graded on
+  // the pre-repair arrangement.
+  const repairNotes = repairConsecutiveCards({
+    predicted, accepted, ledger, channel: input.channel, segments: input.segments,
+  });
+  if (repairNotes.length > 0) for (const n of repairNotes) console.log(`[feasibility] ${n}`);
 
   // ── 5. Timeline statistics ──────────────────────────────────────────
   //
