@@ -158,14 +158,21 @@ describe("narration spend is never invisible to the controller", () => {
     assert.match(run, /if \(video\?\.youtubeId\) \{/);
   });
 
-  test("the monitor's post-spend policy is deliberately unchanged", () => {
-    // Spend with nothing shipped remains a blocking finding: a human should
-    // look when money was bought and no video exists.
+  test("the monitor records the spend loudly without locking the channel out", () => {
+    // A clean post-spend failure is a COST, not an incident: the money is gone,
+    // nothing is ambiguous, and blocking recovers nothing while stopping work
+    // that is still authorised. It gets its own code so it can never be
+    // mistaken for a free failure.
     const health = readFileSync("packages/monitor/src/lib/videoHealth.ts", "utf8");
-    assert.match(health, /narrationRows > 0/);
-    assert.match(health, /provider spend occurred/);
-    // And a genuinely clean pre-spend rejection stays diagnostic.
+    assert.match(health, /CANDIDATE_FAILED_AFTER_SPEND/);
     assert.match(health, /CANDIDATE_REJECTED_BEFORE_SPEND/);
+    assert.match(health, /narration usage row\(s\) charged, then failed before upload/);
+    // Ambiguity is still evaluated first and still blocks.
+    const fn = health.slice(health.indexOf("export function classifyFailedRun"),
+      health.indexOf("/** D. Pipeline health. */"));
+    for (const guard of ["reservedChars > 0", "hasRenderArtifact", "uploadIntents > 0", "e.youtubeId"]) {
+      assert.ok(fn.indexOf(guard) < fn.indexOf("e.narrationRows > 0"), guard);
+    }
   });
 
   test("tranche accounting is untouched by the new category", () => {

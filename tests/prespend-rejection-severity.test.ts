@@ -90,7 +90,13 @@ describe("4-10. anything past the pre-spend boundary blocks", () => {
     assert.equal(f[0]!.severity, "ALERT");
   };
 
-  test("4. any narration usage row blocks", () => blocks({ narrationRows: 1 }, /provider spend occurred/));
+  test("4. narration spend WITH ambiguity still blocks", () => {
+    // Spend plus anything unresolved is exactly what a blocking finding is for.
+    blocks({ narrationRows: 6, reservedChars: 400 }, /still reserved/);
+    blocks({ narrationRows: 6, hasRenderArtifact: true }, /render artifact/);
+    blocks({ narrationRows: 6, uploadIntents: 1 }, /upload intent/);
+    blocks({ narrationRows: 6, youtubeId: "abc" }, /abc/);
+  });
   test("5. an outstanding reservation blocks", () => blocks({ reservedChars: 400 }, /still reserved/));
   test("6. a render artifact blocks", () => blocks({ hasRenderArtifact: true }, /render artifact/));
   test("7. an upload intent blocks", () => blocks({ uploadIntents: 1 }, /upload intent/));
@@ -177,9 +183,58 @@ describe("both real rejections classify safely on their durable facts", () => {
     }
   });
 
-  test("one dirty field would have flipped either of them", () => {
-    const c = classifyFailedRun(run({ ...CLEAN, narrationRows: 1 },
+  test("one ambiguous field would have flipped either of them", () => {
+    const c = classifyFailedRun(run({ ...CLEAN, uploadIntents: 1 },
       { id: "ef5999ea-5390-4271-9a5e-fd87d8e48dfa" }));
     assert.equal(c.blocking, true, "the id grants nothing — the evidence decides");
+  });
+});
+
+
+// ── Clean post-spend failure is a cost, not an incident ──────────────────
+
+/**
+ * Run 8fc44982 charged 5,637 characters, assembled narration, and was refused
+ * by the beat-cap invariant. Nothing rendered, no intent, no video, reservation
+ * settled. The old rule checked narration FIRST and blocked unconditionally,
+ * which would have locked a live tranche out for 24 hours — past its own
+ * expiry — over an invariant that had already done its job.
+ *
+ * The money is gone either way. Blocking recovers nothing and stops work that
+ * is still authorised, so it is recorded loudly and left non-blocking.
+ */
+describe("narration bought, nothing shipped, nothing ambiguous", () => {
+  const SPENT: RunSpendEvidence = { ...CLEAN, narrationRows: 6 };
+
+  test("it is a diagnostic, not an active finding", () => {
+    const c = classifyFailedRun(run(SPENT));
+    assert.equal(c.blocking, false);
+    assert.equal((c as { spent: boolean }).spent, true);
+    assert.equal(active(run(SPENT)).length, 0, "the channel must not be locked out");
+  });
+
+  test("the spend is named so it can never look free", () => {
+    const f = findings(run(SPENT));
+    assert.equal(f.length, 1);
+    assert.equal(f[0]!.code, "CANDIDATE_FAILED_AFTER_SPEND");
+    assert.equal(f[0]!.severity, "OK");
+    assert.match(f[0]!.detail, /6 narration usage row\(s\) charged/);
+    assert.match(f[0]!.detail, /failed before upload/);
+  });
+
+  test("a genuinely free rejection keeps its own distinct code", () => {
+    const f = findings(run(CLEAN));
+    assert.equal(f[0]!.code, "CANDIDATE_REJECTED_BEFORE_SPEND");
+    assert.equal((classifyFailedRun(run(CLEAN)) as { spent: boolean }).spent, false);
+  });
+
+  test("ambiguity is checked BEFORE spend, so it cannot be masked", () => {
+    const src = readFileSync("packages/monitor/src/lib/videoHealth.ts", "utf8");
+    const fn = src.slice(src.indexOf("export function classifyFailedRun"),
+      src.indexOf("/** D. Pipeline health. */"));
+    for (const guard of ["reservedChars > 0", "hasRenderArtifact", "uploadIntents > 0", "e.youtubeId"]) {
+      assert.ok(fn.indexOf(guard) < fn.indexOf("e.narrationRows > 0"),
+        `${guard} must be evaluated before narration`);
+    }
   });
 });

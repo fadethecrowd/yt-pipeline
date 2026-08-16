@@ -150,7 +150,7 @@ export interface RunSpendEvidence {
 }
 
 export type RunClassification =
-  | { blocking: false; reason: string }
+  | { blocking: false; spent: boolean; reason: string }
   | { blocking: true; reason: string };
 
 /**
@@ -169,13 +169,13 @@ export type RunClassification =
 export function classifyFailedRun(r: RunView): RunClassification {
   const e = r.evidence;
   if (!e) {
-    return { blocking: true, reason: "no spend evidence available — cannot prove it stopped before spend" };
+    return { blocking: true, reason: "no spend evidence available — cannot prove where it stopped" };
   }
+  // Ambiguity first: anything that might have left state behind, in the order
+  // it would matter to a human. Each of these means we cannot say exactly what
+  // happened, and that is what a blocking finding is for.
   if (!e.candidateTerminal) {
     return { blocking: true, reason: "candidate is not in a terminal state" };
-  }
-  if (e.narrationRows > 0) {
-    return { blocking: true, reason: `${e.narrationRows} narration usage row(s) — provider spend occurred` };
   }
   if (e.reservedChars > 0) {
     return { blocking: true, reason: `${e.reservedChars} char(s) still reserved — settle before another run` };
@@ -192,8 +192,28 @@ export function classifyFailedRun(r: RunView): RunClassification {
   if (e.scheduledAt) {
     return { blocking: true, reason: `carries a publish time ${e.scheduledAt.toISOString()}` };
   }
+
+  // Everything is settled and nothing shipped. If narration was bought, that is
+  // a COST, not an incident: the money is already gone, no state is ambiguous,
+  // and blocking the channel recovers nothing while stopping work that is still
+  // authorised. It is recorded prominently — with the row count — so it can
+  // never be mistaken for a free failure, and the controller reports it as
+  // FAILED_AFTER_SPEND.
+  //
+  // Narration used to be checked FIRST and blocked unconditionally, which was
+  // written when every imaginable post-spend failure was an ambiguous one. A
+  // deterministic assembly rejection is not, and on 2026-08-16 that rule would
+  // have locked a live tranche out for 24 hours over an invariant that had
+  // already done its job.
+  if (e.narrationRows > 0) {
+    return {
+      blocking: false, spent: true,
+      reason: `${e.narrationRows} narration usage row(s) charged, then failed before upload — ` +
+        "nothing rendered, no upload intent, no video, reservation settled",
+    };
+  }
   return {
-    blocking: false,
+    blocking: false, spent: false,
     reason: "no narration, no reservation, no render, no upload intent, no video — " +
       "rejected before anything irreversible",
   };
@@ -219,9 +239,12 @@ export function checkPipelineHealth(
         out.push({ code: "RUN_FAILED", severity: "ALERT", subject: r.id,
           detail: `terminal status ${r.status} at ${r.endTime.toISOString()} — ${c.reason}` });
       } else {
-        // Recorded and visible, but not an active finding: the candidate was
-        // refused by a gate before it could spend, which is the system working.
-        out.push({ code: "CANDIDATE_REJECTED_BEFORE_SPEND", severity: "OK", subject: r.id,
+        // Recorded and visible, but not an active finding. Either a gate
+        // refused the candidate before it could spend, or narration was bought
+        // and the run then failed deterministically with nothing left behind.
+        out.push({
+          code: c.spent ? "CANDIDATE_FAILED_AFTER_SPEND" : "CANDIDATE_REJECTED_BEFORE_SPEND",
+          severity: "OK", subject: r.id,
           detail: `terminal status ${r.status} at ${r.endTime.toISOString()} — ${c.reason}` });
       }
     }
