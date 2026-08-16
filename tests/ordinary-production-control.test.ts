@@ -63,15 +63,21 @@ interface FakeOpts {
   startedRunId?: string | null;
   /** Characters durably charged for the candidate. Non-zero means spend happened. */
   narrationChars?: number;
+  /** Upload intents for the candidate, resolved or not. */
+  videoIntents?: number;
+  /** Releases already used by the tranche. */
+  releasesUsed?: number;
   tranche?: {
     phase: string; live: boolean; remaining: number; reason: string;
     shortsEnabled: boolean; expiresAt: Date | null;
   };
 }
 interface Settled { videoId: string; outcome: string; detail: string }
+interface Released { videoId: string; classificationIsPreSpend: boolean; chargedChars: number }
 interface Fake {
   deps: OrdinaryDeps; invoked: ChannelSeen[]; envSeen: (string | undefined)[];
   settled: Settled[];
+  released: Released[];
 }
 type ChannelSeen = string;
 
@@ -79,6 +85,7 @@ function makeFake(spec = AI, o: FakeOpts = {}): Fake {
   const invoked: ChannelSeen[] = [];
   const envSeen: (string | undefined)[] = [];
   const settled: Settled[] = [];
+  const released: Released[] = [];
   const state = { unresolved: o.unresolved ?? 0, reserved: o.reserved ?? 0 };
   const deps: OrdinaryDeps = {
     async readPilot() { return o.pilot === undefined ? completed(spec) : o.pilot; },
@@ -123,6 +130,20 @@ function makeFake(spec = AI, o: FakeOpts = {}): Fake {
     // Zero by default: these fixtures predate the post-spend distinction and
     // describe candidates that never reached narration.
     async narrationCharsFor() { return o.narrationChars ?? 0; },
+    async uploadIntentsFor() { return o.videoIntents ?? 0; },
+    async releaseAttempt(i) {
+      released.push(i);
+      // Mirror the real gate closely enough that the controller's own
+      // conditions are exercised, without reimplementing the store.
+      if (!i.classificationIsPreSpend || i.chargedChars !== 0 ||
+          i.uploadIntents !== 0 || i.hasRenderArtifact) {
+        return { released: false, capHit: false, reason: "evidence does not permit release" };
+      }
+      if ((o.releasesUsed ?? 0) >= 2) {
+        return { released: false, capHit: true, reason: "release cap reached — the attempt stays consumed" };
+      }
+      return { released: true, capHit: false, reason: "attempt returned to the tranche" };
+    },
     async runById(runId) {
       return (o.runs ?? []).find((r) => r.id === runId) ?? null;
     },
@@ -131,7 +152,7 @@ function makeFake(spec = AI, o: FakeOpts = {}): Fake {
   };
   // Let a test flip state mid-run.
   (deps as unknown as { _state: typeof state })._state = state;
-  return { deps, invoked, envSeen, settled };
+  return { deps, invoked, envSeen, settled, released };
 }
 
 const run = (id: string, status: string): RunRecord => ({
@@ -553,6 +574,42 @@ describe("26-43. RUN outcomes", () => {
     const orig = f.deps.invokePipeline.bind(f.deps);
     f.deps.invokePipeline = async (c) => { const x = await orig(c); st.reserved = 4000; return x; };
     assert.equal((await doRun(f.deps, AI, true)).outcome, "FAILED_AFTER_RESERVATION");
+  });
+
+  test("a zero-spend pre-spend failure releases its attempt at settlement", async () => {
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ id: "vid-p", status: "FAILED", youtubeId: null, scheduledAt: null })],
+      narrationChars: 0,
+    });
+    const r = await doRun(f.deps, AI, true);
+    assert.equal(r.outcome, "FAILED_BEFORE_SPEND");
+    assert.equal(f.released.length, 1);
+    assert.equal(f.released[0]!.classificationIsPreSpend, true);
+    assert.equal(f.released[0]!.chargedChars, 0);
+    assert.equal(f.settled.length, 1, "it is still settled — the candidate stays failed");
+  });
+
+  test("a post-spend failure is offered for release and refused", async () => {
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ id: "vid-s", status: "FAILED", youtubeId: null, scheduledAt: null })],
+      narrationChars: 5637,
+    });
+    const r = await doRun(f.deps, AI, true);
+    assert.equal(r.outcome, "FAILED_AFTER_SPEND");
+    assert.equal(f.released[0]!.classificationIsPreSpend, false);
+  });
+
+  test("an upload intent on the candidate prevents release", async () => {
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ id: "vid-i", status: "FAILED", youtubeId: null, scheduledAt: null })],
+      narrationChars: 0, videoIntents: 1,
+    });
+    await doRun(f.deps, AI, true);
+    assert.equal(f.released[0]!.chargedChars, 0);
+    assert.equal((f.released[0] as never as { uploadIntents: number }).uploadIntents, 1);
   });
 
   test("43. no run appearing at all is an observation failure", async () => {

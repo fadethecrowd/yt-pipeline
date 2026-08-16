@@ -224,7 +224,8 @@ export {
 } from "./lib/narrationWindow";
 export {
   canAuthorizeTranche, canClaimSlot, checkSlotAuthority, liveTranche,
-  remainingCandidates, settlementFor, classifyTranchePhase,
+  remainingCandidates, settlementFor, classifyTranchePhase, canReleaseAttempt,
+  MAX_RELEASES_PER_TRANCHE,
   tranchesNeedingRecovery,
   TRANCHE_MAX_LIFETIME_MS, TRANCHE_DEFAULT_LIFETIME_MS, TRANCHE_MAX_CANDIDATES,
 } from "./lib/productionTranche";
@@ -236,6 +237,7 @@ export type {
 export {
   currentTranche, slotsFor, authorizeTranche, claimSlot, verifyProductionSlot,
   trancheShortsEnabled, settleSlot, closeTranche, reconcileTranches, trancheReport,
+  releaseProductionAttempt,
 } from "./lib/productionTrancheStore";
 export type { TrancheReport } from "./lib/productionTrancheStore";
 export type {

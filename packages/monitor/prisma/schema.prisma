@@ -876,6 +876,9 @@ enum TrancheSlotStatus {
   SETTLED_SUCCESS
   SETTLED_FAILED
   RECONCILIATION_REQUIRED
+  /// Consumed, then given back: the candidate failed deterministically before
+  /// any irreversible action. The row stays as the audit trail.
+  RELEASED
 }
 
 /// Finite, expiring authorization for ordinary production spend.
@@ -890,8 +893,11 @@ model ProductionTranche {
   channel             String
   /// Candidate ATTEMPTS authorized, not successes. A failure still consumes one.
   maxCandidates       Int
-  /// Monotonic. Only ever rises, and never past maxCandidates.
+  /// Monotonic. Never decremented, so slotIndex stays unique.
   consumedCandidates  Int                     @default(0)
+  /// Attempts given back after a deterministic pre-spend failure. Effective
+  /// consumption is consumedCandidates - releasedCandidates.
+  releasedCandidates  Int                     @default(0)
   status              ProductionTrancheStatus @default(ACTIVE)
 
   /// First-tranche policy: Shorts are a second, unqualified upload path, so a
@@ -938,6 +944,11 @@ model ProductionTrancheSlot {
   claimedAt     DateTime          @default(now())
   settledAt     DateTime?
   outcome       String?
+
+  /// Audit of a release. Written once, never cleared.
+  releasedAt          DateTime?
+  releaseReason       String?
+  releaseClassification String?
 
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt

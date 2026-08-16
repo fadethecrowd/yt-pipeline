@@ -45,8 +45,9 @@ async function main(): Promise<void> {
 
   console.log("\n══ RESTING STATE — ai-doom-scroll ══\n");
   console.log(`  tranche            : ${t.phase}` +
-    (t.tranche ? ` — ${t.tranche.consumedCandidates}/${t.tranche.maxCandidates} consumed, ` +
-      `${t.remaining} remaining, Shorts ${t.tranche.shortsEnabled ? "ON" : "off"}, ` +
+    (t.tranche ? ` — max ${t.tranche.maxCandidates}, consumed ${t.tranche.consumedCandidates}, ` +
+      `released ${t.tranche.releasedCandidates ?? 0}, remaining ${t.remaining}, ` +
+      `Shorts ${t.tranche.shortsEnabled ? "ON" : "off"}, ` +
       `expires ${t.tranche.expiresAt.toISOString()}` : ""));
   for (const b of budgets) {
     console.log(`  budget ${b.channel}/PRODUCTION`.padEnd(38) +

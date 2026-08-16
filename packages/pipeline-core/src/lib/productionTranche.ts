@@ -32,13 +32,14 @@ import type { ChannelKey } from "./runtimeTargets";
 
 export type ProductionTrancheStatus = "ACTIVE" | "EXHAUSTED" | "EXPIRED" | "CLOSED";
 export type TrancheSlotStatus =
-  | "CLAIMED" | "SETTLED_SUCCESS" | "SETTLED_FAILED" | "RECONCILIATION_REQUIRED";
+  | "CLAIMED" | "SETTLED_SUCCESS" | "SETTLED_FAILED" | "RECONCILIATION_REQUIRED" | "RELEASED";
 
 export interface ProductionTrancheRow {
   id: string;
   channel: string;
   maxCandidates: number;
   consumedCandidates: number;
+  releasedCandidates: number;
   status: ProductionTrancheStatus;
   shortsEnabled: boolean;
   authorizedBy: string;
@@ -143,8 +144,75 @@ export function canAuthorizeTranche(req: AuthorizeRequest): AuthorizeVerdict {
   return { ok: true, expiresAt: new Date(req.now.getTime() + lifetime) };
 }
 
+/**
+ * Attempts still available.
+ *
+ * `consumedCandidates` is monotonic — it is never decremented, so `slotIndex`
+ * stays unique — and a release is recorded separately. Effective consumption is
+ * the difference, which keeps a released attempt visibly distinct from one that
+ * was never used.
+ */
 export function remainingCandidates(t: ProductionTrancheRow): number {
-  return Math.max(0, t.maxCandidates - t.consumedCandidates);
+  return Math.max(0, t.maxCandidates - (t.consumedCandidates - (t.releasedCandidates ?? 0)));
+}
+
+/**
+ * How many attempts one tranche may reclaim.
+ *
+ * A release costs a model call and nothing else, so refusing them outright
+ * would burn authorised work on defects the pipeline detected itself. But an
+ * unbounded release turns a finite tranche into an unbounded one: a channel
+ * that fails deterministically forever would retry forever. Two is enough to
+ * absorb the occasional bad draw and small enough that a systematic fault still
+ * exhausts the tranche and stops.
+ */
+export const MAX_RELEASES_PER_TRANCHE = 2;
+
+export type ReleaseVerdict =
+  | { ok: true }
+  | { ok: false; capHit: boolean; reason: string };
+
+/**
+ * May this consumed attempt be given back?
+ *
+ * Pure, and refuses by default. Every condition is durable evidence that the
+ * candidate stopped before anything irreversible: nothing was charged, no
+ * upload was attempted, no render exists. A release is not a retry — the
+ * candidate is still terminally failed; only the capacity returns.
+ */
+export function canReleaseAttempt(input: {
+  tranche: ProductionTrancheRow | null;
+  slot: ProductionTrancheSlotRow | null;
+  classificationIsPreSpend: boolean;
+  chargedChars: number;
+  uploadIntents: number;
+  hasRenderArtifact: boolean;
+}): ReleaseVerdict {
+  const { tranche, slot } = input;
+  if (!tranche || !slot) return { ok: false, capHit: false, reason: "no tranche slot for this candidate" };
+  if (slot.status === "RELEASED") {
+    return { ok: false, capHit: false, reason: "already released" };
+  }
+  if (!input.classificationIsPreSpend) {
+    return { ok: false, capHit: false, reason: "classification is not a deterministic pre-spend failure" };
+  }
+  if (input.chargedChars !== 0) {
+    return { ok: false, capHit: false, reason: `${input.chargedChars} narration char(s) charged for this run` };
+  }
+  if (input.uploadIntents !== 0) {
+    return { ok: false, capHit: false, reason: `${input.uploadIntents} upload intent(s) exist for this run` };
+  }
+  if (input.hasRenderArtifact) {
+    return { ok: false, capHit: false, reason: "a render artifact exists" };
+  }
+  if ((tranche.releasedCandidates ?? 0) >= MAX_RELEASES_PER_TRANCHE) {
+    return {
+      ok: false, capHit: true,
+      reason: `${tranche.releasedCandidates} release(s) already used, cap is ${MAX_RELEASES_PER_TRANCHE} ` +
+        "— the attempt stays consumed",
+    };
+  }
+  return { ok: true };
 }
 
 export type LiveVerdict =

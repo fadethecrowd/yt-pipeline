@@ -1,7 +1,7 @@
 import { prisma } from "./db";
 import {
-  canAuthorizeTranche, canClaimSlot, checkSlotAuthority, liveTranche,
-  settlementFor, tranchesNeedingRecovery, classifyTranchePhase,
+  canAuthorizeTranche, canClaimSlot, canReleaseAttempt, checkSlotAuthority, liveTranche,
+  settlementFor, tranchesNeedingRecovery, classifyTranchePhase, remainingCandidates,
   TRANCHE_DEFAULT_LIFETIME_MS,
 } from "./productionTranche";
 import type {
@@ -193,6 +193,75 @@ export async function settleSlot(
     videoId, settlementFor(outcome), now, detail.slice(0, 500),
   );
   return n === 1;
+}
+
+/**
+ * Give a consumed attempt back after a deterministic pre-spend failure.
+ *
+ * A tranche counts ATTEMPTS, and that is deliberate — a candidate that fails
+ * quality has still used the authorisation it was given. But an attempt the
+ * pipeline itself refused before spending anything cost a model call and
+ * nothing more, and burning authorised capacity on it is waste, not safety.
+ *
+ * Narrow by construction. It is reached only from terminal settlement, only for
+ * a classification the controller already decided was pre-spend, and only when
+ * the durable evidence agrees: nothing charged for THIS run, no upload intent,
+ * no render artifact. `MAX_RELEASES_PER_TRANCHE` stops a systematic fault from
+ * retrying forever.
+ *
+ * `consumedCandidates` is never decremented, so `slotIndex` stays unique and a
+ * released attempt stays visible; the released count is tracked alongside and
+ * remaining capacity is the difference. One conditional UPDATE per side, guarded
+ * on the slot still being unreleased, so calling twice releases once.
+ */
+export async function releaseProductionAttempt(input: {
+  videoId: string;
+  reason: string;
+  classification: string;
+  classificationIsPreSpend: boolean;
+  chargedChars: number;
+  uploadIntents: number;
+  hasRenderArtifact: boolean;
+  now?: Date;
+}): Promise<{ released: boolean; capHit: boolean; reason: string }> {
+  const now = input.now ?? new Date();
+  const s = (await slot().findUnique({ where: { videoId: input.videoId } })) as ProductionTrancheSlotRow | null;
+  const t = s ? ((await tranche().findUnique({ where: { id: s.trancheId } })) as ProductionTrancheRow | null) : null;
+  const verdict = canReleaseAttempt({
+    tranche: t, slot: s,
+    classificationIsPreSpend: input.classificationIsPreSpend,
+    chargedChars: input.chargedChars,
+    uploadIntents: input.uploadIntents,
+    hasRenderArtifact: input.hasRenderArtifact,
+  });
+  if (!verdict.ok) return { released: false, capHit: verdict.capHit, reason: verdict.reason };
+
+  const marked = await prisma.$executeRawUnsafe(
+    `UPDATE "production_tranche_slot"
+        SET "status"='RELEASED'::"TrancheSlotStatus", "releasedAt"=$2,
+            "releaseReason"=$3, "releaseClassification"=$4, "updatedAt"=NOW()
+      WHERE "videoId"=$1 AND "status" <> 'RELEASED'`,
+    input.videoId, now, input.reason.slice(0, 500), input.classification,
+  );
+  if (marked !== 1) return { released: false, capHit: false, reason: "already released" };
+
+  await prisma.$executeRawUnsafe(
+    `UPDATE "production_tranche"
+        SET "releasedCandidates" = "releasedCandidates" + 1,
+            "status" = CASE WHEN "status" = 'EXHAUSTED' THEN 'ACTIVE'::"ProductionTrancheStatus"
+                            ELSE "status" END,
+            "updatedAt" = NOW()
+      WHERE "id"=$1`,
+    s!.trancheId,
+  );
+  const after = (await tranche().findUnique({ where: { id: s!.trancheId } })) as ProductionTrancheRow;
+  // The audit record: who, why, and what the counts became.
+  console.log(
+    `[tranche] RELEASED attempt — candidate ${s!.videoId} run ${s!.runId} ` +
+    `classification ${input.classification} at ${now.toISOString()}: ${input.reason} ` +
+    `| consumed ${after.consumedCandidates} released ${after.releasedCandidates} ` +
+    `remaining ${remainingCandidates(after)}`);
+  return { released: true, capHit: false, reason: "attempt returned to the tranche" };
 }
 
 export async function closeTranche(

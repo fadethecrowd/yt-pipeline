@@ -25,6 +25,7 @@
  */
 import {
   prisma, disconnect, budgetReport, trancheReport, settleSlot, RunSummary,
+  releaseProductionAttempt,
 } from "@yt-pipeline/pipeline-core";
 import type { PilotConfig } from "@yt-pipeline/pipeline-core";
 import { nextPublishSlot, describeSlot } from "@yt-pipeline/pipeline-core";
@@ -244,7 +245,7 @@ export interface RunRecord {
 }
 export interface VideoRow {
   id: string; youtubeId: string | null; status: string;
-  scheduledAt: Date | null; createdAt: Date;
+  scheduledAt: Date | null; createdAt: Date; videoPath?: string | null;
 }
 
 export interface OrdinaryDeps {
@@ -269,6 +270,14 @@ export interface OrdinaryDeps {
   rowById(model: string, id: string): Promise<VideoRow | null>;
   /** Characters actually charged to the provider for this candidate. */
   narrationCharsFor(videoId: string): Promise<number>;
+  /** Upload intents for this candidate, resolved or not. */
+  uploadIntentsFor(videoId: string): Promise<number>;
+  /** Give a consumed attempt back — only from terminal settlement. */
+  releaseAttempt(input: {
+    videoId: string; reason: string; classification: string;
+    classificationIsPreSpend: boolean; chargedChars: number;
+    uploadIntents: number; hasRenderArtifact: boolean;
+  }): Promise<{ released: boolean; capHit: boolean; reason: string }>;
   /** Records what became of a consumed attempt. Never returns capacity. */
   settleSlot(videoId: string, outcome: "SUCCESS" | "FAILED" | "AMBIGUOUS", detail: string): Promise<boolean>;
   /**
@@ -647,6 +656,26 @@ export async function doRun(
   const detail = `run ${run.status}, video status ${status}` +
     (spent ? `, ${charged} narration char(s) already charged` : "");
   await settle("FAILED", detail);
+
+  // A tranche counts ATTEMPTS, and a candidate that failed still used one —
+  // unless the pipeline refused it before doing anything irreversible, in which
+  // case it cost a model call and nothing else. Only the two zero-spend
+  // classifications qualify, and the durable evidence must agree.
+  if (video?.id) {
+    const preSpend = outcome === "FAILED_BEFORE_SPEND" || outcome === "QUALITY_FAILED";
+    const r = await deps.releaseAttempt({
+      videoId: video.id, reason: detail, classification: outcome,
+      classificationIsPreSpend: preSpend,
+      chargedChars: charged,
+      uploadIntents: await deps.uploadIntentsFor(video.id),
+      hasRenderArtifact: !!video.videoPath,
+    });
+    if (r.released) deps.log(`   ↩ attempt released — ${r.reason}`);
+    // A cap hit is stated, never silent: the attempt stays consumed and an
+    // operator can see the tranche declined to give another one back.
+    else if (r.capHit) deps.log(`   ✗ release refused (cap) — ${r.reason}`);
+    else if (preSpend) deps.log(`   · attempt kept — ${r.reason}`);
+  }
   return { ...base, outcome, reason: detail };
 }
 
@@ -765,7 +794,8 @@ export function realDeps(): OrdinaryDeps {
     },
     rowById: (model, id) => models[model]!.findUnique({
       where: { id },
-      select: { id: true, youtubeId: true, status: true, scheduledAt: true, createdAt: true },
+      select: { id: true, youtubeId: true, status: true, scheduledAt: true, createdAt: true,
+                videoPath: true },
     }),
     async narrationCharsFor(videoId) {
       const rows = await prisma.elevenLabsUsage.findMany({
@@ -773,6 +803,8 @@ export function realDeps(): OrdinaryDeps {
       });
       return rows.reduce((a, r) => a + (r.chargedChars ?? r.requestedChars ?? 0), 0);
     },
+    uploadIntentsFor: (videoId) => prisma.uploadIntent.count({ where: { videoId } }),
+    releaseAttempt: (i) => releaseProductionAttempt(i),
     settleSlot: (videoId, outcome, detail) => settleSlot(videoId, outcome, detail),
     async invokePipeline(channel) {
       // A RunSummary is what gives an execution its identity: it mints `runId`
