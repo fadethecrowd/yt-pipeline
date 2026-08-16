@@ -180,6 +180,12 @@ export {
 } from "./lib/runtimeTargets";
 export type { ScriptBudget } from "./lib/runtimeTargets";
 export { trimToLimit } from "./lib/scriptClamp";
+export {
+  validateScriptStructure, normalize, tokenSimilarity, NEAR_DUPLICATE_SIMILARITY,
+} from "./lib/scriptStructure";
+export type { StructureResult, StructureIssue } from "./lib/scriptStructure";
+export { checkTitleFidelity, selectFaithfulTitle } from "./lib/titleFidelity";
+export type { FidelityResult } from "./lib/titleFidelity";
 export type { TrimResult } from "./lib/scriptClamp";
 export type { RuntimeRange, RuntimeCheck, Format } from "./lib/runtimeTargets";
 

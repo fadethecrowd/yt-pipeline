@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { VideoStatus } from "@prisma/client";
-import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
+import { prisma, env, createMessage, selectFaithfulTitle } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, SEOMetadata, StageResult } from "@yt-pipeline/pipeline-core";
 
 const execFile = promisify(execFileCb);
@@ -226,8 +226,27 @@ Topic: ${topicTitle}`,
     console.log(`[seoGenerator]   [${r.type}] "${r.title}" — ${r.reasoning}`);
   }
 
+  // A title may not assert what the script never established. Round 3 optimises
+  // for CTR and will happily escalate "resold" into "stolen" — so every
+  // candidate is checked against the script before selection, and the first one
+  // whose claims are actually supported wins. The topic-derived baseline is the
+  // fallback because it asserts nothing the script does not.
+  const evidence = `${topicTitle}\n${scriptSummary}`;
+  const ranked = [
+    ...refined.map((r) => r.title),
+    ...(wildcard ? [wildcard.title] : []),
+    ...scored.map((s) => s.title),
+  ];
+  const faithful = selectFaithfulTitle(ranked, evidence, topicTitle);
+  for (const d of faithful.disqualified) {
+    console.log(`[seoGenerator]   DISQUALIFIED "${d.title}" — ${d.reason}`);
+  }
+  if (faithful.usedBaseline) {
+    console.log(`[seoGenerator] no candidate was supported by the script — using the topic baseline`);
+  }
+
   // Auto-select: highest-scoring refined title is primary, second refined is B, wildcard is C
-  const primary = refined[0]?.title ?? top2[0].title;
+  const primary = faithful.title;
   const variantB = refined[1]?.title ?? refined[0]?.title ?? top2[1].title;
   const variantC = wildcard?.title ?? (refined.length > 2 ? refined[2].title : top2[1].title);
 

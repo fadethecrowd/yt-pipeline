@@ -4,6 +4,7 @@ import { VideoStatus } from "@prisma/client";
 import {
   prisma, env, createMessage, scriptBudget, segmentBudgets, runtimeForChars,
   buildSpokenUnits, spokenCharacterCount, currentTestStage, fmtRuntime, trimToLimit,
+  validateScriptStructure,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -417,6 +418,24 @@ export async function scriptGenerator(
       (narration, budget) => shortenSegment(anthropic, narration, budget));
     if (!enforced.ok) {
       return { success: false, error: enforced.error, durationMs: Date.now() - start };
+    }
+
+    // Length enforcement is what CREATES the duplication it is checked for:
+    // trimming a folded segment leaves only a prefix of the hook, and
+    // buildSpokenUnits then re-adds the whole thing. So structure is validated
+    // here — after the trim, and before the quality judge, the downstream
+    // visual checks and any narration. Not scored: a sentence read twice is wrong at any score.
+    const structure = validateScriptStructure(script);
+    for (const i of structure.issues) {
+      console.log(`[scriptGenerator] structure ${i.code}: ${i.detail}` +
+        `${i.repaired ? " (repaired)" : ""}`);
+    }
+    if (!structure.ok) {
+      return {
+        success: false,
+        error: `script structure rejected before spend: ${structure.rejections.join("; ")}`,
+        durationMs: Date.now() - start,
+      };
     }
   }
 
