@@ -447,6 +447,12 @@ model SceneRecord {
   relevanceVerdict String?
   assetDescription String?
   relevanceReasons String[]
+  /// The query actually issued to the stock library for this scene.
+  retrievalQuery   String?
+  /// What the narration was judged to be about, when it differed from the prompt.
+  subjectPrompt    String?
+  /// Top scored candidates the winner beat: [{assetId,description,score,verdict,concept}].
+  runnerUps        Json?
   renderStatus     String
   createdAt        DateTime @default(now())
 

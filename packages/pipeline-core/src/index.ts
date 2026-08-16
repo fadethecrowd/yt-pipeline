@@ -164,6 +164,10 @@ export {
   MARINE_SUBJECTS,
 } from "./lib/visualRelevance";
 export type { RelevanceInput, RelevanceResult, Verdict } from "./lib/visualRelevance";
+export {
+  comparisonVehicles, isOutroBeat, deVehicle, subjectTerms,
+  borrowedFromVehicle, withheldDomains,
+} from "./lib/visualSubject";
 
 // ── Synchronisation anchors ───────────────────────────────────────────────
 export {

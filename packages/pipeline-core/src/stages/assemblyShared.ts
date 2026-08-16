@@ -14,7 +14,14 @@ import {
   AssetLedger, recordScene, searchPexelsCandidates,
   validateCandidateMeta, validateDownloadedClip, wrapCardText, writeCardTextFile,
 } from "../lib/visuals";
-import { scoreRelevance, VisualPlan, buildSearchQueries } from "../lib/visualRelevance";
+import {
+  scoreRelevance, VisualPlan, buildSearchQueries, classifyConcept,
+  AI_SUBJECTS, MARINE_SUBJECTS,
+} from "../lib/visualRelevance";
+import {
+  comparisonVehicles, borrowedFromVehicle, subjectTerms, isOutroBeat,
+  deVehicle, withheldDomains,
+} from "../lib/visualSubject";
 import { planVisualBeats, summarizeBeats, minimumBeatsFor, BEAT_MAX_S, MIN_FRAGMENT_S, fitFragment } from "../lib/visualBeats";
 import type { VisualBeat } from "../lib/visualBeats";
 import { checkBrandFromMetadata, brandAdmits, isHighBrandRiskFootage } from "../lib/brandGuard";
@@ -181,7 +188,11 @@ export interface RenderedBeat {
   relevanceScore: number | null;
   concept: string | null;
   brand: BrandCheck;
-  decision: "RENDERED" | "FALLBACK_CARD";
+  /**
+   * `BRANDED_OUTRO` is a deliberate treatment for a beat with no subject, not a
+   * retrieval failure, so it is not counted in the fallback-card share.
+   */
+  decision: "RENDERED" | "FALLBACK_CARD" | "BRANDED_OUTRO";
   clipPath: string;
 }
 
@@ -191,22 +202,81 @@ export interface RenderedBeat {
  * Beats need many unique assets, so candidates are gathered once per segment
  * across several queries rather than re-searched per beat.
  */
+/**
+ * What a segment should actually retrieve for.
+ *
+ * The prompt is the script's, unless it can be SHOWN to be depicting the
+ * analogy's vehicle rather than the subject — segment 0 of run e704334a asked
+ * for a "wholesale warehouse" off the back of "Imagine buying wholesale
+ * electricity". Where that is provable the subject text replaces it; where it
+ * is not, the prompt stands and the widened pool does the work.
+ */
+export interface SegmentSubject {
+  prompt: string;
+  subject: string;
+  queries: string[];
+  /** Words the prompt took from the analogy's vehicle. */
+  borrowed: string[];
+  /** Literal physical domain the prompt asked for without justification. */
+  unjustified: string | null;
+  /** Literal domains this narration cannot justify; never selected for it. */
+  withheld: Set<string>;
+  /** Comparison vehicles stated anywhere in the script. */
+  vehicles: string[];
+}
+
+export function resolveSegmentSubject(
+  seg: ScriptSegment,
+  scriptText: string,
+  channel: "ai-doom-scroll" | "wet-circuit",
+): SegmentSubject {
+  const vehicles = comparisonVehicles(scriptText);
+  const borrowed = borrowedFromVehicle(seg.visual_prompt, vehicles);
+  const subject = subjectTerms({ narration: seg.narration, scriptText }).join(" ");
+  const subjectText = deVehicle(seg.narration, vehicles);
+  const taxonomy = channel === "wet-circuit" ? MARINE_SUBJECTS : AI_SUBJECTS;
+  const withheld = withheldDomains(subjectText, taxonomy);
+  const asked = classifyConcept(seg.visual_prompt, taxonomy).concept;
+  const unjustified = withheld.has(asked) ? asked : null;
+  const replace = (borrowed.length > 0 || unjustified !== null) && subject.length > 0;
+  const prompt = replace ? subject : seg.visual_prompt;
+  // Both sources always search. Pooling from the prompt alone is what made a
+  // bad prompt unrecoverable: every candidate was wrong in the same way, so
+  // scoring could only choose the least-wrong warehouse.
+  const queries = [
+    ...buildSearchQueries(prompt, seg.title, channel),
+    ...(subject.length > 0 ? buildSearchQueries(subject, seg.title, channel) : []),
+  ];
+  return {
+    prompt, subject, queries: [...new Set(queries)], borrowed, unjustified,
+    withheld,
+    vehicles,
+  };
+}
+
 async function gatherCandidates(
   seg: ScriptSegment,
-  channel: "ai-doom-scroll" | "wet-circuit",
+  subject: SegmentSubject,
   pexelsKey: string,
   label: string,
 ): Promise<Candidate[]> {
-  const queries = buildSearchQueries(seg.visual_prompt, seg.title, channel);
   const seen = new Set<string>();
   const pool: Candidate[] = [];
-  for (const q of queries) {
+  for (const q of subject.queries) {
     for (const c of await searchPexelsCandidates(q, pexelsKey, { perPage: 40 })) {
       if (!seen.has(c.assetId)) { seen.add(c.assetId); pool.push(c); }
     }
     if (pool.length >= CANDIDATE_POOL) break;
   }
-  console.log(`[${label}] segment ${seg.segmentIndex}: pooled ${pool.length} candidates from ${queries.length} queries`);
+  if (subject.borrowed.length > 0 || subject.unjustified) {
+    const why = subject.borrowed.length > 0
+      ? `borrowed the analogy's vocabulary (${subject.borrowed.join(", ")})`
+      : `asked for unjustified "${subject.unjustified}" imagery`;
+    console.log(
+      `[${label}] segment ${seg.segmentIndex}: prompt ${why} — retrieving for "${subject.subject}" instead`,
+    );
+  }
+  console.log(`[${label}] segment ${seg.segmentIndex}: pooled ${pool.length} candidates from ${subject.queries.length} queries`);
   return pool;
 }
 
@@ -354,9 +424,56 @@ async function renderApprovedBeat(
   return out;
 }
 
+/**
+ * The channel's end card, for a beat that is CTA rather than content.
+ *
+ * This is a FIXED treatment, not a fallback: it is chosen because the beat has
+ * no subject, not because retrieval failed. It is therefore recorded as
+ * `BRANDED_OUTRO` and excluded from the fallback-card share, which measures how
+ * often the pipeline could not find footage it needed.
+ */
+async function renderOutroBeat(
+  beat: VisualBeat,
+  tmpDir: string,
+  deps: AssemblyDeps,
+  videoId: string,
+  cursor: number,
+): Promise<RenderedBeat> {
+  const { label, channel } = deps;
+  const sceneNumber = beat.index * 100 + 1;
+  const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
+  const titleFile = join(tmpDir, `card-${sceneNumber}.txt`);
+  const text = channel === "wet-circuit" ? "Thanks for watching" : "Like & Subscribe";
+  await writeCardTextFile(titleFile, text);
+  await renderCardClip({
+    text, channel, durationS: beat.durationS,
+    clipPath, titleFile, tmpDir, sceneNumber, label,
+  });
+  await recordScene({
+    channel, videoId, sceneNumber, narration: beat.narration,
+    startTimeS: TITLE_CARD_DURATION + cursor,
+    endTimeS: TITLE_CARD_DURATION + cursor + beat.durationS,
+    prompt: `[outro] ${text}`, assetSource: "outro-card", localPath: clipPath,
+    width: WIDTH, height: HEIGHT, durationS: beat.durationS,
+    validation: "PASS", renderStatus: "RENDERED_OUTRO",
+    rejectionReason: null, subjectPrompt: "[outro] fixed branded treatment",
+  });
+  console.log(`[${label}] beat ${beat.index}: outro card (${beat.durationS.toFixed(1)}s) — retrieval bypassed`);
+  return {
+    index: beat.index, startS: cursor, endS: cursor + beat.durationS,
+    durationS: beat.durationS, narration: beat.narration, assetId: null,
+    assetDescription: `outro card: ${text}`, assetUrl: null,
+    sourceStartS: 0, sourceEndS: beat.durationS, looped: false, reused: false,
+    relevanceScore: null, concept: "outro",
+    brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
+    decision: "BRANDED_OUTRO", clipPath,
+  };
+}
+
 async function renderBeat(
   beat: VisualBeat,
   seg: ScriptSegment,
+  subject: SegmentSubject,
   pool: Candidate[],
   ledger: AssetLedger,
   plan: VisualPlan,
@@ -370,17 +487,48 @@ async function renderBeat(
   let cursor = beat.startS;
   let fragment = 0;
 
+  // An outro beat has no retrievable subject. "Subscribe so you don't miss our
+  // next deep dive" depicts nothing, so the search fell through to whatever the
+  // segment prompt said and returned a rapeseed field. These get the channel's
+  // own end card instead, and never reach retrieval.
+  if (isOutroBeat(beat.narration)) {
+    return [await renderOutroBeat(beat, tmpDir, deps, videoId, cursor)];
+  }
+
+  // Scored against the beat's narration with the analogy excised. The vehicle
+  // is not what the beat is about, and leaving it in does not merely add noise:
+  // for the opening beat of run e704334a — whose narration carries "Imagine
+  // buying wholesale electricity, then reselling it at a markup" — it held every
+  // one of 35 usable candidates to 0.24, a hair under the 0.25 threshold, so the
+  // beat took a fallback card. With it removed the same candidates score 0.75.
+  const beatNarration = deVehicle(beat.narration, subject.vehicles);
   const scored = pool
     .map((c) => ({
       c,
       r: scoreRelevance({
         channel: channel as "ai-doom-scroll" | "wet-circuit",
-        narration: beat.narration,
-        prompt: seg.visual_prompt,
+        narration: beatNarration,
+        prompt: subject.prompt,
         description: c.description ?? "",
       }),
     }))
+    // Having ruled that this narration does not justify literal `environment`
+    // imagery, retrieving differently and then SELECTING a farm anyway would
+    // re-admit exactly what was ruled out. The scorer still credits such an
+    // asset 0.50 with the reason `subject "environment" is what this beat is
+    // about`, which is untrue here; correcting that reason belongs to scoring,
+    // so this only withholds the domain already judged unjustified.
+    .filter((x) => !subject.withheld.has(x.r.concept))
     .sort((a, b) => b.r.score - a.r.score);
+
+  /** The strongest candidates this scene's winner beat, for later diagnosis. */
+  const runnerUpsFor = (winner: string) => scored
+    .filter((x) => x.c.assetId !== winner)
+    .slice(0, 3)
+    .map((x) => ({
+      assetId: x.c.assetId, description: x.c.description ?? "",
+      score: +x.r.score.toFixed(3), verdict: x.r.verdict, concept: x.r.concept,
+    }));
 
   const tried = new Set<string>();
 
@@ -450,6 +598,9 @@ async function renderBeat(
       cropMethod: "scale-increase+centre-crop; cut (never looped)",
       relevanceScore: r.score, relevanceVerdict: r.verdict,
       relevanceReasons: [...r.reasons, `brand:${brand.brandDecision}`],
+      retrievalQuery: subject.queries.join(" | "),
+      subjectPrompt: subject.prompt === seg.visual_prompt ? null : subject.prompt,
+      runnerUps: runnerUpsFor(c.assetId),
       validation: "PASS", renderStatus: "RENDERED",
     });
     console.log(
@@ -661,12 +812,16 @@ export async function runAssembly(
   const rendered: RenderedBeat[] = [];
 
   // Pool candidates once per segment; beats draw unique assets from it.
+  const scriptText = [ctx.script.hook, ...segments.map((s) => s.narration), ctx.script.cta]
+    .filter(Boolean).join("\n");
+  const subjects = new Map<number, SegmentSubject>();
   const pools = new Map<number, Candidate[]>();
   for (const seg of segments) {
-    pools.set(
-      seg.segmentIndex,
-      await gatherCandidates(seg, deps.channel as "ai-doom-scroll" | "wet-circuit", config.PEXELS_API_KEY, label),
+    const subject = resolveSegmentSubject(
+      seg, scriptText, deps.channel as "ai-doom-scroll" | "wet-circuit",
     );
+    subjects.set(seg.segmentIndex, subject);
+    pools.set(seg.segmentIndex, await gatherCandidates(seg, subject, config.PEXELS_API_KEY, label));
   }
 
   // A 7-minute video needs ~24 unique assets, far more than one segment's
@@ -684,7 +839,9 @@ export async function runAssembly(
     const seg = segments[beat.segmentIndex] ?? segments[segments.length - 1];
     const pool = globalPool;
     rendered.push(
-      ...(await renderBeat(beat, seg, pool, ledger, plan, tmpDir, deps, ctx.video.id)),
+      ...(await renderBeat(
+        beat, seg, subjects.get(seg.segmentIndex)!, pool, ledger, plan, tmpDir, deps, ctx.video.id,
+      )),
     );
   }
 
@@ -710,8 +867,9 @@ export async function runAssembly(
 
   const composition = plan.summary();
   const cards = rendered.filter((b) => b.decision === "FALLBACK_CARD").length;
+  const outros = rendered.filter((b) => b.decision === "BRANDED_OUTRO").length;
   console.log(
-    `[${label}] visuals: ${rendered.length} beats, ${assetIds.length} unique assets, ${cards} card(s), ` +
+    `[${label}] visuals: ${rendered.length} beats, ${assetIds.length} unique assets, ${cards} card(s), ${outros} outro(s), ` +
       `${composition.strongCount} strong, ${composition.genericCount} generic, 0 looped, 0 reused`,
   );
 

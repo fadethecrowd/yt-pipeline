@@ -223,6 +223,12 @@ export interface SceneRecordInput {
   relevanceVerdict?: string | null;
   assetDescription?: string | null;
   relevanceReasons?: string[];
+  /** The query actually issued to the stock library for this scene. */
+  retrievalQuery?: string | null;
+  /** What the narration was judged to be about, when it differed from the prompt. */
+  subjectPrompt?: string | null;
+  /** Top scored candidates the winner beat, so a diagnosis can see what was passed over. */
+  runnerUps?: { assetId: string; description: string; score: number; verdict: string; concept: string }[];
 }
 
 export async function recordScene(input: SceneRecordInput): Promise<void> {

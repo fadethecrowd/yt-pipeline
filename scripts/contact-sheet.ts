@@ -16,11 +16,14 @@
  * Strictly read-only: one SELECT, no retrieval, no external API, no writes to
  * anything but the output file. LOCAL ONLY.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
-import { existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { prisma, disconnect } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
+
+interface RunnerUp {
+  assetId: string; description: string; score: number; verdict: string; concept: string;
+}
 
 interface Scene {
   sceneNumber: number; narration: string; startTimeS: number; endTimeS: number;
@@ -29,6 +32,8 @@ interface Scene {
   rejectionReason: string | null; relevanceScore: number | null;
   relevanceVerdict: string | null; assetDescription: string | null;
   relevanceReasons: string[]; renderStatus: string;
+  retrievalQuery?: string | null; subjectPrompt?: string | null;
+  runnerUps?: RunnerUp[] | null;
 }
 
 const arg = (f: string) => {
@@ -59,17 +64,21 @@ function concept(reasons: string[]): string {
  * requests it when the sheet is opened, and falls back to a labelled
  * placeholder if it does not resolve. Nothing in this script calls out.
  */
+function thumbFor(assetId: string | null, source: string): string {
+  const label = `${esc(source)} ${esc(assetId ?? "—")}`;
+  if (assetId && (source === "pexels" || source.startsWith("pexels"))) {
+    const poster = `https://images.pexels.com/videos/${assetId}/free-video-${assetId}.jpeg?auto=compress&cs=tinysrgb&w=420`;
+    return `<img class="thumb" loading="lazy" src="${esc(poster)}" alt="${label}"
+      onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb ph',textContent:'${label} — no frame'}))">`;
+  }
+  return `<div class="thumb ph">${label}<br><small>no retrieved asset</small></div>`;
+}
+
 function thumb(s: Scene): string {
-  const label = `${esc(s.assetSource)} ${esc(s.assetId ?? "—")}`;
   if (s.localPath && existsSync(s.localPath)) {
     return `<video class="thumb" src="file://${esc(s.localPath)}" muted preload="metadata"></video>`;
   }
-  if (s.assetSource === "pexels" && s.assetId) {
-    const poster = `https://images.pexels.com/videos/${s.assetId}/free-video-${s.assetId}.jpeg?auto=compress&cs=tinysrgb&w=420`;
-    return `<img class="thumb" loading="lazy" src="${esc(poster)}" alt="${label}"
-      onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb ph',textContent:'${label} — no frame on disk'}))">`;
-  }
-  return `<div class="thumb ph">${label}<br><small>no frame on disk</small></div>`;
+  return thumbFor(s.assetId, s.assetSource);
 }
 
 const CSS = `
@@ -87,6 +96,8 @@ h1{margin:0 0 6px;font-size:19px}
 .assets{display:flex;flex-wrap:wrap;gap:16px}
 .card{width:300px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#161a20}
 .card.chosen{border-color:#2f5d3a}
+.card.alt{width:210px;opacity:.62}
+.card.alt .thumb{height:118px}
 .thumb{width:100%;height:169px;object-fit:cover;display:block;background:#0b0d10}
 .ph{display:flex;flex-direction:column;align-items:center;justify-content:center;
 color:var(--dim);font-size:12px;text-align:center;padding:8px}
@@ -101,34 +112,10 @@ color:var(--dim);font-size:12px;text-align:center;padding:8px}
 a{color:#79b8ff}
 `;
 
-async function main(): Promise<void> {
-  const runId = arg("--run");
-  const videoArg = arg("--video");
-  if (!runId && !videoArg) {
-    console.error("✗ --run <runId> or --video <videoId> is required");
-    process.exitCode = 2; return;
-  }
-
-  let videoId = videoArg;
-  let runLabel = videoArg ?? "";
-  if (runId) {
-    const run = await prisma.pipelineRun.findUnique({ where: { id: runId } });
-    if (!run) { console.error(`✗ no pipeline_run ${runId}`); process.exitCode = 1; return; }
-    if (!run.videoId) { console.error(`✗ run ${runId} has no candidate`); process.exitCode = 1; return; }
-    videoId = run.videoId;
-    runLabel = `run ${runId} · ${run.status}`;
-  }
-
-  const scenes = (await (prisma as never as { sceneRecord: { findMany(a: unknown): Promise<Scene[]> } })
-    .sceneRecord.findMany({ where: { videoId }, orderBy: { sceneNumber: "asc" } })) as Scene[];
-  if (scenes.length === 0) {
-    console.error(`✗ no visual plan: candidate ${videoId} has no scene_record rows`);
-    process.exitCode = 1; return;
-  }
-
-  const video = await prisma.video.findUnique({
-    where: { id: videoId! }, include: { topic: { select: { title: true } } } });
-
+/** Render the sheet. Shared by the database path and the replan path. */
+function render(
+  scenes: Scene[], title: string | null, runLabel: string, videoId: string,
+): string {
   // Group consecutive scenes that share narration — those are one beat filled
   // by several clips.
   const beats: { narration: string; prompt: string; scenes: Scene[] }[] = [];
@@ -152,6 +139,20 @@ async function main(): Promise<void> {
         s.assetSource !== "pexels" ? `<span class="flag">FALLBACK CARD</span>` : "",
         s.rejectionReason ? `<span class="flag">${esc(s.rejectionReason)}</span>` : "",
       ].join("");
+      const alts = (s.runnerUps ?? []).map((u) => {
+        const c2 = u.score < 0.4 ? "s-lo" : u.score < 0.6 ? "s-mid" : "s-hi";
+        return `<div class="card alt">
+          ${thumbFor(u.assetId, "pexels")}
+          <div class="info">
+            <div class="desc">${esc(u.description || "(no description)")}</div>
+            <div class="row">
+              <span class="tag">passed over</span>
+              <span class="tag">${esc(u.concept)}</span>
+              <span class="tag score ${c2}">${u.score.toFixed(2)} ${esc(u.verdict)}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join("");
       return `<div class="card chosen">
         ${thumb(s)}
         <div class="info">
@@ -166,7 +167,7 @@ async function main(): Promise<void> {
           <ul class="reasons">${s.relevanceReasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
           ${s.assetUrl ? `<div class="row" style="margin-top:6px"><a href="${esc(s.assetUrl)}">source</a></div>` : ""}
         </div>
-      </div>`;
+      </div>${alts}`;
     }).join("");
     return `<section class="beat">
       <div>
@@ -174,16 +175,20 @@ async function main(): Promise<void> {
         <div class="narr">${esc(b.narration)}</div>
         <div class="idx" style="margin-top:12px">visual prompt</div>
         <div class="row" style="display:block">${esc(b.prompt)}</div>
+        ${b.scenes[0]?.subjectPrompt ? `<div class="idx" style="margin-top:10px">subject used instead</div>
+        <div class="row" style="display:block;color:#7fd18e">${esc(b.scenes[0].subjectPrompt!)}</div>` : ""}
+        ${b.scenes[0]?.retrievalQuery ? `<div class="idx" style="margin-top:10px">retrieval query</div>
+        <div class="row" style="display:block">${esc(b.scenes[0].retrievalQuery!)}</div>` : ""}
       </div>
       <div class="assets">${assets}</div>
     </section>`;
   }).join("");
 
   const html = `<!doctype html><html><head><meta charset="utf-8">
-<title>Contact sheet — ${esc(video?.topic?.title ?? videoId!)}</title><style>${CSS}</style></head><body>
+<title>Contact sheet — ${esc(title ?? videoId)}</title><style>${CSS}</style></head><body>
 <header>
-  <h1>${esc(video?.topic?.title ?? "(no topic)")}</h1>
-  <div class="meta">candidate ${esc(videoId!)} · ${esc(runLabel)} ·
+  <h1>${esc(title ?? "(no topic)")}</h1>
+  <div class="meta">candidate ${esc(videoId)} · ${esc(runLabel)} ·
     ${beats.length} beats · ${scenes.length} scenes · ${cards.length} fallback card(s) ·
     ${failed.length} non-PASS</div>
   <div class="gap"><strong>Not persisted for this run:</strong> the retrieval query that returned
@@ -195,12 +200,66 @@ async function main(): Promise<void> {
 </header>
 ${rows}
 </body></html>`;
+  return html;
+}
+
+async function main(): Promise<void> {
+  const runId = arg("--run");
+  const videoArg = arg("--video");
+  const planPath = arg("--plan");
+  if (!runId && !videoArg && !planPath) {
+    console.error("✗ --run <runId>, --video <videoId> or --plan <file.json> is required");
+    process.exitCode = 2; return;
+  }
+
+  // A replan is not in the database and must never be written there, so its
+  // plan file is rendered directly.
+  if (planPath) {
+    const plan = JSON.parse(readFileSync(planPath, "utf8")) as {
+      videoId: string; mode: string; title: string | null; scenes: Scene[];
+    };
+    if (!plan.scenes?.length) {
+      console.error(`✗ ${planPath} contains no scenes`); process.exitCode = 1; return;
+    }
+    const out = render(
+      plan.scenes.map((s) => ({ ...s, localPath: null, validation: s.validation ?? "PASS" })),
+      plan.title, `${plan.videoId} · replan (${plan.mode})`, plan.videoId,
+    );
+    const p = resolve(`${arg("--out") ?? "tmp/contact-sheets"}/${plan.videoId}.${plan.mode}.html`);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, out);
+    console.log(`   ${plan.scenes.length} scenes → ${p}`);
+    await disconnect();
+    return;
+  }
+
+  let videoId = videoArg;
+  let runLabel = videoArg ?? "";
+  if (runId) {
+    const run = await prisma.pipelineRun.findUnique({ where: { id: runId } });
+    if (!run) { console.error(`✗ no pipeline_run ${runId}`); process.exitCode = 1; return; }
+    if (!run.videoId) { console.error(`✗ run ${runId} has no candidate`); process.exitCode = 1; return; }
+    videoId = run.videoId;
+    runLabel = `run ${runId} · ${run.status}`;
+  }
+
+  const scenes = (await (prisma as never as { sceneRecord: { findMany(a: unknown): Promise<Scene[]> } })
+    .sceneRecord.findMany({ where: { videoId }, orderBy: { sceneNumber: "asc" } })) as Scene[];
+  if (scenes.length === 0) {
+    console.error(`✗ no visual plan: candidate ${videoId} has no scene_record rows`);
+    process.exitCode = 1; return;
+  }
+
+  const video = await prisma.video.findUnique({
+    where: { id: videoId! }, include: { topic: { select: { title: true } } } });
+
+  const html = render(scenes, video?.topic?.title ?? null, runLabel, videoId!);
 
   const outDir = arg("--out") ?? "tmp/contact-sheets";
   const outPath = resolve(`${outDir}/${videoId}.html`);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, html);
-  console.log(`   ${beats.length} beats, ${scenes.length} scenes → ${outPath}`);
+  console.log(`   ${scenes.length} scenes → ${outPath}`);
   await disconnect();
 }
 
