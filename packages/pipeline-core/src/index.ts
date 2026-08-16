@@ -179,6 +179,8 @@ export {
   RuntimeTargetError, scriptBudget, runtimeForChars, RATE_OPTIMISM, segmentBudgets,
 } from "./lib/runtimeTargets";
 export type { ScriptBudget } from "./lib/runtimeTargets";
+export { trimToLimit } from "./lib/scriptClamp";
+export type { TrimResult } from "./lib/scriptClamp";
 export type { RuntimeRange, RuntimeCheck, Format } from "./lib/runtimeTargets";
 
 // ── Visual beats & brand guard ────────────────────────────────────────────

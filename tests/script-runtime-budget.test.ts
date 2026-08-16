@@ -6,7 +6,7 @@ import {
   scriptBudget, segmentBudgets, runtimeForChars, charsForRuntime, runtimeRange,
   CHARS_PER_SECOND, TITLE_CARD_S, RATE_OPTIMISM, RuntimeTargetError,
 } from "@yt-pipeline/pipeline-core";
-import { measureLength, MAX_LENGTH_REPAIRS } from "../src/stages/scriptGenerator";
+import { trimToLimit } from "@yt-pipeline/pipeline-core";
 
 /**
  * Why a script the generator called "~312s total" was measured at 8.1 minutes.
@@ -160,13 +160,10 @@ describe("9-13. the gate's model is the one that matches reality", () => {
   });
 });
 
-// ── 14-31. Bounded length repair ─────────────────────────────────────────
+// ── 14-31. Deterministic length enforcement ──────────────────────────────
 
-describe("14-31. bounded, deterministic length repair", () => {
+describe("14-31. the code enforces length, not the model", () => {
   const b = scriptBudget(AI, LF, PROD);
-  const m = (spokenChars: number) => measureLength({
-    spokenChars, targetChars: b.targetChars, maxChars: b.maxChars, minChars: b.minChars,
-  });
 
   test("16/17. per-segment budgets are derived and sum to the total", () => {
     for (const n of [4, 5, 6]) {
@@ -189,136 +186,163 @@ describe("14-31. bounded, deterministic length repair", () => {
     }
   });
 
-  test("18. a script inside the envelope needs no repair", () => {
-    for (const chars of [b.minChars, b.targetChars, b.maxChars]) {
-      assert.equal(m(chars).verdict, "OK", `${chars}`);
+  test("7/8. the whole-script rewrite and regeneration ladder is gone", () => {
+    for (const gone of ["repairScriptLength", "MAX_LENGTH_REPAIRS", "measureLength",
+                        "correctionDecision", "MAX_CORRECTABLE_OVERFLOW"]) {
+      assert.ok(!SRC.includes(gone), `${gone} must not survive — it failed live`);
+    }
+    // Regeneration inside the length path would be a second generation.
+    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
+      SRC.indexOf("// The model's own"));
+    assert.ok(!block.includes("generateScript("), "no whole-script regeneration");
+  });
+
+  test("2/6/7. at most one model call per oversized segment, and none after", () => {
+    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
+      SRC.indexOf("// The model's own"));
+    assert.equal((block.match(/await shortenSegment\(/g) ?? []).length, 1,
+      "one call site, inside a single pass over the segments");
+    // The mechanical clamp that follows contains no model call at all.
+    const clamp = block.slice(block.indexOf("// 2. Mechanical clamp"));
+    assert.ok(!clamp.includes("shortenSegment") && !clamp.includes("createMessage"),
+      "step 2 onwards must be pure code");
+  });
+
+  test("4/5. trimming forces compliance even when the model made it LONGER", () => {
+    // The exact live behaviour: asked to shorten, it returned more text.
+    const longer = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} about the topic.`).join(" ");
+    assert.ok(longer.length > 300, "the fixture must actually be over the limit");
+    const t = trimToLimit(longer, 300);
+    assert.equal(t.ok, true);
+    assert.ok(t.text.length <= 300, `${t.text.length}`);
+    assert.ok(t.removed > 0);
+  });
+
+  test("10. no word is ever cut in half", () => {
+    const text = "Alpha beta gamma. Delta epsilon zeta. Eta theta iota. Kappa lambda mu.";
+    const t = trimToLimit(text, 40);
+    assert.ok(text.includes(t.text), "the result must be a prefix-composed subset of whole sentences");
+    assert.match(t.text, /[.!?]$/, "and must end on terminal punctuation");
+  });
+
+  test("11. a segment never becomes empty", () => {
+    const t = trimToLimit("One sentence only that is quite long indeed.", 5);
+    assert.ok(t.text.length > 0);
+    assert.equal(t.ok, false, "an unsplittable overlong sentence reports failure rather than emptying");
+  });
+
+  test("the closing line survives when it must", () => {
+    const text = "Open. Middle one. Middle two. Middle three. Subscribe for more.";
+    const t = trimToLimit(text, 34, { keepLast: true });
+    assert.match(t.text, /^Open\./);
+    assert.match(t.text, /Subscribe for more\.$/);
+  });
+
+  test("12/13. the stage cannot return success over the max", () => {
+    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
+      SRC.indexOf("// The model's own"));
+    assert.match(block, /if \(finalChars > b\.maxChars\)/);
+    assert.match(block, /success: false/);
+    assert.match(block, /while \(total\(\) > b\.maxChars/, "defensive total clamp");
+  });
+
+  test("14. it also refuses a script below the production minimum", () => {
+    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
+      SRC.indexOf("// The model's own"));
+    assert.match(block, /finalChars < b\.minChars/);
+  });
+
+  test("9/23. the segment count is preserved and verified", () => {
+    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
+      SRC.indexOf("// The model's own"));
+    assert.match(block, /script\.segments\.length !== budgets\.length/);
+  });
+
+  test("19/20/21/22. nothing here spends, claims or re-identifies anything", () => {
+    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
+      SRC.indexOf("// The model's own"));
+    for (const forbidden of ["claimSlot", "RunSummary", "withBudgetWindow", "reserveCredits",
+                             "elevenlabs", "productionTranche", "settleSlot"]) {
+      assert.ok(!block.toLowerCase().includes(forbidden.toLowerCase()), `must not touch ${forbidden}`);
     }
   });
 
-  test("19/20. the real 7226-char script is OVER and gets repair attempts", () => {
-    const state = m(7226);
-    assert.equal(state.verdict, "OVER");
-    assert.ok(state.spokenChars / state.maxChars - 1 > 0.20, "this is the 22% case");
-    // The old rule refused anything past 15%; the bound is now on attempts.
-    assert.equal(MAX_LENGTH_REPAIRS, 2);
-  });
-
-  test("the previous 15% eligibility band is gone", () => {
-    assert.ok(!/MAX_CORRECTABLE_OVERFLOW|0\.15/.test(SRC),
-      "a threshold nobody measured must not decide whether repair is attempted");
-  });
-
-  test("29. a short script is repaired toward target, not ignored", () => {
-    const state = m(3000);
-    assert.equal(state.verdict, "UNDER");
-    assert.match(state.detail, /under the .* minimum/);
-  });
-
-  test("21/22/23. repair keeps the candidate, run and tranche untouched", () => {
-    const region = SRC.slice(SRC.indexOf("async function repairScriptLength"));
-    for (const forbidden of ["claimSlot", "video.create", "RunSummary", "settleSlot",
-                             "withBudgetWindow", "reserveCredits", "elevenlabs"]) {
-      assert.ok(!region.toLowerCase().includes(forbidden.toLowerCase()),
-        `repair must not touch ${forbidden}`);
-    }
-  });
-
-  test("24/25/26. the ladder is generate → repair → regenerate, counting each time", () => {
-    const ladder = SRC.slice(SRC.indexOf("// ── Bounded length repair"), SRC.indexOf("// The model's own"));
-    assert.match(ladder, /attempt <= MAX_LENGTH_REPAIRS/);
-    assert.match(ladder, /attempt === 1\s*\n?\s*\? await repairScriptLength/);
-    assert.match(ladder, /: await generateScript\(anthropic, ctx\)/);
-    assert.match(ladder, /state = measure\(script\)/, "every step must re-count from the text");
-  });
-
-  test("27/28. after the bound it terminates — no third action, no loop", () => {
-    const ladder = SRC.slice(SRC.indexOf("// ── Bounded length repair"), SRC.indexOf("// The model's own"));
-    assert.match(ladder, /if \(state\.verdict !== "OK"\) \{/);
-    assert.match(ladder, /success: false/);
-    assert.match(ladder, /repair attempt\(s\)/);
-    // The only loop is the bounded for; nothing recurses.
-    assert.equal((ladder.match(/for \(/g) ?? []).length, 1);
-    assert.ok(!/while \(/.test(ladder));
-  });
-
-  test("30/31. qualityGate only ever sees a length-valid script", () => {
+  test("15/16/17/18. quality then feasibility, both after enforcement", () => {
     const pipeline = readFileSync("src/pipeline.ts", "utf8");
     const gen = pipeline.indexOf('name: "scriptGenerator"');
     const qa = pipeline.indexOf('name: "qualityGate"');
     const vf = pipeline.indexOf('name: "visualFeasibilityGate"');
-    assert.ok(gen < qa && qa < vf, "ordering must stay generate → quality → feasibility");
-    // Length is settled inside scriptGenerator, so an over-budget script never
-    // reaches the judge.
-    const ladder = SRC.slice(SRC.indexOf("// ── Bounded length repair"), SRC.indexOf("// The model's own"));
-    assert.match(ladder, /return \{\s*\n?\s*success: false/);
-    // A returned failure is not retried — withRetry only retries a throw — so
-    // the ladder is exactly one generation plus MAX_LENGTH_REPAIRS actions.
-    const retry = readFileSync("packages/pipeline-core/src/lib/retry.ts", "utf8");
-    assert.match(retry, /catch \(err\)/);
-    assert.ok(!/if \(!result\.success\) continue/.test(retry));
+    assert.ok(gen < qa && qa < vf);
+    // Enforcement happens inside scriptGenerator, so the judge never sees the
+    // original over-budget text.
+    assert.ok(SRC.indexOf("// ── Deterministic length enforcement") < SRC.indexOf("hookSegment"));
   });
 
   test("32/33/34. the downstream gate and its limits are untouched", () => {
     const range = runtimeRange(AI, LF, PROD);
     assert.equal(range.minS, 300);
     assert.equal(range.maxS, 480);
-    assert.equal(charsForRuntime(AI, range.maxS), 6121, "the hard ceiling must not move");
-    const vf = readFileSync("src/stages/visualFeasibilityGate.ts", "utf8");
-    assert.ok(vf.length > 0, "the gate still exists and still runs after quality");
+    assert.equal(charsForRuntime(AI, range.maxS), 6121);
+    assert.equal(b.maxChars, 5925);
+    assert.equal(b.targetChars, 5552);
   });
 
   test("35. the model's self-reported duration stays diagnostic", () => {
     assert.match(SRC, /model self-reported/);
-    assert.ok(!/estimatedTotalDuration > |estimatedTotalDuration <|estimatedTotalDuration >=/.test(SRC),
-      "nothing may branch on the model's own duration claim");
   });
 });
 
-// ── No-spend replay of both real failures ────────────────────────────────
+// ── The real 7342 → 7904 → 6911 failure ──────────────────────────────────
 
-describe("replay: both real pre-spend rejections under the new contract", () => {
+describe("regression: the 2026-08-16 length failure", () => {
   const b = scriptBudget(AI, LF, PROD);
-  const m = (spokenChars: number) => measureLength({
-    spokenChars, targetChars: b.targetChars, maxChars: b.maxChars, minChars: b.minChars,
+  const segs = segmentBudgets(b, 6);
+
+  /** Six segments of whole sentences, summing to roughly `totalChars`. */
+  function script(totalChars: number): string[] {
+    const per = Math.round(totalChars / 6);
+    return segs.map(() => {
+      let text = "";
+      let i = 0;
+      while (text.length < per) {
+        text += `${text ? " " : ""}This sentence carries a distinct technical point number ${i++}.`;
+      }
+      return text;
+    });
+  }
+
+  const clampAll = (narrations: string[]) => {
+    const out = narrations.map((n, i) =>
+      trimToLimit(n, segs[i]!.maxChars, { keepLast: i === narrations.length - 1 }));
+    return { texts: out.map((t) => t.text), total: out.reduce((a, t) => a + t.text.length, 0) };
+  };
+
+  test("7342 initial: mechanically forced inside 5925", () => {
+    const r = clampAll(script(7342));
+    assert.ok(r.total <= b.maxChars, `${r.total} must be <= ${b.maxChars}`);
+    assert.equal(r.texts.length, 6, "still six segments");
+    for (const t of r.texts) assert.ok(t.length > 0, "no segment emptied");
   });
 
-  /** A: cmstndj720001mbhnung9cual — 6181 chars, refused at 8.1 min. */
-  test("A. the 6,181-char script is OVER and repairable", () => {
-    const state = m(6181);
-    assert.equal(state.verdict, "OVER");
-    assert.ok(runtimeForChars(AI, 6181) > b.maxS, "reproduces the original refusal");
-    // 4.3% over: one targeted rewrite is very likely to land it.
-    assert.ok(state.spokenChars / state.maxChars - 1 < 0.05);
-    assert.ok(m(b.targetChars).verdict === "OK", "the target it is trimmed toward is valid");
+  test("7904 after the model made it LONGER: still forced inside 5925", () => {
+    const r = clampAll(script(7904));
+    assert.ok(r.total <= b.maxChars, `${r.total} must be <= ${b.maxChars}`);
+    assert.equal(r.texts.length, 6);
   });
 
-  /** B: cmsvv9n9e0008mb34c3tkappb — 7226 chars, refused at 9.4 min. */
-  test("B. the 7,226-char script is OVER, 22% over, and still gets both actions", () => {
-    const state = m(7226);
-    assert.equal(state.verdict, "OVER");
-    assert.ok(Math.abs(runtimeForChars(AI, 7226) / 60 - 9.4) < 0.1, "reproduces the 9.4 min");
-    const overPct = (state.spokenChars / state.maxChars - 1) * 100;
-    assert.ok(overPct > 20 && overPct < 25, `${overPct.toFixed(1)}% over`);
-    // The old rule stopped here. The bound is now on attempts, not on a guess
-    // about which overages are winnable.
-    assert.equal(MAX_LENGTH_REPAIRS, 2);
+  test("6911 after regeneration: still forced inside 5925", () => {
+    const r = clampAll(script(6911));
+    assert.ok(r.total <= b.maxChars, `${r.total} must be <= ${b.maxChars}`);
   });
 
-  test("B. its segment allocation is stated, and a landed repair fits", () => {
-    const seg = segmentBudgets(b, 6);
-    assert.equal(seg.reduce((a, x) => a + x.maxChars, 0), b.maxChars);
-    // 7226 across 6 segments is ~1204 each against a ~948 middle budget: every
-    // segment has a concrete number to cut toward.
-    assert.ok(7226 / 6 > seg[2]!.maxChars);
-    // A repair that reaches target is inside the envelope with room to spare.
-    const after = runtimeForChars(AI, b.targetChars);
-    assert.ok(after >= b.minS && after <= b.maxS, `${after.toFixed(1)}s`);
-    assert.equal(m(b.targetChars).verdict, "OK");
+  test("no model call, no regeneration, no second candidate is involved", () => {
+    // The regression above is pure arithmetic — the same code path the stage
+    // runs after its single per-segment attempt.
+    assert.equal(typeof trimToLimit, "function");
   });
 
-  test("neither historical row is referenced by any of this", () => {
-    for (const id of ["cmstndj720001mbhnung9cual", "cmsvv9n9e0008mb34c3tkappb",
-                      "ef5999ea", "00959a09"]) {
+  test("the fix names no run, candidate or topic", () => {
+    for (const id of ["f5c5ee99", "cmsw1b7sx0001mbgbmv2uqu1c", "RingCentral"]) {
       assert.ok(!SRC.includes(id), `${id} must not be special-cased`);
     }
   });

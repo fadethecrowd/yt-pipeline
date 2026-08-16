@@ -3,7 +3,7 @@ import { z } from "zod";
 import { VideoStatus } from "@prisma/client";
 import {
   prisma, env, createMessage, scriptBudget, segmentBudgets, runtimeForChars,
-  buildSpokenUnits, spokenCharacterCount, currentTestStage, fmtRuntime,
+  buildSpokenUnits, spokenCharacterCount, currentTestStage, fmtRuntime, trimToLimit,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -224,130 +224,55 @@ async function generateScript(
 }
 
 /**
- * Where a script sits against the canonical budget.
+ * The model gets ONE attempt per oversized segment, and then code takes over.
  *
- * Deterministic, from the text, never from anything the model says about
- * itself. `spokenCharacterCount(buildSpokenUnits(script))` is the same measure
- * the runtime check and the narration ceiling use, so the generator and the
- * gate cannot disagree about the same script.
- */
-export type LengthVerdict = "OK" | "OVER" | "UNDER";
-
-export interface LengthState {
-  verdict: LengthVerdict;
-  spokenChars: number;
-  targetChars: number;
-  maxChars: number;
-  minChars: number;
-  ratio: number;
-  detail: string;
-}
-
-export function measureLength(input: {
-  spokenChars: number; targetChars: number; maxChars: number; minChars: number;
-}): LengthState {
-  const { spokenChars, targetChars, maxChars, minChars } = input;
-  const base = { spokenChars, targetChars, maxChars, minChars };
-  if (spokenChars > maxChars) {
-    return { ...base, verdict: "OVER", ratio: spokenChars / maxChars,
-      detail: `${spokenChars} chars is ${(((spokenChars / maxChars) - 1) * 100).toFixed(1)}% over the ${maxChars} budget` };
-  }
-  if (spokenChars < minChars) {
-    return { ...base, verdict: "UNDER", ratio: spokenChars / minChars,
-      detail: `${spokenChars} chars is ${((1 - (spokenChars / minChars)) * 100).toFixed(1)}% under the ${minChars} minimum` };
-  }
-  return { ...base, verdict: "OK", ratio: spokenChars / targetChars,
-    detail: `${spokenChars} chars is inside ${minChars}-${maxChars}` };
-}
-
-/**
- * How many repair actions one candidate may spend on length. Two: a targeted
- * rewrite of the existing script, then one regeneration to the same explicit
- * budgets if that was not enough.
+ * Measured live on 2026-08-16: asked to shorten a 7,342-character script
+ * against a 5,925 limit, the model returned 7,904 — longer than its input. A
+ * budgeted regeneration returned 6,911. Three attempts, never inside the
+ * envelope, one authorized production attempt spent.
  *
- * There was previously a rule that anything more than 15% over could not be
- * repaired at all, so a 22%-over script went straight to the gates and died.
- * That threshold was asserted, never measured. A 23% reduction is a compression
- * job — the same six segments, less padding — not a different story, and the
- * honest way to find out is to attempt it and then COUNT. The bound that
- * matters is the number of attempts, not a guess about which ones are winnable.
+ * Whole-script rewriting and regeneration are gone from the length path. A
+ * single segment is a small, well-specified edit and is worth one try, because
+ * a model cut usually reads better than a mechanical one. Whether it worked is
+ * decided by counting, not by trusting.
  */
-export const MAX_LENGTH_REPAIRS = 2;
-
-function segmentReport(script: Script, budgets: { index: number; targetChars: number; maxChars: number }[]): string {
-  return script.segments.map((seg, i) => {
-    const b = budgets[i];
-    const n = spokenCharacterCount(buildSpokenUnits({ ...script, segments: [seg], hook: "", cta: "" } as Script));
-    return `  segment ${i}: ${n}${b ? ` / ${b.targetChars} / ${b.maxChars}` : ""}`;
-  }).join("\n");
-}
-
-/**
- * Rewrite the SAME script to fit, or expand it to reach the floor.
- *
- * Given the exact numbers on both sides — total and per segment — so the model
- * is editing against arithmetic rather than an adjective. Preserves the claims,
- * the structure and the visual prompts; only narration changes.
- */
-async function repairScriptLength(
+async function shortenSegment(
   anthropic: Anthropic,
-  script: Script,
-  state: LengthState,
-  budgets: { index: number; targetChars: number; maxChars: number }[],
-): Promise<{ script?: Script; error?: string }> {
-  const over = state.verdict === "OVER";
-  const delta = Math.abs(state.spokenChars - state.targetChars);
-  const prompt = `This video script is ${over ? "too long" : "too short"} and must be ${over ? "shortened" : "expanded"}. It is otherwise good — do not rewrite it.
+  narration: string,
+  budget: { targetChars: number; maxChars: number },
+): Promise<string | null> {
+  const prompt = `Shorten this narration segment. It is otherwise good — do not rewrite it.
 
-CURRENT TOTAL: ${state.spokenChars} spoken characters
-TARGET TOTAL:  ${state.targetChars} spoken characters (aim here)
-HARD MAXIMUM:  ${state.maxChars}
-HARD MINIMUM:  ${state.minChars}
+CURRENT LENGTH: ${narration.length} characters
+TARGET:         ${budget.targetChars} characters
+HARD MAXIMUM:   ${budget.maxChars} characters
 
-You must ${over ? "cut" : "add"} approximately ${delta} characters of narration.
-
-PER-SEGMENT BUDGET (current / target / max):
-${segmentReport(script, budgets)}
+Cut approximately ${narration.length - budget.targetChars} characters.
 
 RULES:
-- ${over ? "Shorten. Do NOT add material." : "Expand only by developing points already present."}
+- Shorten only. Do NOT add anything.
 - Do NOT introduce any new claim, fact, number or example.
-- Keep the hook's opening line intact.
-- Keep every distinct technical point and every concrete example.
-- Keep the CTA${over ? ", tightened" : ""}.
-- Keep the same number of segments and the same segment titles.
-- Keep every visual_prompt exactly as it is.
-- ${over
-    ? "Cut by removing repetition, filler, repeated setup and verbose transitions — not by deleting substance."
-    : "Expand by developing the existing points more fully — not by padding with filler."}
-- Bring EACH segment within its per-segment budget above.
+- Keep the segment's purpose and every distinct technical point.
+- Keep the opening sentence.
+- Cut repetition, filler and verbose transitions.
+- Return ONLY the shortened narration text. No JSON, no preamble, no quotes.
 
-Return the SAME JSON shape you were given, with only the narration fields changed.
+SEGMENT:
+${narration}`;
 
-SCRIPT:
-${JSON.stringify({ hook: script.hook, cta: script.cta, segments: script.segments.map((x) => ({
-    segmentIndex: x.segmentIndex, title: x.title, narration: x.narration,
-    visual_prompt: x.visual_prompt, duration_seconds: x.duration_seconds,
-  })), estimatedTotalDuration: script.estimatedTotalDuration }, null, 2)}`;
-
-  const raw = await createMessage(anthropic, {
-    model: "claude-sonnet-4-6",
-    max_tokens: 8000,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const text = raw.content.find((c) => c.type === "text");
-  if (!text || text.type !== "text") return { error: "length repair returned no text" };
-  const jsonMatch = /\{[\s\S]*\}/.exec(text.text);
-  if (!jsonMatch) return { error: "length repair returned no JSON" };
-  let parsed: unknown;
-  try { parsed = JSON.parse(jsonMatch[0]); }
-  catch (e) { return { error: `length repair JSON invalid: ${e instanceof Error ? e.message : String(e)}` }; }
-  const v = scriptSchema.safeParse(parsed);
-  if (!v.success) {
-    return { error: `repaired script failed validation: ${
-      v.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}` };
+  try {
+    const raw = await createMessage(anthropic, {
+      model: "claude-sonnet-4-6",
+      max_tokens: 2000,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const text = raw.content.find((c) => c.type === "text");
+    if (!text || text.type !== "text") return null;
+    const out = text.text.trim();
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
   }
-  return { script: foldHookAndCtaIntoSegments(v.data) };
 }
 
 /**
@@ -375,60 +300,104 @@ export async function scriptGenerator(
 
   let script = result.script;
 
-  // ── Bounded length repair, before anything downstream ─────────────
+  // ── Deterministic length enforcement ──────────────────────────────
   //
-  // The model does not reliably obey a length budget: the first production
-  // candidate came back 4.3% over, the second 22%. Both were refused by the
-  // runtime check having already paid for a quality judgement on a script that
-  // could never ship. So length is settled HERE, deterministically, before
-  // qualityGate sees anything.
+  // The model writes. The code counts. The code wins.
   //
-  // Two repair actions, no more: rewrite the same script to fit, then — if
-  // that still misses — one regeneration against the same explicit per-segment
-  // budgets. Every step re-COUNTS from the text rather than believing either
-  // the model or the previous step. Same candidate, same run, same tranche
-  // attempt throughout; nothing here can claim a slot or spend anything.
+  // Nothing leaves this stage over the canonical budget. Each oversized
+  // segment gets exactly one model attempt — a small, well-specified edit that
+  // usually reads better than a mechanical cut — and then whole sentences are
+  // removed until it fits. There is no whole-script rewrite and no
+  // regeneration: both were tried live and produced 7,904 and 6,911 characters
+  // against a 5,925 limit.
+  //
+  // Trimming can make prose worse. That is fine and deliberate: `qualityGate`
+  // runs next and is what decides whether the result is still good enough. A
+  // script damaged by trimming fails there, which is a better outcome than
+  // another round of negotiating with the model.
+  //
+  // Same candidate, same run, same tranche attempt throughout. Nothing here
+  // claims a slot, touches a budget or calls a provider.
   {
     const b = productionBudget();
     const budgets = segmentBudgets(b, script.segments.length);
-    const measure = (sc: Script) => measureLength({
-      spokenChars: spokenCharacterCount(buildSpokenUnits(sc)),
-      targetChars: b.targetChars, maxChars: b.maxChars, minChars: b.minChars,
-    });
+    const lens = () => buildSpokenUnits(script).map((u) => u.text.length);
+    const total = () => spokenCharacterCount(buildSpokenUnits(script));
+    const report = () => lens()
+      .map((n, i) => `  segment ${i}: ${n} / ${budgets[i]!.targetChars} / ${budgets[i]!.maxChars}`)
+      .join("\n");
 
-    let state = measure(script);
-    console.log(`[scriptGenerator] length: ${state.detail}\n${segmentReport(script, budgets)}`);
+    console.log(`[scriptGenerator] length: ${total()} / ${b.targetChars} / ${b.maxChars}\n${report()}`);
 
-    for (let attempt = 1; attempt <= MAX_LENGTH_REPAIRS && state.verdict !== "OK"; attempt++) {
-      const kind = attempt === 1 ? "repair" : "regeneration";
-      console.log(`[scriptGenerator] length ${kind} ${attempt}/${MAX_LENGTH_REPAIRS}: ${state.detail}`);
-      const next = attempt === 1
-        ? await repairScriptLength(anthropic, script, state, budgets)
-        // The second action regenerates from the same topic and the same
-        // budgets rather than editing again — a script that survived one
-        // targeted rewrite and is still outside the envelope is usually
-        // structurally too big, not merely padded.
-        : await generateScript(anthropic, ctx);
-      if (next.error || !next.script) {
-        console.log(`[scriptGenerator] length ${kind} failed: ${next.error ?? "no script"}`);
-        continue;
+    // 1. At most ONE model attempt per oversized segment.
+    for (let i = 0; i < script.segments.length; i++) {
+      if (lens()[i]! <= budgets[i]!.maxChars) continue;
+      const seg = script.segments[i]!;
+      const shorter = await shortenSegment(anthropic, seg.narration, budgets[i]!);
+      if (shorter) {
+        seg.narration = shorter;
+        console.log(`[scriptGenerator] segment ${i} rewritten once: ${lens()[i]} / ${budgets[i]!.maxChars}`);
       }
-      script = next.script;
-      state = measure(script);
-      console.log(`[scriptGenerator] after ${kind}: ${state.detail}\n${segmentReport(script, budgets)}`);
     }
 
-    if (state.verdict !== "OK") {
-      // Terminal for this candidate. It consumed its tranche attempt, and no
-      // further repair, regeneration or replacement candidate is available
-      // without a fresh human authorization.
+    // 2. Mechanical clamp. No further model calls, whatever step 1 returned —
+    //    including the case where it came back LONGER.
+    for (let i = 0; i < script.segments.length; i++) {
+      if (lens()[i]! <= budgets[i]!.maxChars) continue;
+      const seg = script.segments[i]!;
+      const isLast = i === script.segments.length - 1;
+      const t = trimToLimit(seg.narration, budgets[i]!.maxChars, { keepLast: isLast });
+      seg.narration = t.text;
+      console.log(`[scriptGenerator] segment ${i} trimmed ${t.removed} sentence(s): ` +
+        `${lens()[i]} / ${budgets[i]!.maxChars}${t.ok ? "" : " — STILL OVER"}`);
+    }
+
+    // 3. Defensive total clamp. Per-segment maxima sum to the total budget, so
+    //    this should not normally fire; it exists so the guarantee below does
+    //    not depend on that arithmetic holding.
+    let guard = script.segments.length * 40;
+    while (total() > b.maxChars && guard-- > 0) {
+      const l = lens();
+      // The segment furthest over its own target gives up a sentence first.
+      let worst = 0;
+      for (let i = 1; i < l.length; i++) {
+        if (l[i]! - budgets[i]!.targetChars > l[worst]! - budgets[worst]!.targetChars) worst = i;
+      }
+      const seg = script.segments[worst]!;
+      const isLast = worst === script.segments.length - 1;
+      const t = trimToLimit(seg.narration, Math.max(1, l[worst]! - 1), { keepLast: isLast });
+      if (t.removed === 0) break;   // nothing further can be removed safely
+      seg.narration = t.text;
+    }
+
+    // 4. The guarantee. A production script NEVER leaves this stage over
+    //    budget: if it cannot be brought inside, the candidate fails.
+    const finalChars = total();
+    if (finalChars > b.maxChars) {
       return {
         success: false,
-        error: `script length outside the production envelope after ${MAX_LENGTH_REPAIRS} ` +
-          `repair attempt(s): ${state.detail}`,
+        error: `script cannot be brought inside the production envelope: ` +
+          `${finalChars} spoken chars exceeds ${b.maxChars} and no further whole sentence ` +
+          `can be removed without cutting a word`,
         durationMs: Date.now() - start,
       };
     }
+    if (finalChars < b.minChars) {
+      return {
+        success: false,
+        error: `script is below the production minimum after length enforcement: ` +
+          `${finalChars} spoken chars is under ${b.minChars}`,
+        durationMs: Date.now() - start,
+      };
+    }
+    if (script.segments.length !== budgets.length) {
+      return {
+        success: false,
+        error: `length enforcement changed the segment count (${script.segments.length} vs ${budgets.length})`,
+        durationMs: Date.now() - start,
+      };
+    }
+    console.log(`[scriptGenerator] final: ${finalChars} / ${b.targetChars} / ${b.maxChars}\n${report()}`);
   }
 
   // The model's own `estimatedTotalDuration` is a self-report and was, on the
