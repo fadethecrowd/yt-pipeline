@@ -19,7 +19,7 @@ import {
   createAndAttachCandidate, settleCycle, getCycle,
   MANUAL_SUPERVISED, UNATTENDED,
   verifySupervision, reconcileLeases, activeLeaseFor, bindLease,
-  claimSlot,
+  claimSlot, currentTranche,
   type ActiveCycle,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, SEOMetadata, StageDefinition, StageResult } from "@yt-pipeline/pipeline-core";
@@ -48,6 +48,38 @@ import { resolveAiDoomPilot, assertAiDoomPilotWindow } from "./pilotBinding";
  * carries its own equivalent gate. Neither channel's behaviour changes for the
  * other.
  */
+
+/**
+ * Which stages this run executes.
+ *
+ * There were two sources of Shorts policy and they disagreed. The stage list
+ * carried `skipDuringPilot`, which drops the Shorts stage for a PILOT and does
+ * nothing else; the tranche's `shortsEnabled` was read only inside
+ * `youtubeUpload`, where it shapes the long-form upload policy. Ordinary
+ * production has no pilot, so on 2026-08-16 a tranche that correctly reported
+ * "Shorts disabled" still ran `shortsGenerator` — which built a Short locally,
+ * reached for YouTube credentials, and failed on `invalid_grant`.
+ *
+ * The effective rule is now stated once, here, and matches what
+ * `uploadPolicyFor` already applies downstream: a pilot never makes Shorts, and
+ * ordinary production makes them only if its tranche says so. Absent authority
+ * means off, which is the same default `uploadPolicyFor` uses for a non-pilot
+ * run — so the two can no longer drift apart.
+ *
+ * Deciding here rather than inside the stage means the disabled case has no
+ * side effects at all: nothing is generated, nothing is cropped or captioned,
+ * no credentials are touched, and no artifact is written.
+ */
+export function selectStages(
+  all: StageDefinition[],
+  opts: { isPilot: boolean; shortsEnabled: boolean },
+): StageDefinition[] {
+  return all.filter((s) => {
+    if (opts.isPilot && s.skipDuringPilot) return false;
+    if (s.name === "shortsGenerator") return opts.shortsEnabled;
+    return true;
+  });
+}
 
 /**
  * Supervision must still be live at each irreversible boundary.
@@ -280,7 +312,7 @@ async function guardedYoutubeUpload(ctx: PipelineContext): Promise<StageResult> 
 
 // ── Stage definitions (sequential) ────────────────────────────────────────
 
-const STAGES: StageDefinition[] = [
+export const STAGES: StageDefinition[] = [
   { name: "topicDiscovery", execute: topicDiscovery, retries: 2 },
   { name: "scriptGenerator", execute: scriptGenerator, retries: 2 },
   { name: "qualityGate", execute: qualityGate, retries: 0 },
@@ -529,10 +561,17 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
       }
       console.log(`[pipeline] pilot slots remaining: ${left}`);
     }
-    const stages = STAGES.filter((s) => !(pilot && s.skipDuringPilot));
+    // A pilot never makes Shorts; ordinary production makes them only when its
+    // tranche authorises them. No tranche means no authority, so no Shorts.
+    const shortsEnabled = pilot
+      ? false
+      : (await currentTranche(AI_DOOM_CHANNEL))?.shortsEnabled ?? false;
+    const stages = selectStages(STAGES, { isPilot: !!pilot, shortsEnabled });
     if (pilot) {
       const skipped = STAGES.filter((s) => s.skipDuringPilot).map((s) => s.name);
       if (skipped.length) console.log(`[pipeline] pilot skips: ${skipped.join(", ")}`);
+    } else if (!shortsEnabled) {
+      console.log("[pipeline] SHORTS: SKIPPED_DISABLED — the production tranche does not authorise Shorts");
     }
 
     // ── Check for stuck videos that can be resumed ────────────────────

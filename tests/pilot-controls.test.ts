@@ -184,7 +184,11 @@ describe("the real production path is wired for the pilot", () => {
 
   test("Shorts are skipped during a pilot, by config not by deletion", () => {
     assert.match(pipeline, /skipDuringPilot: true/);
-    assert.match(pipeline, /STAGES\.filter\(\(s\) => !\(pilot && s\.skipDuringPilot\)\)/);
+    // The filter moved into `selectStages`, which drops every skipDuringPilot
+    // stage for a pilot exactly as before and additionally honours the
+    // production tranche's Shorts policy for non-pilot runs.
+    assert.match(pipeline, /if \(opts\.isPilot && s\.skipDuringPilot\) return false;/);
+    assert.match(pipeline, /selectStages\(STAGES, \{ isPilot: !!pilot, shortsEnabled \}\)/);
     assert.match(pipeline, /shortsGenerator/, "the stage must still exist for normal production");
   });
 
