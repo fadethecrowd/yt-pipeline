@@ -1,0 +1,86 @@
+{
+  "_note": "buildSpokenUnits() over script.final.json — the exact text submitted to ElevenLabs.",
+  "totalChars": 5602,
+  "units": [
+    {
+      "index": 0,
+      "chars": 1080,
+      "parts": [
+        {
+          "field": "hook",
+          "chars": 661
+        },
+        {
+          "field": "segment",
+          "segmentIndex": 0,
+          "chars": 417
+        }
+      ],
+      "text": "There's a shadow economy growing right underneath the AI boom, and most people have no idea it exists. Imagine buying wholesale electricity, then reselling it at a markup to your neighbors. Now replace electricity with AI processing power, and you've got one of the fastest-growing arbitrage plays in tech right now. We're talking about token brokers — middlemen who buy AI credits in bulk and resell them for profit. It's reshaping how businesses actually access artificial intelligence, and it raises some genuinely uncomfortable questions about who controls the future of this technology. Stick around, because this rabbit hole goes deeper than you'd expect.\n\nThere's a shadow economy growing right underneath the AI boom, and most people have no idea it exists. Imagine buying wholesale electricity, then reselling it at a markup to your neighbors. Now replace electricity with AI processing power, and you've got one of the fastest-growing arbitrage plays in tech right now. We're talking about token brokers — middlemen who buy AI credits in bulk and resell them for profit."
+    },
+    {
+      "index": 1,
+      "chars": 943,
+      "parts": [
+        {
+          "field": "segment",
+          "segmentIndex": 1,
+          "chars": 943
+        }
+      ],
+      "text": "Here's where it gets interesting. The customers aren't who you'd expect. Yes, startups with thin budgets use brokers to avoid the steep minimums that direct enterprise contracts require. But brokers are also serving mid-sized agencies, law firms automating document review, healthcare companies running diagnostic tooling, and even some government contractors who can't navigate procurement fast enough to keep pace with AI development cycles. Essentially, anyone who needs significant AI capacity but lacks the negotiating leverage or speed to go direct ends up in this market. Brokers solve a genuine friction problem. Direct API access is technically available to anyone with a credit card, but meaningful scale requires enterprise deals, legal reviews, compliance checks, and long sales cycles. Brokers compress that entire process into a single purchase order, which is enormously valuable to organizations that just need to ship product."
+    },
+    {
+      "index": 2,
+      "chars": 907,
+      "parts": [
+        {
+          "field": "segment",
+          "segmentIndex": 2,
+          "chars": 907
+        }
+      ],
+      "text": "Let's talk money. The margin structure in token resale is surprisingly healthy for brokers who get the volume tiers right. Enterprise contracts with major AI providers can unlock discounts anywhere from twenty to fifty percent off standard API pricing. A broker moving tens of millions of tokens per month can lock in those rates, then resell to clients at ten to twenty percent below the public API price while still pocketing a comfortable spread. Everyone thinks they're winning. The buyer gets cheaper access than going direct at small scale. The broker earns consistent margin. The AI provider moves more volume. But the math only works at scale, which means this market naturally consolidates toward brokers who can aggregate the most demand. Smaller resellers get squeezed out over time, and the remaining players grow increasingly powerful as chokepoints between the AI labs and the broader economy."
+    },
+    {
+      "index": 3,
+      "chars": 772,
+      "parts": [
+        {
+          "field": "segment",
+          "segmentIndex": 3,
+          "chars": 772
+        }
+      ],
+      "text": "Here's the uncomfortable part. When you buy AI capacity through a broker, your contractual relationship is with the broker, not the underlying AI provider. That matters enormously. If the broker's master account gets suspended — for a terms-of-service violation, a billing dispute, or a policy change — your access can vanish overnight with no recourse from the original provider. This has already happened to real businesses. Entire production pipelines have gone dark because a broker upstream hit an account limit or violated usage policies. There's also a compliance dimension that's easy to overlook. Enterprise AI contracts often include specific use-case restrictions and data handling requirements. When capacity flows through a broker, those obligations can blur."
+    },
+    {
+      "index": 4,
+      "chars": 940,
+      "parts": [
+        {
+          "field": "segment",
+          "segmentIndex": 4,
+          "chars": 940
+        }
+      ],
+      "text": "The major AI providers are watching this market develop with a complicated mix of tolerance and concern. On one hand, brokers are moving volume that might otherwise sit unused in under-subscribed enterprise tiers. On the other hand, resale creates monitoring problems. Providers can't easily see what workloads are ultimately running on their infrastructure when layers of intermediaries obscure the end user. Some labs have begun tightening their terms explicitly, adding resale prohibitions or requiring disclosure of downstream usage. Others have launched their own partner and reseller programs, essentially trying to formalize and capture the broker economy rather than fight it. The smarter move, arguably, is the latter. Attempting to eliminate resale entirely is nearly impossible to enforce. Formalizing it at least gives providers visibility into the chain and a mechanism to set standards for who can redistribute their capacity."
+    },
+    {
+      "index": 5,
+      "chars": 960,
+      "parts": [
+        {
+          "field": "segment",
+          "segmentIndex": 5,
+          "chars": 372
+        },
+        {
+          "field": "cta",
+          "chars": 586
+        }
+      ],
+      "text": "The token broker economy is still early, and the next phase looks genuinely wild. As model providers multiply and competition intensifies, brokers will increasingly aggregate across multiple providers simultaneously, letting clients arbitrage not just price but model capability and latency in real time. I read every comment and the best ones make it into future scripts.\n\nThe AI credit resale economy is moving fast and most coverage completely ignores it. If you found this useful, hit the like button — it genuinely helps this channel reach people who care about this stuff. Subscribe so you don't miss our next deep dive into the infrastructure layer that's quietly shaping how AI actually gets deployed in the real world. And drop a comment below: do you think token brokers are solving a real problem, or are they just adding unnecessary complexity to an already complicated ecosystem? I read every comment and the best ones make it into future scripts."
+    }
+  ]
+}

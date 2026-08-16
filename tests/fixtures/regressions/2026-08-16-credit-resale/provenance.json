@@ -1,0 +1,33 @@
+{
+  "runId": "e704334a-a2dd-478c-9b3a-13d2a1c8f05b",
+  "candidateId": "cmsw5jcqb0002mb2kjg7a59vg",
+  "youtubeId": "8ogxCTpYwD4",
+  "scheduledAt": "2026-08-19T19:00:00.000Z",
+  "runStatus": "WARNING",
+  "videoStatus": "UPLOADED",
+  "topic": "The AI Credit Resale Economy",
+  "available": [
+    "script.final.json (post-fold, post-enforce)",
+    "spoken-units.json",
+    "seo.json (selected only)"
+  ],
+  "notPersistedByThePipeline": [
+    "raw model script output (pre-fold)",
+    "post-foldHookAndCtaIntoSegments intermediate",
+    "post-enforceScriptLength intermediate (identical to script.final.json)",
+    "SEO candidate list with scores"
+  ],
+  "observedDefects": {
+    "hookDuplication": {
+      "hookChars": 661,
+      "segment0Chars": 417,
+      "unit0Chars": 1080,
+      "note": "segment 0 is a truncated PREFIX of the hook, so alreadyContains() fails and buildSpokenUnits re-prepends the whole hook"
+    },
+    "ctaDuplication": {
+      "ctaChars": 586,
+      "lastSegmentChars": 372,
+      "lastUnitChars": 960
+    }
+  }
+}

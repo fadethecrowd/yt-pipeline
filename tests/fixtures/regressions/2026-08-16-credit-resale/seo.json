@@ -1,0 +1,33 @@
+{
+  "_note": "Only the SELECTED title/description/tags are durable. The candidate list and their scores are computed in-memory by seoGenerator and never persisted, so they cannot be dumped from this run.",
+  "topicTitle": "The AI Credit Resale Economy",
+  "selectedTitle": "Stolen AI Credits Are Funding a Black Market — Here's the Proof",
+  "description": "There's a shadow economy growing underneath the AI boom — and most people have no idea it exists. Token brokers are buying AI credits in bulk and reselling them for profit, reshaping how businesses access artificial intelligence. But who are these middlemen, who's buying from them, and what happens when the whole system collapses overnight?\n\nIn this video, we break down the AI credit resale economy: how the margin structure actually works, who the real customers are (hint: it's not just scrappy startups), and the compliance risks that nobody in this space wants to talk about. We also look at how major AI labs like OpenAI and Anthropic are responding — and why formalizing this market may be smarter than trying to kill it.\n\nWhether you're a developer, a business decision-maker, or just someone trying to understand how AI infrastructure actually works in the real world, this is a story that deserves your attention. The token broker market is consolidating fast, and the players who control AI credit distribution may end up controlling something far more significant.\n\nSource & further reading: https://vectoral.com/blog/who-are-the-token-brokers\n\n⏱ CHAPTERS:\n0:00 — Introduction\n0:04 — What Are Token Brokers?\n1:29 — Who's Actually Buying From Brokers?\n2:43 — The Markup Game and Margin Structure\n3:53 — The Risk Nobody Talks About\n4:56 — How AI Labs Are Responding\n6:10 — Where This Market Goes Next\n\nDo you think token brokers are solving a real problem, or just adding unnecessary complexity to an already complicated ecosystem? Drop your take in the comments — I read every single one, and the best responses make it into future scripts.\n\n🔔 Subscribe for weekly deep dives into the infrastructure, economics, and power dynamics quietly shaping the AI industry: https://www.youtube.com/@yourchannel\n\n👍 If this video was useful, hit like — it genuinely helps this channel reach people who care about this stuff.",
+  "tags": [
+    "AI credits",
+    "token brokers",
+    "AI black market",
+    "AI resale economy",
+    "artificial intelligence",
+    "AI infrastructure",
+    "OpenAI API",
+    "AI tokens",
+    "AI arbitrage",
+    "enterprise AI",
+    "AI compliance",
+    "AI APIs",
+    "AI business models",
+    "machine learning infrastructure",
+    "AI market",
+    "tech economy",
+    "AI shadow economy",
+    "AI credit resale",
+    "AI labs",
+    "technology news"
+  ],
+  "escalationsNotInScript": [
+    "stolen",
+    "black market",
+    "proof"
+  ]
+}
