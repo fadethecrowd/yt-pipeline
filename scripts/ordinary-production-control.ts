@@ -267,6 +267,8 @@ export interface OrdinaryDeps {
   runsSince(channel: string, since: Date): Promise<RunRecord[]>;
   rowsSince(model: string, since: Date): Promise<VideoRow[]>;
   rowById(model: string, id: string): Promise<VideoRow | null>;
+  /** Characters actually charged to the provider for this candidate. */
+  narrationCharsFor(videoId: string): Promise<number>;
   /** Records what became of a consumed attempt. Never returns capacity. */
   settleSlot(videoId: string, outcome: "SUCCESS" | "FAILED" | "AMBIGUOUS", detail: string): Promise<boolean>;
   /**
@@ -459,6 +461,15 @@ export async function withEnv<T>(
 export type Outcome =
   | "SUCCESS_SCHEDULED"
   | "FAILED_BEFORE_SPEND"
+  /**
+   * Narration was bought and the candidate then failed deterministically,
+   * before any upload. The money is gone; nothing is ambiguous.
+   *
+   * Distinct from FAILED_BEFORE_SPEND, which asserts nothing was purchased,
+   * and from FAILED_AFTER_RESERVATION, which means a reservation is still OPEN
+   * and must be settled. Here the window opened, charged, and relocked to 0.
+   */
+  | "FAILED_AFTER_SPEND"
   | "FAILED_AFTER_RESERVATION"
   | "QUALITY_FAILED"
   | "VISUAL_FEASIBILITY_FAILED"
@@ -614,13 +625,29 @@ export async function doRun(
       reason: `run ${run.status} but video ${video.id} carries youtubeId ${video.youtubeId}` +
         `${video.scheduledAt ? "" : " with no scheduledAt"} — reconcile before any future run` };
   }
-  // A terminal non-success with clean budget, no intent and no video never
-  // bought a thing.
+  // Whether narration was bought is a durable fact, and the only thing that
+  // separates "nothing was spent" from "we paid and got nothing".
+  //
+  // This branch used to name every remaining failure FAILED_BEFORE_SPEND
+  // regardless. On 2026-08-16 a candidate charged 5,637 characters, assembled
+  // its narration, and was then refused by the beat-cap invariant — and the
+  // controller reported FAILED_BEFORE_SPEND. An operator reading that would
+  // conclude the attempt cost nothing.
+  //
+  // A settled reservation is not evidence of no spend: the window opens,
+  // charges, and relocks to 0 on the way out, so `reserved === 0` is exactly
+  // what a COMPLETED purchase looks like.
   const status = video?.status ?? run.status;
+  const charged = video?.id ? await deps.narrationCharsFor(video.id) : 0;
+  const spent = charged > 0;
   const outcome: Outcome =
-    status === "QUALITY_FAILED" ? "QUALITY_FAILED" : "FAILED_BEFORE_SPEND";
-  await settle("FAILED", `run ${run.status}, video status ${status}`);
-  return { ...base, outcome, reason: `run ${run.status}, video status ${status}` };
+    status === "QUALITY_FAILED" && !spent ? "QUALITY_FAILED"
+      : spent ? "FAILED_AFTER_SPEND"
+        : "FAILED_BEFORE_SPEND";
+  const detail = `run ${run.status}, video status ${status}` +
+    (spent ? `, ${charged} narration char(s) already charged` : "");
+  await settle("FAILED", detail);
+  return { ...base, outcome, reason: detail };
 }
 
 // ── VERIFY ────────────────────────────────────────────────────────────────
@@ -740,6 +767,12 @@ export function realDeps(): OrdinaryDeps {
       where: { id },
       select: { id: true, youtubeId: true, status: true, scheduledAt: true, createdAt: true },
     }),
+    async narrationCharsFor(videoId) {
+      const rows = await prisma.elevenLabsUsage.findMany({
+        where: { videoId }, select: { chargedChars: true, requestedChars: true },
+      });
+      return rows.reduce((a, r) => a + (r.chargedChars ?? r.requestedChars ?? 0), 0);
+    },
     settleSlot: (videoId, outcome, detail) => settleSlot(videoId, outcome, detail),
     async invokePipeline(channel) {
       // A RunSummary is what gives an execution its identity: it mints `runId`

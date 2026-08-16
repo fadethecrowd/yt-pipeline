@@ -119,8 +119,14 @@ export function planSegmentBeats(
     if (end - start < BEAT_MIN_S && beats.length > 0) {
       // Too short to stand alone — extend the previous beat instead, unless
       // that would push it past the hard cap.
+      //
+      // `force` used to override the cap here, which is how a final remainder
+      // merged into a nearly-full beat produced 30.7s against a 30s assembly
+      // contract — after narration had already been bought. A slightly short
+      // closing beat is a pacing imperfection; an over-cap beat is a rejected
+      // candidate, so the cap wins and the remainder stands alone.
       const prev = beats[beats.length - 1];
-      if (end - prev.startS <= BEAT_MAX_S || force) {
+      if (end - prev.startS <= BEAT_MAX_S) {
         prev.endS = end;
         prev.durationS = end - prev.startS;
         prev.narration = `${prev.narration} ${current.map((w) => w.text).join(" ")}`.trim();
@@ -142,14 +148,18 @@ export function planSegmentBeats(
   };
 
   for (const w of words) {
+    // Cut BEFORE the word that would breach the cap, not after.
+    //
+    // The check used to run once the word was already in the beat, so a beat
+    // ended at whatever the overshooting word's end happened to be — 38.5s in
+    // the worst reproduction. Deciding first means the emitted beat is always
+    // the last one that still fits, and the long word opens the next beat.
+    if (current.length > 0 && w.end - beatStart > BEAT_MAX_S) {
+      flush(true);
+    }
     current.push(w);
     const span = w.end - beatStart;
 
-    if (span >= BEAT_MAX_S) {
-      // Hard cap reached mid-sentence — cut here rather than run long.
-      flush(true);
-      continue;
-    }
     if (span >= BEAT_TARGET_S && endsSentence(w.text)) {
       flush();
       continue;

@@ -61,6 +61,8 @@ interface FakeOpts {
   onInvoke?: () => void;
   /** null models a run that never persisted; omit to use the first fixture run. */
   startedRunId?: string | null;
+  /** Characters durably charged for the candidate. Non-zero means spend happened. */
+  narrationChars?: number;
   tranche?: {
     phase: string; live: boolean; remaining: number; reason: string;
     shortsEnabled: boolean; expiresAt: Date | null;
@@ -118,6 +120,9 @@ function makeFake(spec = AI, o: FakeOpts = {}): Fake {
       // `undefined` models the pre-fix bug: an execution with no identity.
       return { runId: o.startedRunId === undefined ? (o.runs?.[0]?.id ?? null) : o.startedRunId };
     },
+    // Zero by default: these fixtures predate the post-spend distinction and
+    // describe candidates that never reached narration.
+    async narrationCharsFor() { return o.narrationChars ?? 0; },
     async runById(runId) {
       return (o.runs ?? []).find((r) => r.id === runId) ?? null;
     },
@@ -492,6 +497,62 @@ describe("26-43. RUN outcomes", () => {
     });
     const r = await doRun(f.deps, AI, true);
     assert.equal(r.outcome, "FAILED_BEFORE_SPEND");
+  });
+
+  /**
+   * The 2026-08-16 run: 5,637 characters charged, narration assembled, then
+   * refused by the beat-cap invariant. It was reported FAILED_BEFORE_SPEND,
+   * which tells an operator the attempt cost nothing.
+   */
+  test("a failure AFTER narration was charged is not reported as pre-spend", async () => {
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ id: "vid-s", status: "FAILED", youtubeId: null, scheduledAt: null })],
+      narrationChars: 5637,
+    });
+    const r = await doRun(f.deps, AI, true);
+    assert.equal(r.outcome, "FAILED_AFTER_SPEND");
+    assert.match(r.reason, /5637 narration char\(s\) already charged/);
+    assert.equal(f.settled.length, 1, "the attempt is still settled exactly once");
+    assert.equal(f.settled[0]!.outcome, "FAILED");
+  });
+
+  test("the same failure with zero charged characters stays pre-spend", async () => {
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ id: "vid-n", status: "FAILED", youtubeId: null, scheduledAt: null })],
+      narrationChars: 0,
+    });
+    const r = await doRun(f.deps, AI, true);
+    assert.equal(r.outcome, "FAILED_BEFORE_SPEND");
+    assert.ok(!/already charged/.test(r.reason));
+  });
+
+  test("a quality failure that DID spend is post-spend, not QUALITY_FAILED", async () => {
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ status: "QUALITY_FAILED", youtubeId: null, scheduledAt: null })],
+      narrationChars: 4200,
+    });
+    assert.equal((await doRun(f.deps, AI, true)).outcome, "FAILED_AFTER_SPEND");
+  });
+
+  test("an upload that may exist still outranks a known post-spend failure", async () => {
+    const f = makeFake(AI, {
+      runs: [run("r", "FAILED")],
+      rows: [row({ id: "vid-x", youtubeId: "yt-live", scheduledAt: null, status: "FAILED" })],
+      narrationChars: 5637,
+    });
+    assert.equal((await doRun(f.deps, AI, true)).outcome, "UPLOAD_AMBIGUOUS");
+  });
+
+  test("an OPEN reservation still outranks a settled purchase", async () => {
+    const f = makeFake(AI, { runs: [run("r", "FAILED")], rows: [row({ status: "FAILED" })],
+      narrationChars: 5637 });
+    const st = (f.deps as unknown as { _state: { reserved: number } })._state;
+    const orig = f.deps.invokePipeline.bind(f.deps);
+    f.deps.invokePipeline = async (c) => { const x = await orig(c); st.reserved = 4000; return x; };
+    assert.equal((await doRun(f.deps, AI, true)).outcome, "FAILED_AFTER_RESERVATION");
   });
 
   test("43. no run appearing at all is an observation failure", async () => {
