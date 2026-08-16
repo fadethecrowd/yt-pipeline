@@ -34,21 +34,77 @@ export interface TrimResult {
   text: string;
   /** Sentences removed. Zero means the input was already inside the limit. */
   removed: number;
-  /** True when the limit was reached. False means it could not be, without cutting a word. */
+  /** True when the limit was reached. False only when it cannot hold one word. */
   ok: boolean;
 }
 
+/** Terminal punctuation, or the clause marks a cut can legitimately land on. */
+const CLAUSE_MARKS = /[.!?;:—,]/g;
+
 /**
- * Remove whole sentences until the text fits, or report that it cannot.
+ * Tidy a cut so it reads as a finished sentence.
  *
- * `keepLast` protects a closing line — the CTA lives at the end of the final
- * segment, so trimming from the tail there would delete the one sentence the
- * script needs to keep. In that mode sentences are removed from just before
- * the end instead, so the opening and closing lines both survive.
+ * Drops a dangling comma, semicolon, colon or dash left by cutting mid-clause,
+ * then supplies a full stop if the text does not already end in terminal
+ * punctuation. Never adds a word.
+ */
+function normalizeEnd(text: string): string {
+  const t = text.trim().replace(/[\s,;:—–-]+$/u, "").trim();
+  if (t.length === 0) return t;
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+}
+
+/**
+ * Cut inside a single sentence that is itself over the limit.
  *
- * Never returns an empty string: a single sentence over the limit is returned
- * unchanged with `ok: false`, and the caller must fail the candidate rather
- * than ship it or cut mid-word.
+ * Latest usable clause boundary first, so the result ends where the writing
+ * already paused; otherwise the longest prefix of whole words. Every candidate
+ * is normalised and then MEASURED, because normalising can add a character —
+ * so the returned string is always within the limit or empty.
+ *
+ * Empty is returned only when the limit cannot hold a single word, which the
+ * caller treats as a failure rather than shipping a fragment.
+ */
+function clampWithinSentence(text: string, limitChars: number): string {
+  if (text.length <= limitChars) return text;
+
+  const window = text.slice(0, limitChars + 1);
+  const marks: number[] = [];
+  CLAUSE_MARKS.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = CLAUSE_MARKS.exec(window)) !== null) marks.push(m.index);
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const cand = normalizeEnd(text.slice(0, marks[i]! + 1));
+    if (cand.length > 0 && cand.length <= limitChars) return cand;
+  }
+
+  // No clause break early enough: take whole words.
+  let cut = text.lastIndexOf(" ", limitChars);
+  while (cut > 0) {
+    const cand = normalizeEnd(text.slice(0, cut));
+    if (cand.length > 0 && cand.length <= limitChars) return cand;
+    cut = text.lastIndexOf(" ", cut - 1);
+  }
+  return "";
+}
+
+/**
+ * Bring text inside a hard character limit, preferring the largest structure.
+ *
+ * Three levels, in order, and the last one always succeeds:
+ *
+ *   1. remove whole trailing sentences
+ *   2. cut the remaining sentence at its latest clause boundary that fits
+ *   3. cut at the latest word boundary that fits
+ *
+ * `keepLast` biases step 1 toward protecting a closing line — the CTA sits at
+ * the end of the final segment — by removing sentences from just before the
+ * end. It is a PREFERENCE, not a constraint: an earlier version treated it as
+ * one and returned an over-limit segment rather than touch the close, which is
+ * exactly the refusal this fixes. Numeric compliance always wins; whether the
+ * result still reads well is `qualityGate`'s decision, not this function's.
+ *
+ * Never splits a word. Never returns text over the limit.
  */
 export function trimToLimit(
   text: string,
@@ -58,27 +114,24 @@ export function trimToLimit(
   const trimmed = text.trim();
   if (trimmed.length <= limitChars) return { text: trimmed, removed: 0, ok: true };
 
-  const sentences = splitSentences(trimmed);
-  if (sentences.length <= 1) return { text: trimmed, removed: 0, ok: false };
-
-  const kept = [...sentences];
+  // 1. Whole sentences.
+  const kept = splitSentences(trimmed);
   let removed = 0;
-  // Always leave at least one sentence, and two when the closing line is being
-  // protected, so `keepLast` cannot collapse to the CTA alone.
   const floor = opts.keepLast ? 2 : 1;
   while (kept.length > floor && kept.join(" ").length > limitChars) {
-    // Tail by default; second-to-last when a closing sentence must survive.
     kept.splice(opts.keepLast ? kept.length - 2 : kept.length - 1, 1);
     removed++;
   }
-
-  let out = kept.join(" ");
-  // With `keepLast`, two sentences may still exceed the limit. Dropping the
-  // opening is worse than dropping the close, so the close goes last.
-  if (out.length > limitChars && opts.keepLast && kept.length === 2) {
+  // The protected close cannot keep the segment over the limit.
+  while (kept.length > 1 && kept.join(" ").length > limitChars) {
     kept.pop();
     removed++;
-    out = kept.join(" ");
   }
-  return { text: out, removed, ok: out.length <= limitChars };
+
+  const out = kept.join(" ");
+  if (out.length <= limitChars) return { text: out, removed, ok: true };
+
+  // 2/3. One sentence, still too long: cut inside it.
+  const clamped = clampWithinSentence(out, limitChars);
+  return { text: clamped, removed, ok: clamped.length > 0 && clamped.length <= limitChars };
 }

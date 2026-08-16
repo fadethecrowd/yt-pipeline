@@ -225,10 +225,14 @@ describe("14-31. the code enforces length, not the model", () => {
     assert.match(t.text, /[.!?]$/, "and must end on terminal punctuation");
   });
 
-  test("11. a segment never becomes empty", () => {
+  test("11. a segment never becomes empty, and an overlong sentence is now clamped", () => {
+    // Previously this refused. It now falls back to a word boundary, which is
+    // the whole point of the fix — sentence structure is a preference.
     const t = trimToLimit("One sentence only that is quite long indeed.", 5);
     assert.ok(t.text.length > 0);
-    assert.equal(t.ok, false, "an unsplittable overlong sentence reports failure rather than emptying");
+    assert.ok(t.text.length <= 5, `${t.text.length}`);
+    assert.equal(t.ok, true);
+    assert.match(t.text, /[.!?]$/);
   });
 
   test("the closing line survives when it must", () => {
@@ -345,5 +349,115 @@ describe("regression: the 2026-08-16 length failure", () => {
     for (const id of ["f5c5ee99", "cmsw1b7sx0001mbgbmv2uqu1c", "RingCentral"]) {
       assert.ok(!SRC.includes(id), `${id} must not be special-cased`);
     }
+  });
+});
+
+// ── The clamp must always reach the limit ────────────────────────────────
+
+/**
+ * The 2026-08-16 refusal: sentence-only trimming could not reach the limit.
+ *
+ * After one rewrite per oversized segment the stage was left with
+ * 1800/869/908/945/855/1437 against maxima of 1090/948/948/948/948/1043, and
+ * failed with "no further whole sentence can be removed without cutting a
+ * word". Segment 0 was a single sentence longer than its budget, and the
+ * protected CTA kept segment 5 over its own.
+ *
+ * Sentence structure is a preference. Numeric compliance is mandatory.
+ */
+describe("trimToLimit always reaches the limit", () => {
+  const b2 = scriptBudget(AI, LF, PROD);
+  const segs2 = segmentBudgets(b2, 6);
+  const sentences = (len: number) => {
+    let t = ""; let i = 0;
+    while (t.length < len) t += `${t ? " " : ""}This sentence carries technical point number ${i++}.`;
+    return t;
+  };
+  const oneSentence = (len: number) => {
+    let t = "A"; while (t.length < len - 1) t += " word"; return `${t}.`;
+  };
+
+  test("1. whole sentences alone are used when they suffice", () => {
+    const t = trimToLimit(sentences(900), 500);
+    assert.ok(t.ok && t.text.length <= 500);
+    assert.ok(t.removed > 0);
+    assert.match(t.text, /number \d+\.$/, "cut landed on a sentence boundary");
+  });
+
+  test("2/4/5. a single giant sentence falls back to a word boundary", () => {
+    const t = trimToLimit(oneSentence(1800), 1090);
+    assert.equal(t.ok, true);
+    assert.ok(t.text.length <= 1090, `${t.text.length}`);
+    assert.ok(!/\bwor\b|\bwo\b/.test(t.text), "no partial word");
+    assert.match(t.text, /[.!?]$/);
+  });
+
+  test("3. a clause boundary is preferred over an arbitrary word cut", () => {
+    const text = `${"x".repeat(0)}Alpha beta gamma delta, epsilon zeta eta theta iota kappa lambda mu nu xi.`;
+    const t = trimToLimit(text, 30);
+    assert.ok(t.text.length <= 30);
+    assert.match(t.text, /gamma delta\.$/, "cut at the comma, normalised to a full stop");
+  });
+
+  test("6/7. output is non-empty and terminally punctuated", () => {
+    for (const limit of [20, 60, 200, 1090]) {
+      const t = trimToLimit(oneSentence(1500), limit);
+      assert.ok(t.text.length > 0, `limit ${limit}`);
+      assert.ok(t.text.length <= limit, `limit ${limit} got ${t.text.length}`);
+      assert.match(t.text, /[.!?]$/, `limit ${limit}`);
+    }
+  });
+
+  test("8/9. an over-long hook or CTA is clamped rather than protected", () => {
+    const hook = trimToLimit(oneSentence(1800), segs2[0]!.maxChars);
+    assert.ok(hook.text.length <= segs2[0]!.maxChars);
+    const cta = trimToLimit(oneSentence(1437), segs2[5]!.maxChars, { keepLast: true });
+    assert.ok(cta.text.length <= segs2[5]!.maxChars,
+      "a protected close may not hold the segment over its budget");
+  });
+
+  test("the closing line still survives when there is room", () => {
+    const t = trimToLimit(sentences(1437), segs2[5]!.maxChars, { keepLast: true });
+    assert.ok(t.text.length <= segs2[5]!.maxChars);
+    assert.match(t.text, /number 29\.$/, "the final sentence is kept when it fits");
+  });
+
+  test("a limit too small for one word reports failure instead of a fragment", () => {
+    const t = trimToLimit("Supercalifragilistic word here.", 3);
+    assert.equal(t.ok, false);
+  });
+
+  test("3/11/12. the exact live shape lands inside every budget", () => {
+    const live = [1800, 869, 908, 945, 855, 1437]
+      .map((n, i) => (i === 0 ? oneSentence(n) : sentences(n)));
+    const out = live.map((t, i) => trimToLimit(t, segs2[i]!.maxChars, { keepLast: i === 5 }));
+    out.forEach((t, i) => {
+      assert.ok(t.ok, `segment ${i} did not reach its limit`);
+      assert.ok(t.text.length <= segs2[i]!.maxChars,
+        `segment ${i}: ${t.text.length} > ${segs2[i]!.maxChars}`);
+      assert.ok(t.text.length > 0, `segment ${i} emptied`);
+      assert.match(t.text, /[.!?]$/, `segment ${i} punctuation`);
+    });
+    const total = out.reduce((a, t) => a + t.text.length, 0);
+    assert.ok(total <= b2.maxChars, `${total} > ${b2.maxChars}`);
+    assert.equal(out.length, 6);
+  });
+
+  test("10/13. every historical shape lands inside 5925", () => {
+    for (const totalChars of [7411, 7342, 7904, 6911, 6814]) {
+      const per = Math.round(totalChars / 6);
+      const out = segs2.map((sb, i) =>
+        trimToLimit(i === 0 ? oneSentence(per) : sentences(per), sb.maxChars, { keepLast: i === 5 }));
+      const total = out.reduce((a, t) => a + t.text.length, 0);
+      assert.ok(total <= b2.maxChars, `${totalChars} -> ${total}`);
+      assert.ok(out.every((t) => t.text.length > 0), `${totalChars} emptied a segment`);
+    }
+  });
+
+  test("13. the stage asserts per segment before returning success", () => {
+    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
+      SRC.indexOf("// The model's own"));
+    assert.match(block, /length enforcement failed for segment\(s\)/);
+    assert.match(block, /\.filter\(\(x\) => x\.n > x\.max\)/);
   });
 });

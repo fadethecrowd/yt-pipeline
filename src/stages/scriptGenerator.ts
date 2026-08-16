@@ -370,8 +370,21 @@ export async function scriptGenerator(
       seg.narration = t.text;
     }
 
-    // 4. The guarantee. A production script NEVER leaves this stage over
-    //    budget: if it cannot be brought inside, the candidate fails.
+    // 4. The guarantee, asserted per segment AND in total. `trimToLimit` now
+    //    always reaches the limit — sentences, then clause boundary, then word
+    //    boundary — so a violation here is an implementation error, and it
+    //    fails closed rather than shipping.
+    const over = lens()
+      .map((n, i) => ({ i, n, max: budgets[i]!.maxChars }))
+      .filter((x) => x.n > x.max);
+    if (over.length > 0) {
+      return {
+        success: false,
+        error: `length enforcement failed for segment(s) ` +
+          over.map((x) => `${x.i} (${x.n} > ${x.max})`).join(", "),
+        durationMs: Date.now() - start,
+      };
+    }
     const finalChars = total();
     if (finalChars > b.maxChars) {
       return {
