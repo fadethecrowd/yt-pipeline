@@ -69,7 +69,24 @@ export async function runHealthTick(
   alertState: AlertState = newAlertState(),
 ): Promise<HealthTickResult> {
   const now = deps.now();
-  deps.log(`[monitor:health] ═══ Health tick (${channel}) at ${now.toISOString()} ═══`);
+  // Every line of one tick carries the same id.
+  //
+  // Health exists only as log output — there is no durable heartbeat — so the
+  // production readiness check has to reconstruct "what did the latest tick
+  // say?" from these lines. Railway does not guarantee ordering within a batch
+  // (a verdict has been observed printing before its own banner), and only the
+  // banner carries a timestamp, so without an id the only way to associate a
+  // finding with a tick is position, which is exactly what is unreliable.
+  //
+  // With an id the grouping is exact and order stops mattering.
+  // Derived from the tick's own start instant rather than a random source: one
+  // channel cannot start two ticks in the same millisecond, so it is unique
+  // where it needs to be, and it keeps this module's imports limited to the
+  // pure ./lib/ helpers — the boundary that stops the health path ever reaching
+  // a writer.
+  const tickId = now.getTime().toString(36);
+  const say = (m: string) => deps.log(`[monitor:health] [tick ${tickId}] ${m}`);
+  say(`═══ Health tick (${channel}) at ${now.toISOString()} ═══`);
 
   const videos = await deps.scheduledVideos();
   const scheduled: { video: ScheduledVideo; yt: YtView | null }[] = [];
@@ -94,24 +111,24 @@ export async function runHealthTick(
   // Log EVERY finding every tick — logs are cheap and are the audit trail.
   // Deduplication applies only to what gets pushed at a human.
   for (const f of report.findings) {
-    deps.log(`[monitor:health] ${f.severity} ${f.code} ${f.subject}: ${f.detail}`);
+    say(`${f.severity} ${f.code} ${f.subject}: ${f.detail}`);
   }
 
   const d = dedupeAlerts({ findings: report.findings, state: alertState, now });
 
   if (d.resolved.length > 0) {
-    deps.log(`[monitor:health] ${d.resolved.length} condition(s) cleared`);
+    say(`${d.resolved.length} condition(s) cleared`);
     await deps.sendAlert(formatResolved(channel, d.resolved));
   }
   if (d.notify.length > 0) {
     await deps.sendAlert(formatFindings(channel, d.notify));
   }
   if (d.suppressed.length > 0) {
-    deps.log(`[monitor:health] ${d.suppressed.length} unchanged finding(s) suppressed ` +
+    say(`${d.suppressed.length} unchanged finding(s) suppressed ` +
       "— already notified, awaiting the re-notify interval");
   }
   if (report.findings.length === 0) {
-    deps.log(`[monitor:health] ${channel}: healthy — ${scheduled.length} scheduled video(s) checked`);
+    say(`${channel}: healthy — ${scheduled.length} scheduled video(s) checked`);
   }
 
   return {

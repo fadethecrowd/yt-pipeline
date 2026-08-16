@@ -62,7 +62,7 @@ describe("the 2026-08-15 refusal against a healthy monitor", () => {
   test("the exact incident logs now classify as healthy", () => {
     const r = ask();
     assert.equal(r.healthy, true, r.reason);
-    assert.match(r.reason, /healthy/);
+    assert.match(r.reason, /0 active finding\(s\)/);
   });
 
   test("the old predicate is what failed — the last matching line is the banner", () => {
@@ -90,7 +90,7 @@ describe("1-14. what counts as a live monitor", () => {
     const stale = [tick("2026-08-14T21:18:39.799Z"), healthy()].join("\n");
     const r = ask({ logs: stale });
     assert.equal(r.healthy, false);
-    assert.match(r.reason, /exceeds/);
+    assert.match(r.reason, /over the .* maximum/);
     assert.match(r.reason, /cadence/);
   });
 
@@ -154,7 +154,7 @@ describe("1-14. what counts as a live monitor", () => {
     const mixed = [tick("2026-08-15T00:18:40.096Z"), healthy("wet-circuit")].join("\n");
     const r = ask({ logs: mixed });
     assert.equal(r.healthy, false);
-    assert.match(r.reason, /1 of 1 recent health tick\(s\) reported findings/,
+    assert.match(r.reason, /has not reported clean since the last finding|no health tick/,
       "another channel's healthy line does not clear this channel's tick");
   });
 
@@ -166,7 +166,7 @@ describe("1-14. what counts as a live monitor", () => {
     ].join("\n");
     const r = ask({ logs: withAlert });
     assert.equal(r.healthy, false);
-    assert.match(r.reason, /1 of 2 recent health tick\(s\) reported findings/);
+    assert.match(r.reason, /has not reported clean since the last finding/);
     assert.match(r.reason, /ALERT/, "the operator is shown an example finding");
   });
 
@@ -254,5 +254,190 @@ describe("the refusal now says why", () => {
     for (const f of ["--force", "--ignore-monitor", "--skip-health", "SKIP_MONITOR"]) {
       assert.ok(!CTRL.includes(f), `${f} must not exist — the gate stays fail-closed`);
     }
+  });
+});
+
+
+// ── The Sunday 2026-08-16 refusal ────────────────────────────────────────
+
+/**
+ * The monitor was clean for thirteen consecutive hours and readiness still
+ * refused:
+ *
+ *   24 of 37 recent health tick(s) reported findings — e.g. ALERT RUN_FAILED
+ *   00959a09-…: terminal status FAILED at 2026-08-15T00:39:16.056Z
+ *
+ * Every one of those 24 ticks was correct at the time. The run really did fail,
+ * and the monitor reports a failed run for `RECENT_RUN_WINDOW_MS` (24 h). Traced
+ * against the real log buffer: the last tick to name it was 2026-08-15T23:51Z,
+ * and the first tick after the window — 2026-08-16T00:51Z — was clean, as was
+ * every tick since.
+ *
+ * So the monitor's finding computation was right. What was wrong was asking
+ * "how many recent ticks ever had findings?" instead of "what does the latest
+ * one say?". Aggregating history meant readiness could not recover until the
+ * log buffer rolled, which is not a fact about the system's health.
+ */
+describe("current state, not history", () => {
+  const T = (iso: string, id?: string) => id
+    ? `[monitor:health] [tick ${id}] ═══ Health tick (${CH}) at ${iso} ═══`
+    : tick(iso);
+  const OK = (id?: string) => id
+    ? `[monitor:health] [tick ${id}] ${CH}: healthy — 0 scheduled video(s) checked`
+    : healthy();
+  const AL = (id?: string) => (id ? `[monitor:health] [tick ${id}] ` : "[monitor:health] ") +
+    "ALERT RUN_FAILED 00959a09: terminal status FAILED at 2026-08-15T00:39:16.056Z";
+
+  /** 24 alerting ticks then 13 clean ones — the real Sunday shape. */
+  function sundayBuffer(tagged: boolean): string {
+    const out: string[] = [];
+    let n = 0;
+    const id = () => (tagged ? (++n).toString(16).padStart(8, "0") : undefined);
+    for (let h = 0; h < 24; h++) {
+      const k = id();
+      out.push(T(`2026-08-15T${String(h).padStart(2, "0")}:51:00.000Z`, k), AL(k));
+    }
+    for (let h = 0; h < 13; h++) {
+      const k = id();
+      out.push(T(`2026-08-16T${String(h).padStart(2, "0")}:51:00.000Z`, k), OK(k));
+    }
+    return out.join("\n");
+  }
+  const SUNDAY_NOW = new Date("2026-08-16T13:40:00.000Z");
+  const askSunday = (logs: string, now = SUNDAY_NOW) =>
+    classifyMonitorHealth({ logs, channel: CH, intervalMs: HOUR, now });
+
+  test("1. the exact Sunday buffer is HEALTHY", () => {
+    for (const tagged of [false, true]) {
+      const r = askSunday(sundayBuffer(tagged));
+      assert.equal(r.healthy, true, `tagged=${tagged}: ${r.reason}`);
+    }
+  });
+
+  test("2. the history is still reported, as diagnostics", () => {
+    assert.match(askSunday(sundayBuffer(true)).reason, /historical/);
+  });
+
+  test("3. old ALERTs do not poison a newer clean tick", () => {
+    const r = askSunday(sundayBuffer(true));
+    assert.equal(r.healthy, true);
+    assert.match(r.reason, /0 active finding\(s\)/);
+  });
+
+  test("4/22. tagged logs survive arbitrary reordering", () => {
+    const base = sundayBuffer(true).split("\n");
+    for (const shuffled of [base.slice().reverse(), base.slice().sort(() => 0.5 - Math.random())]) {
+      assert.equal(askSunday(shuffled.join("\n")).healthy, true,
+        "tick ids exist precisely so order cannot change the answer");
+    }
+  });
+
+  test("5/23/25/26. channel scoping stays exact", () => {
+    const wc = sundayBuffer(true).replaceAll(CH, "wet-circuit");
+    assert.equal(askSunday(wc).healthy, false, "a WC tick cannot satisfy AI Doom");
+    assert.equal(classifyMonitorHealth({
+      logs: sundayBuffer(true), channel: "wet-circuit", intervalMs: HOUR, now: SUNDAY_NOW,
+    }).healthy, false, "an AI Doom tick cannot satisfy WC");
+  });
+
+  // ── 6-9. A current alert still blocks ───────────────────────────────
+  test("6. clean history then a newest tick with an ALERT is UNHEALTHY", () => {
+    const logs = [T("2026-08-16T11:51:00.000Z", "00000001"), OK("00000001"),
+                  T("2026-08-16T12:51:00.000Z", "00000002"), AL("00000002")].join("\n");
+    const r = askSunday(logs);
+    assert.equal(r.healthy, false);
+    assert.match(r.reason, /reported findings/);
+    assert.match(r.reason, /RUN_FAILED/);
+  });
+
+  test("7/8. an alert on the newest tick blocks even with alerting history", () => {
+    const logs = [...sundayBuffer(true).split("\n"),
+      T("2026-08-16T13:00:00.000Z", "000000ff"),
+      "[monitor:health] [tick 000000ff] ALERT YOUTUBE_VIDEO_MISSING zz: not found"].join("\n");
+    const r = askSunday(logs);
+    assert.equal(r.healthy, false);
+    assert.match(r.reason, /YOUTUBE_VIDEO_MISSING/);
+  });
+
+  test("9. once the monitor stops reporting it, history alone does not block", () => {
+    // Exactly the Sunday case, stated as the requirement.
+    assert.equal(askSunday(sundayBuffer(true)).healthy, true);
+  });
+
+  // ── 17-21. Partial ticks ────────────────────────────────────────────
+  test("17. a banner with no verdict is never read as clean", () => {
+    const logs = [T("2026-08-16T11:51:00.000Z", "00000001"), OK("00000001"),
+                  T("2026-08-16T12:51:00.000Z", "00000002")].join("\n");
+    const r = askSunday(logs);
+    // The in-flight tick is not complete, so the newest COMPLETED tick decides.
+    assert.equal(r.healthy, true, r.reason);
+    assert.match(r.reason, /11:51/, "it must judge the completed tick, not the in-flight one");
+  });
+
+  test("18. an in-flight tick cannot erase an active alert", () => {
+    const logs = [T("2026-08-16T11:51:00.000Z", "00000001"), AL("00000001"),
+                  T("2026-08-16T12:51:00.000Z", "00000002")].join("\n");
+    const r = askSunday(logs);
+    assert.equal(r.healthy, false);
+    assert.match(r.reason, /RUN_FAILED/);
+  });
+
+  test("19. an orphaned verdict with no tick satisfies nothing", () => {
+    assert.equal(askSunday(OK("000000aa")).healthy, false);
+  });
+
+  test("20. duplicate lines do not change the verdict", () => {
+    const once = sundayBuffer(true);
+    const twice = once.split("\n").flatMap((l) => [l, l]).join("\n");
+    assert.equal(askSunday(twice).healthy, askSunday(once).healthy);
+  });
+
+  test("21. interleaved ticks stay correctly grouped by id", () => {
+    // Two ticks whose lines are woven together; only the newer has an alert.
+    const logs = [
+      T("2026-08-16T11:51:00.000Z", "00000001"),
+      T("2026-08-16T12:51:00.000Z", "00000002"),
+      OK("00000001"),
+      AL("00000002"),
+    ].join("\n");
+    const r = askSunday(logs);
+    assert.equal(r.healthy, false, "the alert belongs to the NEWER tick");
+    assert.match(r.reason, /12:51/);
+  });
+
+  test("the reverse interleaving is also grouped correctly", () => {
+    const logs = [
+      T("2026-08-16T11:51:00.000Z", "00000001"),
+      T("2026-08-16T12:51:00.000Z", "00000002"),
+      AL("00000001"),
+      OK("00000002"),
+    ].join("\n");
+    const r = askSunday(logs);
+    assert.equal(r.healthy, true, "the alert belongs to the OLDER tick");
+    assert.match(r.reason, /12:51/);
+  });
+
+  // ── 10-16. Freshness, unchanged ─────────────────────────────────────
+  test("10/11. the newest completed tick must be fresh", () => {
+    const fresh = [T("2026-08-16T12:51:00.000Z", "00000001"), OK("00000001")].join("\n");
+    assert.equal(askSunday(fresh).healthy, true);
+    const stale = [T("2026-08-16T09:00:00.000Z", "00000001"), OK("00000001")].join("\n");
+    const r = askSunday(stale);
+    assert.equal(r.healthy, false);
+    assert.match(r.reason, /over the 120 min maximum/);
+  });
+
+  test("12/13/14. missing, unparseable and unknown-cadence all fail closed", () => {
+    assert.equal(askSunday("").healthy, false);
+    assert.equal(askSunday(`[monitor:health] [tick 00000001] ═══ Health tick (${CH}) at nope ═══`).healthy, false);
+    assert.equal(classifyMonitorHealth({
+      logs: sundayBuffer(true), channel: CH, intervalMs: null, now: SUNDAY_NOW }).healthy, false);
+  });
+
+  test("15/16. the threshold still tracks the configured cadence", () => {
+    const logs = [T("2026-08-16T12:51:00.000Z", "00000001"), OK("00000001")].join("\n");
+    const now = new Date("2026-08-16T14:20:00.000Z");   // 89 min later
+    assert.equal(classifyMonitorHealth({ logs, channel: CH, intervalMs: HOUR, now }).healthy, true);
+    assert.equal(classifyMonitorHealth({ logs, channel: CH, intervalMs: 30 * 60_000, now }).healthy, false);
   });
 });

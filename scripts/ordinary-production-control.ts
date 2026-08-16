@@ -98,59 +98,141 @@ export function classifyMonitorHealth(input: {
     return { healthy: false, reason: "no [monitor:health] output in the retrieved log window" };
   }
 
-  // Newest tick banner for THIS channel. Ordering is not trusted — every
-  // timestamp is parsed and the maximum taken.
+  // Every tick banner for THIS channel. Timestamps are parsed rather than
+  // positions trusted, because Railway's ordering within a batch is not.
+  // Both log formats: with and without the per-tick id.
   const banner = new RegExp(
-    `\\[monitor:health\\] ═══ Health tick \\(${channel}\\) at (\\S+) ═══`);
-  let lastTick: Date | null = null;
-  let tickCount = 0;
-  for (const l of lines) {
+    `\\[monitor:health\\] (?:\\[tick [0-9a-z]{6,12}\\] )?═══ Health tick \\(${channel}\\) at (\\S+) ═══`);
+  const verdict = `] ${channel}: healthy — `;
+  const ticks: { at: Date; i: number }[] = [];
+  let lastAlertIdx = -1;
+  let alertExample = "";
+  lines.forEach((l, i) => {
     const m = banner.exec(l);
-    if (!m) continue;
-    const t = new Date(m[1]!);
-    if (Number.isNaN(t.getTime())) continue;
-    tickCount++;
-    if (!lastTick || t.getTime() > lastTick.getTime()) lastTick = t;
-  }
-  if (!lastTick) {
+    if (m) {
+      const t = new Date(m[1]!);
+      if (!Number.isNaN(t.getTime())) ticks.push({ at: t, i });
+      return;
+    }
+    if (l.includes("] ALERT ")) {
+      lastAlertIdx = i;
+      alertExample = l.slice(l.indexOf("ALERT")).slice(0, 140);
+    }
+  });
+  if (ticks.length === 0) {
     return { healthy: false, reason: `no health tick for ${channel} in the retrieved log window` };
   }
 
-  // One missed tick is tolerated; two means the monitor has stopped ticking.
-  // Derived from the monitor's own POLL_INTERVAL_MS rather than a second magic
-  // number living in this file.
+  const newest = ticks.reduce((a, b) => (b.at.getTime() > a.at.getTime() ? b : a));
   const maxAgeMs = intervalMs * 2;
-  const ageMs = now.getTime() - lastTick.getTime();
-  if (ageMs > maxAgeMs) {
+  const ageMin = Math.round((now.getTime() - newest.at.getTime()) / 60_000);
+  if (now.getTime() - newest.at.getTime() > maxAgeMs) {
     return {
       healthy: false,
-      reason: `last health tick ${Math.round(ageMs / 60_000)} min ago exceeds ` +
-        `${Math.round(maxAgeMs / 60_000)} min (2× the monitor's ${Math.round(intervalMs / 60_000)} min cadence)`,
+      reason: `latest ${channel} tick ${newest.at.toISOString()} is ${ageMin} min old, over the ` +
+        `${Math.round(maxAgeMs / 60_000)} min maximum (2× the monitor's ${Math.round(intervalMs / 60_000)} min cadence)`,
     };
   }
 
-  // Every tick logs its findings, and logs a healthy verdict ONLY when it had
-  // none. So a window in which every banner is matched by a verdict is a window
-  // in which every tick was clean.
+  // ── Exact grouping, when the monitor supplies tick ids ────────────
   //
-  // Counting rather than looking for the presence of an ALERT line, because
-  // presence never clears: a resolved finding stays in the log buffer until it
-  // rolls out, which would keep production blocked long after the monitor had
-  // recovered. Counting self-heals as soon as the failing ticks age out, and is
-  // order-independent, which matters because the log order is not reliable.
-  const healthyCount = lines.filter(
-    (l) => l.includes(`[monitor:health] ${channel}: healthy — `)).length;
-  if (healthyCount < tickCount) {
-    const alert = lines.find((l) => l.includes("[monitor:health] ALERT "));
+  // Each tick tags every one of its lines with the same id, so a finding can be
+  // attributed to the tick that produced it without relying on position. That
+  // makes the answer independent of Railway's ordering, which is the whole
+  // reason the id exists.
+  const TICK_ID = /\[monitor:health\] \[tick ([0-9a-z]{6,12})\] /;
+  const groups = new Map<string, { at: Date | null; healthy: boolean; alert: string | null }>();
+  for (const l of lines) {
+    const idm = TICK_ID.exec(l);
+    if (!idm) continue;
+    const id = idm[1]!;
+    const g = groups.get(id) ?? { at: null, healthy: false, alert: null };
+    const bm = banner.exec(l);
+    if (bm) {
+      const t = new Date(bm[1]!);
+      if (!Number.isNaN(t.getTime())) g.at = t;
+    } else if (l.includes(verdict)) {
+      g.healthy = true;
+    } else if (l.includes("] ALERT ")) {
+      g.alert = l.slice(l.indexOf("ALERT")).slice(0, 140);
+    }
+    groups.set(id, g);
+  }
+  // A tick counts as COMPLETE once it has said something conclusive: a healthy
+  // verdict, or at least one finding. A banner alone is a tick still running,
+  // and must never be read as clean.
+  const complete = [...groups.values()].filter(
+    (g) => g.at !== null && (g.healthy || g.alert !== null));
+  if (complete.length > 0) {
+    const latest = complete.reduce((a, b) => (b.at!.getTime() > a.at!.getTime() ? b : a));
+    const ageM = Math.round((now.getTime() - latest.at!.getTime()) / 60_000);
+    const maxM = Math.round(maxAgeMs / 60_000);
+    if (now.getTime() - latest.at!.getTime() > maxAgeMs) {
+      return {
+        healthy: false,
+        reason: `latest completed ${channel} tick ${latest.at!.toISOString()} is ${ageM} min old, ` +
+          `over the ${maxM} min maximum (2× the monitor's ${Math.round(intervalMs / 60_000)} min cadence)`,
+      };
+    }
+    const withFindings = complete.filter((g) => g.alert !== null).length;
+    if (latest.alert !== null || !latest.healthy) {
+      return {
+        healthy: false,
+        reason: `latest completed ${channel} tick ${latest.at!.toISOString()} (${ageM} min old) ` +
+          `reported findings — ${latest.alert ?? "no healthy verdict"}`,
+      };
+    }
+    return {
+      healthy: true,
+      reason: `latest completed ${channel} tick ${latest.at!.toISOString()}, ${ageM} min old ` +
+        `(max ${maxM} min), 0 active finding(s)` +
+        (withFindings > 0
+          ? ` (historical: ${withFindings} of ${complete.length} completed tick(s) in the log had findings)`
+          : ""),
+    };
+  }
+
+  // ── Fallback: logs written before tick ids existed ────────────────
+  //
+  // Current state, not history.
+  //
+  // A finding is re-logged on EVERY tick for as long as it is active, and a
+  // healthy verdict is logged ONLY on a tick that had none. So "has a complete
+  // tick reported clean since the last finding?" is answerable exactly, without
+  // grouping lines into ticks and without trusting their order:
+  // count the banners and verdicts that follow the last ALERT.
+  //
+  // Counting the whole buffer instead is what produced Sunday's refusal —
+  // "24 of 37 recent health tick(s) reported findings" — against a monitor that
+  // had been clean for thirteen consecutive hours. The alerting ticks were real
+  // and correct at the time; the run they named failed at 00:39:16Z and the
+  // monitor stopped reporting it after its 24-hour window, exactly as designed.
+  // Aggregating history meant readiness could never recover until the log
+  // buffer rolled, which is not a property of the system's health.
+  //
+  // Order tolerance here is asymmetric on purpose, because this path has only
+  // position to go on. A verdict printed just before its own banner (which has
+  // been observed) does not involve an ALERT and cannot fake recovery. An ALERT
+  // arriving late, after the following banner, makes this look unrecovered —
+  // which refuses, and refusing is the safe direction. Ticks tagged with an id
+  // never reach here.
+  const banners = ticks.filter((t) => t.i > lastAlertIdx).length;
+  const verdicts = lines.filter((l, i) => i > lastAlertIdx && l.includes(verdict)).length;
+  const history = lastAlertIdx >= 0
+    ? ` (historical: ${ticks.length} recent tick(s) in the log, findings last seen before ` +
+      `${banners} of them)`
+    : "";
+  if (banners === 0 || verdicts === 0) {
     return {
       healthy: false,
-      reason: `${tickCount - healthyCount} of ${tickCount} recent health tick(s) reported findings` +
-        (alert ? ` — e.g. ${alert.slice(alert.indexOf("ALERT")).slice(0, 120)}` : ""),
+      reason: `latest ${channel} tick ${newest.at.toISOString()} (${ageMin} min old) has not ` +
+        `reported clean since the last finding` + (alertExample ? ` — ${alertExample}` : ""),
     };
   }
   return {
     healthy: true,
-    reason: `last tick ${Math.round(ageMs / 60_000)} min ago, ${channel} healthy`,
+    reason: `latest ${channel} tick ${newest.at.toISOString()}, ${ageMin} min old ` +
+      `(max ${Math.round(maxAgeMs / 60_000)} min), 0 active finding(s)${history}`,
   };
 }
 

@@ -289,7 +289,10 @@ describe("health tick wiring", () => {
   const TICK = readFileSync("packages/monitor/src/healthTick.ts", "utf8");
 
   test("every finding is still logged even when the alert is suppressed", () => {
-    const logAt = TICK.indexOf("deps.log(`[monitor:health] ${f.severity}");
+    // Every line of a tick now goes through `say`, which tags it with the tick
+    // id; the invariant under test is unchanged — findings are written to the
+    // audit trail BEFORE deduplication decides what to notify a human about.
+    const logAt = TICK.indexOf("say(`${f.severity}");
     const dedupAt = TICK.indexOf("dedupeAlerts({");
     assert.ok(logAt >= 0 && dedupAt > logAt,
       "logs are the audit trail and must precede deduplication");
