@@ -142,8 +142,21 @@ async function main(): Promise<void> {
   ck(snap.unresolvedIntents.length === 0, "no unresolved upload intent",
     `${snap.unresolvedIntents.length}`,
     "reconcile before any upload — see docs/YOUTUBE_PRODUCTION_OPERATIONS.md");
-  ck(snap.futureScheduled.length === 0, "no future scheduled video (no publication collision)",
-    `${snap.futureScheduled.length}`);
+  // Staged inventory is the POINT of ordinary production, so a future scheduled
+  // video is expected rather than a fault. What must never happen is two of
+  // them landing on the same instant, which is the collision this was really
+  // guarding against — the pilot could not schedule at all, so "zero scheduled"
+  // used to be an equivalent statement and no longer is.
+  const slotCounts = new Map<string, number>();
+  for (const v of snap.futureScheduled) {
+    slotCounts.set(v.scheduledAt, (slotCounts.get(v.scheduledAt) ?? 0) + 1);
+  }
+  const collisions = [...slotCounts.entries()].filter(([, n]) => n > 1);
+  ck(collisions.length === 0, "no publication collision (one video per slot)",
+    collisions.length
+      ? collisions.map(([slot, n]) => `${n} videos at ${slot}`).join("; ")
+      : `${snap.futureScheduled.length} scheduled, all in distinct slots`,
+    "two videos share a publication slot — reschedule one before producing more");
   const reserved = snap.budgets.filter((b) => b.reserved !== 0);
   ck(reserved.length === 0, "zero narration reservations",
     reserved.length ? JSON.stringify(reserved) : "all 0",

@@ -129,3 +129,25 @@ describe("shortsEnabled=false bypasses the Shorts stage entirely", () => {
     assert.equal(p.requireGuardedUpload, true);
   });
 });
+
+// ── Staged inventory is not a preflight fault ────────────────────────────
+
+describe("preflight distinguishes staged inventory from a collision", () => {
+  const PRE = readFileSync("scripts/monday-preflight.ts", "utf8");
+
+  test("a future scheduled video no longer fails preflight on its own", () => {
+    assert.ok(!PRE.includes("snap.futureScheduled.length === 0"),
+      "ordinary production stages inventory by design; zero-scheduled was a pilot-era assertion");
+  });
+
+  test("two videos sharing a slot still fail", () => {
+    assert.match(PRE, /no publication collision \(one video per slot\)/);
+    assert.match(PRE, /filter\(\(\[, n\]\) => n > 1\)/);
+  });
+
+  test("the scheduler's own collision guard is untouched", () => {
+    const ctrl = readFileSync("scripts/ordinary-production-control.ts", "utf8");
+    assert.match(ctrl, /nextPublishSlot\(now, \{ occupied \}\)/);
+    assert.match(ctrl, /occupied future slots/);
+  });
+});
