@@ -276,6 +276,116 @@ ${narration}`;
 }
 
 /**
+ * Force a script inside its spoken-character budget. The model writes; this counts and cuts.
+ *
+ * `shorten` is injected so the production stage and its regression test run the
+ * SAME code. The previous version of this logic lived inline and was only ever
+ * tested through `trimToLimit` in isolation, which is exactly why the bug below
+ * reached production.
+ *
+ * THE BUG THIS FIXES. Budgets are measured against the SPOKEN UNIT, which is
+ * what ElevenLabs is billed for and what the runtime contract counts. After
+ * `foldHookAndCtaIntoSegments` the unit equals the segment narration, so
+ * clamping the narration clamped the right thing. But once the model rewrites a
+ * segment, its text no longer contains the hook or CTA verbatim, and
+ * `buildSpokenUnits` re-adds them — so the unit is the clamped narration PLUS
+ * several hundred characters. Live on 2026-08-16 that produced segment 0 at
+ * 1614/1090 and segment 5 at 1398/1043 with the clamp working perfectly on the
+ * wrong quantity.
+ *
+ * So every limit here is applied to the narration MINUS the overhead the unit
+ * will re-add, recomputed after each edit, and verified against the unit.
+ */
+export async function enforceScriptLength(
+  script: Script,
+  b: { targetChars: number; maxChars: number; minChars: number },
+  budgets: { index: number; targetChars: number; maxChars: number }[],
+  shorten: (narration: string, budget: { targetChars: number; maxChars: number }) => Promise<string | null>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const units = () => buildSpokenUnits(script).map((u) => u.text.length);
+  const total = () => spokenCharacterCount(buildSpokenUnits(script));
+  /** What buildSpokenUnits adds on top of this segment's narration. */
+  const overhead = (i: number) => units()[i]! - script.segments[i]!.narration.length;
+  const report = () => units()
+    .map((n, i) => `  segment ${i}: ${n} / ${budgets[i]!.targetChars} / ${budgets[i]!.maxChars}`)
+    .join("\n");
+
+  console.log(`[scriptGenerator] length: ${total()} / ${b.targetChars} / ${b.maxChars}\n${report()}`);
+
+  // 1. At most ONE model attempt per oversized segment. Best effort.
+  for (let i = 0; i < script.segments.length; i++) {
+    if (units()[i]! <= budgets[i]!.maxChars) continue;
+    const shorter = await shorten(script.segments[i]!.narration, budgets[i]!);
+    if (shorter) {
+      script.segments[i]!.narration = shorter;
+      console.log(`[scriptGenerator] segment ${i} rewritten once: ${units()[i]} / ${budgets[i]!.maxChars}`);
+    }
+  }
+
+  // 2. Authoritative clamp. No further model calls, whatever step 1 returned —
+  //    including the case where it came back longer.
+  for (let i = 0; i < script.segments.length; i++) {
+    const isLast = i === script.segments.length - 1;
+    let removed = 0;
+    // Trimming can change whether the hook/CTA are contained, which changes the
+    // overhead, so recompute and re-trim. Converges in two passes; bounded at
+    // four so a pathological case cannot spin.
+    for (let pass = 0; pass < 4 && units()[i]! > budgets[i]!.maxChars; pass++) {
+      const limit = budgets[i]!.maxChars - overhead(i);
+      if (limit <= 0) break;
+      const t = trimToLimit(script.segments[i]!.narration, limit, { keepLast: isLast });
+      if (t.text.length === 0 || t.text === script.segments[i]!.narration) break;
+      script.segments[i]!.narration = t.text;
+      removed += t.removed;
+    }
+    if (removed > 0 || units()[i]! !== budgets[i]!.maxChars) {
+      console.log(`[scriptGenerator] segment ${i} clamped: ${units()[i]} / ${budgets[i]!.maxChars}`);
+    }
+    // After the clamp, over-limit means OUR code is wrong, not the script.
+    if (units()[i]! > budgets[i]!.maxChars) {
+      return { ok: false,
+        error: `INTERNAL: length enforcement failed for segment ${i} ` +
+          `(${units()[i]} > ${budgets[i]!.maxChars}) — clamp did not reach its limit` };
+    }
+  }
+
+  // 3. Defensive total clamp. Per-segment maxima sum to the total budget, so
+  //    this should not normally fire.
+  let guard = script.segments.length * 40;
+  while (total() > b.maxChars && guard-- > 0) {
+    const u = units();
+    let worst = 0;
+    for (let i = 1; i < u.length; i++) {
+      if (u[i]! - budgets[i]!.targetChars > u[worst]! - budgets[worst]!.targetChars) worst = i;
+    }
+    const isLast = worst === script.segments.length - 1;
+    const t = trimToLimit(script.segments[worst]!.narration,
+      Math.max(1, script.segments[worst]!.narration.length - 1), { keepLast: isLast });
+    if (t.text.length === 0 || t.text === script.segments[worst]!.narration) break;
+    script.segments[worst]!.narration = t.text;
+  }
+
+  // 4. The guarantee.
+  const finalChars = total();
+  if (finalChars > b.maxChars) {
+    return { ok: false,
+      error: `INTERNAL: script is ${finalChars} spoken chars, over the ${b.maxChars} budget, ` +
+        "after every segment was clamped" };
+  }
+  if (finalChars < b.minChars) {
+    return { ok: false,
+      error: `script is below the production minimum after length enforcement: ` +
+        `${finalChars} spoken chars is under ${b.minChars}` };
+  }
+  if (script.segments.length !== budgets.length) {
+    return { ok: false,
+      error: `length enforcement changed the segment count (${script.segments.length} vs ${budgets.length})` };
+  }
+  console.log(`[scriptGenerator] final: ${finalChars} / ${b.targetChars} / ${b.maxChars}\n${report()}`);
+  return { ok: true };
+}
+
+/**
  * Stage 2: Use Claude API to generate a structured script JSON.
  * Output: hook, 4-6 body segments (each with visual_prompt), CTA.
  */
@@ -300,117 +410,14 @@ export async function scriptGenerator(
 
   let script = result.script;
 
-  // ── Deterministic length enforcement ──────────────────────────────
-  //
-  // The model writes. The code counts. The code wins.
-  //
-  // Nothing leaves this stage over the canonical budget. Each oversized
-  // segment gets exactly one model attempt — a small, well-specified edit that
-  // usually reads better than a mechanical cut — and then whole sentences are
-  // removed until it fits. There is no whole-script rewrite and no
-  // regeneration: both were tried live and produced 7,904 and 6,911 characters
-  // against a 5,925 limit.
-  //
-  // Trimming can make prose worse. That is fine and deliberate: `qualityGate`
-  // runs next and is what decides whether the result is still good enough. A
-  // script damaged by trimming fails there, which is a better outcome than
-  // another round of negotiating with the model.
-  //
-  // Same candidate, same run, same tranche attempt throughout. Nothing here
-  // claims a slot, touches a budget or calls a provider.
   {
     const b = productionBudget();
     const budgets = segmentBudgets(b, script.segments.length);
-    const lens = () => buildSpokenUnits(script).map((u) => u.text.length);
-    const total = () => spokenCharacterCount(buildSpokenUnits(script));
-    const report = () => lens()
-      .map((n, i) => `  segment ${i}: ${n} / ${budgets[i]!.targetChars} / ${budgets[i]!.maxChars}`)
-      .join("\n");
-
-    console.log(`[scriptGenerator] length: ${total()} / ${b.targetChars} / ${b.maxChars}\n${report()}`);
-
-    // 1. At most ONE model attempt per oversized segment.
-    for (let i = 0; i < script.segments.length; i++) {
-      if (lens()[i]! <= budgets[i]!.maxChars) continue;
-      const seg = script.segments[i]!;
-      const shorter = await shortenSegment(anthropic, seg.narration, budgets[i]!);
-      if (shorter) {
-        seg.narration = shorter;
-        console.log(`[scriptGenerator] segment ${i} rewritten once: ${lens()[i]} / ${budgets[i]!.maxChars}`);
-      }
+    const enforced = await enforceScriptLength(script, b, budgets,
+      (narration, budget) => shortenSegment(anthropic, narration, budget));
+    if (!enforced.ok) {
+      return { success: false, error: enforced.error, durationMs: Date.now() - start };
     }
-
-    // 2. Mechanical clamp. No further model calls, whatever step 1 returned —
-    //    including the case where it came back LONGER.
-    for (let i = 0; i < script.segments.length; i++) {
-      if (lens()[i]! <= budgets[i]!.maxChars) continue;
-      const seg = script.segments[i]!;
-      const isLast = i === script.segments.length - 1;
-      const t = trimToLimit(seg.narration, budgets[i]!.maxChars, { keepLast: isLast });
-      seg.narration = t.text;
-      console.log(`[scriptGenerator] segment ${i} trimmed ${t.removed} sentence(s): ` +
-        `${lens()[i]} / ${budgets[i]!.maxChars}${t.ok ? "" : " — STILL OVER"}`);
-    }
-
-    // 3. Defensive total clamp. Per-segment maxima sum to the total budget, so
-    //    this should not normally fire; it exists so the guarantee below does
-    //    not depend on that arithmetic holding.
-    let guard = script.segments.length * 40;
-    while (total() > b.maxChars && guard-- > 0) {
-      const l = lens();
-      // The segment furthest over its own target gives up a sentence first.
-      let worst = 0;
-      for (let i = 1; i < l.length; i++) {
-        if (l[i]! - budgets[i]!.targetChars > l[worst]! - budgets[worst]!.targetChars) worst = i;
-      }
-      const seg = script.segments[worst]!;
-      const isLast = worst === script.segments.length - 1;
-      const t = trimToLimit(seg.narration, Math.max(1, l[worst]! - 1), { keepLast: isLast });
-      if (t.removed === 0) break;   // nothing further can be removed safely
-      seg.narration = t.text;
-    }
-
-    // 4. The guarantee, asserted per segment AND in total. `trimToLimit` now
-    //    always reaches the limit — sentences, then clause boundary, then word
-    //    boundary — so a violation here is an implementation error, and it
-    //    fails closed rather than shipping.
-    const over = lens()
-      .map((n, i) => ({ i, n, max: budgets[i]!.maxChars }))
-      .filter((x) => x.n > x.max);
-    if (over.length > 0) {
-      return {
-        success: false,
-        error: `length enforcement failed for segment(s) ` +
-          over.map((x) => `${x.i} (${x.n} > ${x.max})`).join(", "),
-        durationMs: Date.now() - start,
-      };
-    }
-    const finalChars = total();
-    if (finalChars > b.maxChars) {
-      return {
-        success: false,
-        error: `script cannot be brought inside the production envelope: ` +
-          `${finalChars} spoken chars exceeds ${b.maxChars} and no further whole sentence ` +
-          `can be removed without cutting a word`,
-        durationMs: Date.now() - start,
-      };
-    }
-    if (finalChars < b.minChars) {
-      return {
-        success: false,
-        error: `script is below the production minimum after length enforcement: ` +
-          `${finalChars} spoken chars is under ${b.minChars}`,
-        durationMs: Date.now() - start,
-      };
-    }
-    if (script.segments.length !== budgets.length) {
-      return {
-        success: false,
-        error: `length enforcement changed the segment count (${script.segments.length} vs ${budgets.length})`,
-        durationMs: Date.now() - start,
-      };
-    }
-    console.log(`[scriptGenerator] final: ${finalChars} / ${b.targetChars} / ${b.maxChars}\n${report()}`);
   }
 
   // The model's own `estimatedTotalDuration` is a self-report and was, on the

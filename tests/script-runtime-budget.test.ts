@@ -192,19 +192,19 @@ describe("14-31. the code enforces length, not the model", () => {
       assert.ok(!SRC.includes(gone), `${gone} must not survive — it failed live`);
     }
     // Regeneration inside the length path would be a second generation.
-    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
-      SRC.indexOf("// The model's own"));
+    const block = SRC.slice(SRC.indexOf("export async function enforceScriptLength"),
+      SRC.indexOf("/**\n * Stage 2:"));
     assert.ok(!block.includes("generateScript("), "no whole-script regeneration");
   });
 
   test("2/6/7. at most one model call per oversized segment, and none after", () => {
-    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
-      SRC.indexOf("// The model's own"));
-    assert.equal((block.match(/await shortenSegment\(/g) ?? []).length, 1,
+    const block = SRC.slice(SRC.indexOf("export async function enforceScriptLength"),
+      SRC.indexOf("/**\n * Stage 2:"));
+    assert.equal((block.match(/await shorten\(/g) ?? []).length, 1,
       "one call site, inside a single pass over the segments");
     // The mechanical clamp that follows contains no model call at all.
-    const clamp = block.slice(block.indexOf("// 2. Mechanical clamp"));
-    assert.ok(!clamp.includes("shortenSegment") && !clamp.includes("createMessage"),
+    const clamp = block.slice(block.indexOf("// 2. Authoritative clamp"));
+    assert.ok(!clamp.includes("await shorten(") && !clamp.includes("createMessage"),
       "step 2 onwards must be pure code");
   });
 
@@ -243,28 +243,28 @@ describe("14-31. the code enforces length, not the model", () => {
   });
 
   test("12/13. the stage cannot return success over the max", () => {
-    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
-      SRC.indexOf("// The model's own"));
+    const block = SRC.slice(SRC.indexOf("export async function enforceScriptLength"),
+      SRC.indexOf("/**\n * Stage 2:"));
     assert.match(block, /if \(finalChars > b\.maxChars\)/);
-    assert.match(block, /success: false/);
+    assert.match(block, /ok: false/);
     assert.match(block, /while \(total\(\) > b\.maxChars/, "defensive total clamp");
   });
 
   test("14. it also refuses a script below the production minimum", () => {
-    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
-      SRC.indexOf("// The model's own"));
+    const block = SRC.slice(SRC.indexOf("export async function enforceScriptLength"),
+      SRC.indexOf("/**\n * Stage 2:"));
     assert.match(block, /finalChars < b\.minChars/);
   });
 
   test("9/23. the segment count is preserved and verified", () => {
-    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
-      SRC.indexOf("// The model's own"));
+    const block = SRC.slice(SRC.indexOf("export async function enforceScriptLength"),
+      SRC.indexOf("/**\n * Stage 2:"));
     assert.match(block, /script\.segments\.length !== budgets\.length/);
   });
 
   test("19/20/21/22. nothing here spends, claims or re-identifies anything", () => {
-    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
-      SRC.indexOf("// The model's own"));
+    const block = SRC.slice(SRC.indexOf("export async function enforceScriptLength"),
+      SRC.indexOf("/**\n * Stage 2:"));
     for (const forbidden of ["claimSlot", "RunSummary", "withBudgetWindow", "reserveCredits",
                              "elevenlabs", "productionTranche", "settleSlot"]) {
       assert.ok(!block.toLowerCase().includes(forbidden.toLowerCase()), `must not touch ${forbidden}`);
@@ -279,7 +279,7 @@ describe("14-31. the code enforces length, not the model", () => {
     assert.ok(gen < qa && qa < vf);
     // Enforcement happens inside scriptGenerator, so the judge never sees the
     // original over-budget text.
-    assert.ok(SRC.indexOf("// ── Deterministic length enforcement") < SRC.indexOf("hookSegment"));
+    assert.ok(SRC.indexOf("await enforceScriptLength(") < SRC.indexOf("hookSegment"));
   });
 
   test("32/33/34. the downstream gate and its limits are untouched", () => {
@@ -455,9 +455,10 @@ describe("trimToLimit always reaches the limit", () => {
   });
 
   test("13. the stage asserts per segment before returning success", () => {
-    const block = SRC.slice(SRC.indexOf("// ── Deterministic length enforcement"),
-      SRC.indexOf("// The model's own"));
-    assert.match(block, /length enforcement failed for segment\(s\)/);
-    assert.match(block, /\.filter\(\(x\) => x\.n > x\.max\)/);
+    const block = SRC.slice(SRC.indexOf("export async function enforceScriptLength"),
+      SRC.indexOf("/**\n * Stage 2:"));
+    assert.match(block, /INTERNAL: length enforcement failed for segment/,
+      "an over-limit clamp is an implementation error, not a candidate rejection");
+    assert.match(block, /units\(\)\[i\]! > budgets\[i\]!\.maxChars/);
   });
 });
