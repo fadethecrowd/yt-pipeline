@@ -76,6 +76,24 @@ export function fitFragment(
 
 
 /**
+ * Longest a single outro card may hold the screen.
+ *
+ * Tied to the mechanical QA gate, not to taste: `MAX_FROZEN_RUN_S` in lib/qa.ts
+ * is 4.0s, and an outro card is a genuinely static frame, so any card longer
+ * than that is a frozen run the gate will flag. Run c28dd19c held 6.73s and
+ * 7.53s cards and drew `[WARN] no_frozen_sections: longest frozen run 5.13s` —
+ * every frozen run in that render fell inside the outro span.
+ *
+ * Deliberately NOT MIN_FRAGMENT_S. That floor exists because a stock-footage
+ * cut shorter than six seconds reads as a flash; a text card is not footage,
+ * and the title card has always held for exactly 4.0s.
+ *
+ * A test asserts this stays at or under MAX_FROZEN_RUN_S so the two cannot
+ * drift apart.
+ */
+export const OUTRO_CARD_MAX_S = 4.0;
+
+/**
  * How to split an outro beat across several cards.
  *
  * The outro is deterministic and has no subject to retrieve, so it is cards —
@@ -84,14 +102,13 @@ export function fitFragment(
  * field: a slow zoom over solid navy is invisible, so the only thing that can
  * actually change is the text.
  *
- * Cards therefore cut every `MIN_FRAGMENT_S` where the beat allows it, capped
- * by how many lines the channel has to say. A short outro stays a single card
- * rather than producing a flash. The last card absorbs rounding so the cards
- * tile the beat exactly.
+ * Cards therefore cut often enough that no single one becomes a frozen run.
+ * The count follows from the duration alone; the caller cycles its lines to
+ * fill it. The last card absorbs rounding so the cards tile the beat exactly.
  */
-export function outroCardPlan(durationS: number, lineCount: number): number[] {
-  if (durationS <= 0 || lineCount < 1) return [];
-  const count = Math.max(1, Math.min(lineCount, Math.floor(durationS / MIN_FRAGMENT_S)));
+export function outroCardPlan(durationS: number): number[] {
+  if (!Number.isFinite(durationS) || durationS <= 0) return [];
+  const count = Math.max(1, Math.ceil(durationS / OUTRO_CARD_MAX_S));
   const slice = durationS / count;
   const out = Array.from({ length: count }, () => slice);
   out[count - 1] = +(durationS - slice * (count - 1)).toFixed(6);

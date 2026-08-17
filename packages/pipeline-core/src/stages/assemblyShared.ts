@@ -445,6 +445,26 @@ const OUTRO_LINES: Record<string, string[]> = {
 };
 
 /**
+ * The one beat in this video that gets the end-card treatment, or -1.
+ *
+ * `isOutroBeat` answers "does this beat contain CTA wording", which is a
+ * per-beat question, and a CTA long enough to span a beat boundary makes it
+ * true more than once. Run c28dd19c did exactly that: beat 23 ended "…hit
+ * subscribe so you don't miss the next one" and beat 24 opened "Drop a comment
+ * below", so the treatment fired twice — five cards and 35.3s of static ending,
+ * 7.8% of the runtime.
+ *
+ * "Is this video's outro" is a question about the video, so it is answered
+ * once, here. The LAST such beat wins: earlier beats in a long CTA still carry
+ * editorial content worth illustrating, and the cards belong at the very end.
+ */
+export function lastOutroBeatIndex(beats: { index: number; narration: string }[]): number {
+  let last = -1;
+  for (const b of beats) if (isOutroBeat(b.narration)) last = b.index;
+  return last;
+}
+
+/**
  * The channel's end cards, for a beat that is CTA rather than content.
  *
  * A FIXED treatment, not a fallback: chosen because the beat has no subject,
@@ -467,13 +487,14 @@ async function renderOutroBeat(
 ): Promise<RenderedBeat[]> {
   const { label, channel } = deps;
   const lines = OUTRO_LINES[channel] ?? OUTRO_LINES.default!;
-  const slices = outroCardPlan(beat.durationS, lines.length);
+  const slices = outroCardPlan(beat.durationS);
   const out: RenderedBeat[] = [];
   let cursor = cursorStartS;
 
   for (let i = 0; i < slices.length; i++) {
     const dur = slices[i]!;
-    const text = lines[i]!;
+    // More cards than lines is normal once cards are short; cycle them.
+    const text = lines[i % lines.length]!;
     const sceneNumber = beat.index * 100 + i + 1;
     const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
     const titleFile = join(tmpDir, `card-${sceneNumber}.txt`);
@@ -518,6 +539,7 @@ async function renderBeat(
   tmpDir: string,
   deps: AssemblyDeps,
   videoId: string,
+  isOutro: boolean,
 ): Promise<RenderedBeat[]> {
   const { label, channel } = deps;
   const out: RenderedBeat[] = [];
@@ -529,7 +551,10 @@ async function renderBeat(
   // next deep dive" depicts nothing, so the search fell through to whatever the
   // segment prompt said and returned a rapeseed field. These get the channel's
   // own end card instead, and never reach retrieval.
-  if (isOutroBeat(beat.narration)) {
+  //
+  // WHICH beat that is, is decided once for the whole video by the caller —
+  // see `lastOutroBeatIndex`.
+  if (isOutro) {
     return renderOutroBeat(beat, tmpDir, deps, videoId, cursor);
   }
 
@@ -845,6 +870,11 @@ export async function runAssembly(
     };
   }
 
+  const outroIndex = lastOutroBeatIndex(beats);
+  if (outroIndex >= 0) {
+    console.log(`[${label}] outro treatment: beat ${outroIndex} only (of ${beats.length} beats)`);
+  }
+
   const ledger = new AssetLedger(1);
   const plan = new VisualPlan();
   const rendered: RenderedBeat[] = [];
@@ -879,6 +909,7 @@ export async function runAssembly(
     rendered.push(
       ...(await renderBeat(
         beat, seg, subjects.get(seg.segmentIndex)!, pool, ledger, plan, tmpDir, deps, ctx.video.id,
+        beat.index === outroIndex,
       )),
     );
   }

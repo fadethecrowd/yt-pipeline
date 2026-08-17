@@ -35,6 +35,30 @@ const ESCALATIONS: { term: string; synonyms: string[] }[] = [
 
 /** "$4", "$1.2b", "4 million dollars" — a figure the script must also carry. */
 const DOLLAR = /\$\s?\d|(\d[\d,.]*)\s*(million|billion|trillion)?\s*dollars?/i;
+
+/**
+ * A quantity of TIME or COUNT, which the script must also carry.
+ *
+ * Run c28dd19c produced the wildcard title "The 18-Month Window to Stop AI
+ * Hackers Forever Is Already Closing" for a script containing neither "18" nor
+ * "month". It passed, because the only numeric rule here was about money. An
+ * invented duration is exactly as false as an invented price — it just costs
+ * nothing to say — so it is checked the same way.
+ *
+ * A bare unit is NOT matched: "for the first time in decades" asserts no
+ * specific quantity and is ordinary prose. What is matched is a NUMBER bound to
+ * a unit, digits or words, and the open-ended magnitude phrases.
+ */
+const NUMBER_WORD = "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+  + "fifteen|eighteen|twenty|thirty|forty|fifty|sixty|ninety|hundred|thousand";
+const TIME_UNIT = "second|minute|hour|day|week|month|year|decade";
+const QUANTITY = new RegExp(
+  `(\\b(?:\\d[\\d,.]*|${NUMBER_WORD})[-\\s]?(?:${TIME_UNIT})s?\\b)`
+  + `|(\\b(?:hundreds|thousands|millions|billions)\\s+of\\b)`
+  + `|(\\b\\d[\\d,.]*\\s?%)`
+  + `|(\\b\\d[\\d,.]*\\s?(?:percent|x)\\b)`,
+  "gi",
+);
 /**
  * A first-person narrative claim: the pronoun "I" followed by a past-tense verb.
  *
@@ -89,6 +113,16 @@ export function checkTitleFidelity(title: string, evidence: string): FidelityRes
     const figures = title.match(/\$\s?[\d,.]+\s*(?:million|billion|trillion)?/gi) ?? [];
     const supported = figures.length > 0 && figures.every((f) => ne.includes(normalize(f)));
     if (!supported) unsupported.push("dollar figure");
+  }
+  // Durations and counts, on the same terms as money.
+  const quantities = [...new Set((title.match(QUANTITY) ?? []).map((q) => q.trim()))];
+  for (const q of quantities) {
+    const label = `quantity "${q}"`;
+    triggered.push(label);
+    // Normalised, so "18-Month" in a title is satisfied by "18 months" in the
+    // script: punctuation is stripped and a trailing plural still contains the
+    // singular form as a prefix.
+    if (!ne.includes(normalize(q))) unsupported.push(label);
   }
   if (hasFirstPersonClaim(title)) {
     triggered.push("first-person claim");

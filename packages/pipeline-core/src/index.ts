@@ -198,7 +198,13 @@ export {
   planVisualBeats, planSegmentBeats, summarizeBeats, minimumBeatsFor,
   BEAT_TARGET_S, BEAT_MIN_S, BEAT_MAX_S, MIN_FRAGMENT_S,
 } from "./lib/visualBeats";
-export { outroCardPlan } from "./lib/visualBeats";
+export { outroCardPlan, OUTRO_CARD_MAX_S } from "./lib/visualBeats";
+export {
+  fetchArticleBody, htmlToText, BODY_FETCH_TIMEOUT_MS, BODY_MAX_BYTES,
+  BODY_MAX_CHARS, BODY_MIN_CHARS,
+} from "./lib/articleBody";
+export type { ArticleBody } from "./lib/articleBody";
+export { lastOutroBeatIndex } from "./stages/assemblyShared";
 export type { VisualBeat, BeatPlanSummary } from "./lib/visualBeats";
 export {
   checkBrandFromMetadata, brandCheckFromFrameInspection, brandAdmits,

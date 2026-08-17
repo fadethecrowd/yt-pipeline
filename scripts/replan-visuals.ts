@@ -33,7 +33,7 @@ import { dirname, resolve } from "node:path";
 import {
   prisma, disconnect, env, AssetLedger, VisualPlan, scoreRelevance,
   searchPexelsCandidates, buildSearchQueries, planPreliminaryBeats,
-  comparisonVehicles, borrowedFromVehicle, subjectTerms, isOutroBeat,
+  comparisonVehicles, borrowedFromVehicle, subjectTerms, lastOutroBeatIndex,
   deVehicle, withheldDomains, classifyConcept, AI_SUBJECTS, MARINE_SUBJECTS,
 } from "@yt-pipeline/pipeline-core";
 import { fitFragment, MIN_FRAGMENT_S, outroCardPlan } from "@yt-pipeline/pipeline-core/dist/lib/visualBeats";
@@ -171,6 +171,9 @@ async function main(): Promise<void> {
     });
   }
 
+  // One outro per video, decided across all beats — not per beat.
+  const outroIndex = legacy ? -1 : lastOutroBeatIndex(beats);
+
   const ledger = new AssetLedger(1);
   const plan = new VisualPlan();
   const scenes: PlannedScene[] = [];
@@ -182,20 +185,20 @@ async function main(): Promise<void> {
     let remaining = beat.durationS;
     let fragment = 0;
 
-    if (!legacy && isOutroBeat(beat.narration)) {
+    if (!legacy && beat.index === outroIndex) {
       // Mirrors renderOutroBeat: several cards, not one held frame.
       const lines = channel === "wet-circuit"
         ? ["Thanks for watching", "Subscribe for more", "See you next time"]
         : ["Like & Subscribe", "Drop a comment", "New videos weekly"];
-      const slices = outroCardPlan(remaining, lines.length);
+      const slices = outroCardPlan(remaining);
       for (let i = 0; i < slices.length; i++) {
         const dur = slices[i]!;
         scenes.push({
           sceneNumber: beat.index * 100 + i + 1, narration: beat.narration,
           startTimeS: TITLE_CARD_DURATION + cursor, endTimeS: TITLE_CARD_DURATION + cursor + dur,
-          prompt: `[outro] ${lines[i]}`, subjectPrompt: "[outro] fixed branded treatment",
+          prompt: `[outro] ${lines[i % lines.length]}`, subjectPrompt: "[outro] fixed branded treatment",
           retrievalQuery: "(bypassed)", assetSource: "outro-card", assetId: null, assetUrl: null,
-          assetDescription: `outro card: ${lines[i]}`, durationS: dur,
+          assetDescription: `outro card: ${lines[i % lines.length]}`, durationS: dur,
           relevanceScore: null, relevanceVerdict: null, relevanceReasons: [],
           renderStatus: "RENDERED_OUTRO", runnerUps: [],
         });

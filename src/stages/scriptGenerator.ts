@@ -4,7 +4,7 @@ import { VideoStatus } from "@prisma/client";
 import {
   prisma, env, createMessage, scriptBudget, segmentBudgets, runtimeForChars,
   buildSpokenUnits, spokenCharacterCount, currentTestStage, fmtRuntime, trimToLimit,
-  validateScriptStructure,
+  validateScriptStructure, fetchArticleBody,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -109,6 +109,14 @@ CONCRETE ANCHORS (this decides whether the footage can be RELEVANT):
   and you may describe well-known general technology the subject obviously
   involves. You may not attribute claims, figures or involvement to anyone the
   material does not name.
+- ATTRIBUTING INVENTED CONTENT TO A REAL ENTITY IS ALSO FABRICATION. Naming an
+  entity the material identifies does NOT license you to describe what it said,
+  defined, recommended, argued, outlined, warned or concluded. "OpenAI defines
+  it as…", "the report recommends five steps", "the paper argues that…" are
+  claims about a document, and you may only make them when the material in
+  front of you actually contains that content. Putting words in a named
+  entity's mouth is worse than vagueness, not better, because it is checkable
+  and wrong.
 - If the material genuinely supports no concrete anchor for a segment, leave
   that segment abstract. Inventing a specific is WORSE than being vague — a
   vague sentence is a weak segment, an invented fact is a false claim.
@@ -210,17 +218,58 @@ export function foldHookAndCtaIntoSegments(script: Script): Script {
   };
 }
 
+/**
+ * What the model is allowed to say about the source document.
+ *
+ * With the article text in hand it may quote, define and attribute, because it
+ * can check. Without it, it has a headline and at most two sentences of RSS
+ * snippet — which is what produced run c28dd19c's invented definition — so
+ * attribution is closed off entirely and the topic area is still fair game.
+ */
+export function sourceMaterialBlock(
+  topic: { title: string; url: string; summary?: string | null },
+  body: string | null,
+): string {
+  const head = [
+    `Title: ${topic.title}`,
+    `Source: ${topic.url}`,
+    topic.summary ? `Summary: ${topic.summary}` : null,
+  ].filter(Boolean).join("\n");
+
+  if (body) {
+    return `${head}
+
+ARTICLE TEXT (this is the source document itself — everything you attribute to
+it must appear below; if it is not here, the document does not say it):
+"""
+${body}
+"""`;
+  }
+
+  return `${head}
+
+NO ARTICLE TEXT IS AVAILABLE. You have the headline and summary above and
+nothing else — you have NOT read the source document.
+- Do NOT state what the document says, defines, argues, recommends, outlines,
+  claims, warns or concludes. You cannot know that.
+- Do NOT invent its structure: no "the report lists five steps", no numbered
+  recommendations presented as its own, no definitions in its voice.
+- You MAY say the document exists, who published it, and what its stated
+  subject is, because the headline and summary establish that much.
+- You MAY discuss the subject area in your own voice, as general context,
+  clearly as your framing rather than the document's findings.`;
+}
+
 async function generateScript(
   anthropic: Anthropic,
   ctx: PipelineContext,
   feedback?: string,
+  body: string | null = null,
 ): Promise<{ script?: Script; error?: string }> {
   const parts = [
     `Write a YouTube script about this topic:`,
     ``,
-    `Title: ${ctx.topic.title}`,
-    `Source: ${ctx.topic.url}`,
-    ctx.topic.summary ? `Summary: ${ctx.topic.summary}` : null,
+    sourceMaterialBlock(ctx.topic, body),
     ``,
     `Make it informative, engaging, and suitable for a tech-savvy audience.`,
   ];
@@ -453,7 +502,19 @@ export async function scriptGenerator(
 
   console.log(`[scriptGenerator] Generating script for: "${ctx.topic.title}"`);
 
-  const result = await generateScript(anthropic, ctx);
+  // Fetched once per stage, not per attempt: a retry is a second chance at
+  // writing, not a reason to hit the publisher again. Failure is non-fatal by
+  // construction — `fetchArticleBody` returns null rather than throwing, and a
+  // null body switches the prompt to its no-attribution form.
+  const article = await fetchArticleBody(ctx.topic.url, { log: (m) => console.log(m) });
+  console.log(
+    article
+      ? `[scriptGenerator] source body: ${article.extractedChars} chars extracted` +
+        `${article.truncated ? `, truncated to ${article.text.length}` : ""}`
+      : `[scriptGenerator] source body unavailable — attribution to the document is disallowed`,
+  );
+
+  const result = await generateScript(anthropic, ctx, undefined, article?.text ?? null);
 
   if (result.error || !result.script) {
     return {
