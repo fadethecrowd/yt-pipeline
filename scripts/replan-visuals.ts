@@ -36,7 +36,7 @@ import {
   comparisonVehicles, borrowedFromVehicle, subjectTerms, isOutroBeat,
   deVehicle, withheldDomains, classifyConcept, AI_SUBJECTS, MARINE_SUBJECTS,
 } from "@yt-pipeline/pipeline-core";
-import { fitFragment, MIN_FRAGMENT_S } from "@yt-pipeline/pipeline-core/dist/lib/visualBeats";
+import { fitFragment, MIN_FRAGMENT_S, outroCardPlan } from "@yt-pipeline/pipeline-core/dist/lib/visualBeats";
 import type { Candidate } from "@yt-pipeline/pipeline-core";
 import "dotenv/config";
 
@@ -183,15 +183,24 @@ async function main(): Promise<void> {
     let fragment = 0;
 
     if (!legacy && isOutroBeat(beat.narration)) {
-      scenes.push({
-        sceneNumber: beat.index * 100 + 1, narration: beat.narration,
-        startTimeS: TITLE_CARD_DURATION + cursor, endTimeS: TITLE_CARD_DURATION + cursor + remaining,
-        prompt: "[outro] Like & Subscribe", subjectPrompt: "[outro] fixed branded treatment",
-        retrievalQuery: "(bypassed)", assetSource: "outro-card", assetId: null, assetUrl: null,
-        assetDescription: "outro card: Like & Subscribe", durationS: remaining,
-        relevanceScore: null, relevanceVerdict: null, relevanceReasons: [],
-        renderStatus: "RENDERED_OUTRO", runnerUps: [],
-      });
+      // Mirrors renderOutroBeat: several cards, not one held frame.
+      const lines = channel === "wet-circuit"
+        ? ["Thanks for watching", "Subscribe for more", "See you next time"]
+        : ["Like & Subscribe", "Drop a comment", "New videos weekly"];
+      const slices = outroCardPlan(remaining, lines.length);
+      for (let i = 0; i < slices.length; i++) {
+        const dur = slices[i]!;
+        scenes.push({
+          sceneNumber: beat.index * 100 + i + 1, narration: beat.narration,
+          startTimeS: TITLE_CARD_DURATION + cursor, endTimeS: TITLE_CARD_DURATION + cursor + dur,
+          prompt: `[outro] ${lines[i]}`, subjectPrompt: "[outro] fixed branded treatment",
+          retrievalQuery: "(bypassed)", assetSource: "outro-card", assetId: null, assetUrl: null,
+          assetDescription: `outro card: ${lines[i]}`, durationS: dur,
+          relevanceScore: null, relevanceVerdict: null, relevanceReasons: [],
+          renderStatus: "RENDERED_OUTRO", runnerUps: [],
+        });
+        cursor += dur;
+      }
       continue;
     }
 

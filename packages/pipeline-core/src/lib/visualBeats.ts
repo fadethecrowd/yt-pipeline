@@ -74,6 +74,30 @@ export function fitFragment(
   return null;
 }
 
+
+/**
+ * How to split an outro beat across several cards.
+ *
+ * The outro is deterministic and has no subject to retrieve, so it is cards —
+ * but the first version held ONE card for the whole beat, which was 19 seconds
+ * of an unchanging frame on run e704334a. Motion is no help on a flat colour
+ * field: a slow zoom over solid navy is invisible, so the only thing that can
+ * actually change is the text.
+ *
+ * Cards therefore cut every `MIN_FRAGMENT_S` where the beat allows it, capped
+ * by how many lines the channel has to say. A short outro stays a single card
+ * rather than producing a flash. The last card absorbs rounding so the cards
+ * tile the beat exactly.
+ */
+export function outroCardPlan(durationS: number, lineCount: number): number[] {
+  if (durationS <= 0 || lineCount < 1) return [];
+  const count = Math.max(1, Math.min(lineCount, Math.floor(durationS / MIN_FRAGMENT_S)));
+  const slice = durationS / count;
+  const out = Array.from({ length: count }, () => slice);
+  out[count - 1] = +(durationS - slice * (count - 1)).toFixed(6);
+  return out;
+}
+
 export interface VisualBeat {
   index: number;
   /** Start on the narration timeline (excludes the title card). */

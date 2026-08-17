@@ -198,6 +198,7 @@ export {
   planVisualBeats, planSegmentBeats, summarizeBeats, minimumBeatsFor,
   BEAT_TARGET_S, BEAT_MIN_S, BEAT_MAX_S, MIN_FRAGMENT_S,
 } from "./lib/visualBeats";
+export { outroCardPlan } from "./lib/visualBeats";
 export type { VisualBeat, BeatPlanSummary } from "./lib/visualBeats";
 export {
   checkBrandFromMetadata, brandCheckFromFrameInspection, brandAdmits,

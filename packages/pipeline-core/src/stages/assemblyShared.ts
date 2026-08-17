@@ -22,7 +22,7 @@ import {
   comparisonVehicles, borrowedFromVehicle, subjectTerms, isOutroBeat,
   deVehicle, withheldDomains,
 } from "../lib/visualSubject";
-import { planVisualBeats, summarizeBeats, minimumBeatsFor, BEAT_MAX_S, MIN_FRAGMENT_S, fitFragment } from "../lib/visualBeats";
+import { planVisualBeats, summarizeBeats, minimumBeatsFor, BEAT_MAX_S, MIN_FRAGMENT_S, fitFragment, outroCardPlan } from "../lib/visualBeats";
 import type { VisualBeat } from "../lib/visualBeats";
 import { checkBrandFromMetadata, brandAdmits, isHighBrandRiskFootage } from "../lib/brandGuard";
 import type { BrandCheck } from "../lib/brandGuard";
@@ -432,42 +432,80 @@ async function renderApprovedBeat(
  * `BRANDED_OUTRO` and excluded from the fallback-card share, which measures how
  * often the pipeline could not find footage it needed.
  */
+/**
+ * Lines the outro cycles through, in order. Channel-specific, deliberately few.
+ *
+ * These are the whole "design": the outro is a sequence of plain cards, not a
+ * visual language. The channel is stock-footage-first and this is the one beat
+ * that cannot be, so the bar is that it does not look broken.
+ */
+const OUTRO_LINES: Record<string, string[]> = {
+  "wet-circuit": ["Thanks for watching", "Subscribe for more", "See you next time"],
+  default: ["Like & Subscribe", "Drop a comment", "New videos weekly"],
+};
+
+/**
+ * The channel's end cards, for a beat that is CTA rather than content.
+ *
+ * A FIXED treatment, not a fallback: chosen because the beat has no subject,
+ * not because retrieval failed. Recorded as `BRANDED_OUTRO` and excluded from
+ * the fallback-card share, which measures footage the pipeline could not find.
+ *
+ * Split across several cards rather than one held frame. The first version of
+ * this held a single static frame for the whole beat — 19 seconds of flat navy
+ * on run e704334a, which is a long time to look at nothing changing. Motion was
+ * the obvious alternative and is useless here: a slow zoom over a flat colour
+ * field is invisible, so the only thing that can actually change is the text.
+ * Cards therefore cut every ~6-7s through a short fixed list.
+ */
 async function renderOutroBeat(
   beat: VisualBeat,
   tmpDir: string,
   deps: AssemblyDeps,
   videoId: string,
-  cursor: number,
-): Promise<RenderedBeat> {
+  cursorStartS: number,
+): Promise<RenderedBeat[]> {
   const { label, channel } = deps;
-  const sceneNumber = beat.index * 100 + 1;
-  const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
-  const titleFile = join(tmpDir, `card-${sceneNumber}.txt`);
-  const text = channel === "wet-circuit" ? "Thanks for watching" : "Like & Subscribe";
-  await writeCardTextFile(titleFile, text);
-  await renderCardClip({
-    text, channel, durationS: beat.durationS,
-    clipPath, titleFile, tmpDir, sceneNumber, label,
-  });
-  await recordScene({
-    channel, videoId, sceneNumber, narration: beat.narration,
-    startTimeS: TITLE_CARD_DURATION + cursor,
-    endTimeS: TITLE_CARD_DURATION + cursor + beat.durationS,
-    prompt: `[outro] ${text}`, assetSource: "outro-card", localPath: clipPath,
-    width: WIDTH, height: HEIGHT, durationS: beat.durationS,
-    validation: "PASS", renderStatus: "RENDERED_OUTRO",
-    rejectionReason: null, subjectPrompt: "[outro] fixed branded treatment",
-  });
-  console.log(`[${label}] beat ${beat.index}: outro card (${beat.durationS.toFixed(1)}s) — retrieval bypassed`);
-  return {
-    index: beat.index, startS: cursor, endS: cursor + beat.durationS,
-    durationS: beat.durationS, narration: beat.narration, assetId: null,
-    assetDescription: `outro card: ${text}`, assetUrl: null,
-    sourceStartS: 0, sourceEndS: beat.durationS, looped: false, reused: false,
-    relevanceScore: null, concept: "outro",
-    brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
-    decision: "BRANDED_OUTRO", clipPath,
-  };
+  const lines = OUTRO_LINES[channel] ?? OUTRO_LINES.default!;
+  const slices = outroCardPlan(beat.durationS, lines.length);
+  const out: RenderedBeat[] = [];
+  let cursor = cursorStartS;
+
+  for (let i = 0; i < slices.length; i++) {
+    const dur = slices[i]!;
+    const text = lines[i]!;
+    const sceneNumber = beat.index * 100 + i + 1;
+    const clipPath = join(tmpDir, `beat-${sceneNumber}.mp4`);
+    const titleFile = join(tmpDir, `card-${sceneNumber}.txt`);
+    await writeCardTextFile(titleFile, text);
+    await renderCardClip({
+      text, channel, durationS: dur, clipPath, titleFile, tmpDir, sceneNumber, label,
+    });
+    await recordScene({
+      channel, videoId, sceneNumber, narration: beat.narration,
+      startTimeS: TITLE_CARD_DURATION + cursor,
+      endTimeS: TITLE_CARD_DURATION + cursor + dur,
+      prompt: `[outro] ${text}`, assetSource: "outro-card", localPath: clipPath,
+      width: WIDTH, height: HEIGHT, durationS: dur,
+      validation: "PASS", renderStatus: "RENDERED_OUTRO",
+      rejectionReason: null, subjectPrompt: "[outro] fixed branded treatment",
+    });
+    out.push({
+      index: beat.index, startS: cursor, endS: cursor + dur, durationS: dur,
+      narration: beat.narration, assetId: null,
+      assetDescription: `outro card: ${text}`, assetUrl: null,
+      sourceStartS: 0, sourceEndS: dur, looped: false, reused: false,
+      relevanceScore: null, concept: "outro",
+      brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
+      decision: "BRANDED_OUTRO", clipPath,
+    });
+    cursor += dur;
+  }
+  console.log(
+    `[${label}] beat ${beat.index}: outro — ${slices.length} card(s) of ~${(slices[0] ?? 0).toFixed(1)}s ` +
+    `over ${beat.durationS.toFixed(1)}s, retrieval bypassed`,
+  );
+  return out;
 }
 
 async function renderBeat(
@@ -492,7 +530,7 @@ async function renderBeat(
   // segment prompt said and returned a rapeseed field. These get the channel's
   // own end card instead, and never reach retrieval.
   if (isOutroBeat(beat.narration)) {
-    return [await renderOutroBeat(beat, tmpDir, deps, videoId, cursor)];
+    return renderOutroBeat(beat, tmpDir, deps, videoId, cursor);
   }
 
   // Scored against the beat's narration with the analogy excised. The vehicle

@@ -86,6 +86,43 @@ RULES:
 - Narration should be conversational, clear, and suitable for text-to-speech
 - Visual prompts describe FILMABLE STOCK FOOTAGE, not graphics or text overlays
 
+CONCRETE ANCHORS (this decides whether the footage can be RELEVANT):
+- Every segment's narration must name at least one concrete, filmable thing:
+  a real company or organisation, a named product or model, a specific figure
+  or price, a named report or filing, or a physical piece of technology — a
+  chip, a data centre, a server rack, a robot, a screen showing a real tool.
+- An anchor is something a camera could be pointed at. "The H100s sitting in
+  the racks" is an anchor; "AI processing power" is not. "Twenty to fifty
+  percent off list price" is an anchor; "significant discounts" is not.
+- NEVER INVENT ONE. Anchors come from the title, source and summary you are
+  given, and nowhere else. Do not fabricate company names, figures, dates,
+  prices, quotes, study titles or sources. Do not half-remember a product name:
+  if you are not certain it is called that, describe it instead of naming it.
+- Supplying a real company that the material never identifies is STILL
+  fabrication. If the material does not say who did this, do not reach into
+  your own knowledge of the field for plausible names, competitors, customers,
+  labs or journals and attach them to this story. Naming a real firm that is
+  merely active in the same area asserts a connection the source never made.
+  The test is not "is this entity real" — it is "did the material put this
+  entity in THIS story".
+- You may name what the material itself points at, including who published it,
+  and you may describe well-known general technology the subject obviously
+  involves. You may not attribute claims, figures or involvement to anyone the
+  material does not name.
+- If the material genuinely supports no concrete anchor for a segment, leave
+  that segment abstract. Inventing a specific is WORSE than being vague — a
+  vague sentence is a weak segment, an invented fact is a false claim.
+- Never refuse and never explain yourself. If the material is too thin to
+  anchor, still write the best honest script it supports, with fewer anchors or
+  none, and return it as JSON like any other. An abstract script is a valid
+  answer here; anything that is not the JSON object is not.
+- Anchors REPLACE vague wording, they do not add to it. The length budget below
+  is unchanged and binding.
+- Naming a real company in the NARRATION is expected and wanted. Naming one in
+  a visual_prompt is not — see the last rule of VISUAL GROUNDING. Where the
+  narration names a company, its visual_prompt should show the generic,
+  unbranded physical form of that same thing.
+
 VISUAL GROUNDING (this decides whether the video can actually be made):
 - Every visual_prompt must name a concrete, filmable subject: a physical place,
   object, machine, person, or activity that a camera could record. "Security
