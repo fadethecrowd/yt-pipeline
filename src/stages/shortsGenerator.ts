@@ -7,9 +7,10 @@ import { google } from "googleapis";
 import {
   prisma, env, prepareUpload, confirmUploadState,
   readManifest, readAlignments, buildLongformCaptions, buildShortsCaptions,
+  resolveHookWindow, validateHookWindow, HookAlignmentError,
   TITLE_CARD_DURATION,
 } from "@yt-pipeline/pipeline-core";
-import type { PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
+import type { PipelineContext, StageResult, HookWindow } from "@yt-pipeline/pipeline-core";
 
 const execFile = promisify(execFileCb);
 
@@ -23,12 +24,20 @@ interface HookSegment {
   segmentIndex: number;
 }
 
-function parseTimestamp(ts: string): number {
-  const parts = ts.split(":").map(Number);
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return 0;
-}
+/**
+ * Clip bounds, in seconds of narration.
+ *
+ * 55 rather than 60 leaves headroom under YouTube's Shorts ceiling: the window
+ * ends on a word, so the last word may run slightly past the target and the
+ * mux adds its own rounding. The hard 60s guard below stays as a backstop.
+ *
+ * AI Doom enforced no minimum at all before this, which is how a badly aligned
+ * hook could have produced a two-second Short. 20s is a floor, not a target —
+ * segment 0 runs 80s+ on every script measured, so in practice the maximum is
+ * what binds.
+ */
+const SHORT_MAX_SECS = 55;
+const SHORT_MIN_SECS = 20;
 
 function getYouTubeClient() {
   const config = env();
@@ -38,6 +47,124 @@ function getYouTubeClient() {
   );
   auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
   return google.youtube({ version: "v3", auth });
+}
+
+export interface ShortBuild {
+  /** The finished, captioned MP4. */
+  path: string;
+  /** Directory the caller owns and should clean up. */
+  tmpDir: string;
+  /** The window actually clipped, on the video timeline. */
+  window: HookWindow;
+  cueCount: number;
+  usedCleanMaster: boolean;
+}
+
+/**
+ * Build the Short's MP4 from stored artifacts. No DB writes, no upload.
+ *
+ * Split out from the stage so a Short can be produced and watched without
+ * touching YouTube or the database — the review path and the production path
+ * then run the same code, which is the only way a local preview means anything.
+ *
+ * The window comes from `resolveHookWindow`, not from `hookSegment`'s
+ * timestamps. Those were derived from the script's ESTIMATED
+ * `duration_seconds` and clamped to `0:04-0:59`, so every AI Doom Short would
+ * have been the same fixed 55s slice regardless of where sentences actually
+ * fell. On JomCkkxN-AM that cut after "Attackers only need to be right once"
+ * and dropped the answering clause. Locating the hook text in the real word
+ * timings snaps both edges to word boundaries and prefers the last sentence
+ * that fits.
+ *
+ * Throws on any condition that should mean "no Short" — never falls back to an
+ * estimate.
+ */
+export async function buildShortFile(opts: {
+  videoId: string;
+  videoPath: string;
+  hookText: string;
+  /** Defaults to tmp/short-<videoId>. */
+  outDir?: string;
+  log?: (m: string) => void;
+}): Promise<ShortBuild> {
+  const log = opts.log ?? (() => {});
+  const tmpDir = opts.outDir ?? join(process.cwd(), "tmp", `short-${opts.videoId}`);
+  await mkdir(tmpDir, { recursive: true });
+  const shortPath = join(tmpDir, "short.mp4");
+
+  // Crop the caption-free master when it exists, so the Short gets captions
+  // sized for a 1080x1920 frame instead of inheriting long-form captions that
+  // were sized for 1920x1080 and then upscaled by the crop.
+  const cleanMaster = opts.videoPath.replace(/final\.mp4$/, "final-clean.mp4");
+  const usedCleanMaster = existsSync(cleanMaster);
+  const source = usedCleanMaster ? cleanMaster : opts.videoPath;
+  log(usedCleanMaster
+    ? "[shorts] Using caption-free master for the crop"
+    : "[shorts] No caption-free master found — cropping the burned video; captions will be small");
+
+  const manifest = await readManifest(join(process.cwd(), "audio", opts.videoId));
+  if (!manifest) throw new Error("no narration manifest — cannot align the hook");
+  const alignments = await readAlignments(manifest);
+  const all = buildLongformCaptions(
+    alignments, manifest.segments.map((s) => s.offsetS), TITLE_CARD_DURATION,
+  );
+
+  const window = resolveHookWindow({
+    words: all.words,
+    hookText: opts.hookText,
+    maxDurationS: SHORT_MAX_SECS,
+    minDurationS: SHORT_MIN_SECS,
+  });
+  validateHookWindow(window, all.words);
+
+  // Backstop: the resolver caps at SHORT_MAX_SECS, but YouTube's own ceiling is
+  // the thing that actually matters and it is checked against the real number.
+  if (window.durationS <= 0 || window.durationS > 60) {
+    throw new Error(`resolved window ${window.durationS.toFixed(2)}s outside the 0-60s Shorts ceiling`);
+  }
+  log(
+    `[shorts] window ${window.startS.toFixed(2)}s-${window.endS.toFixed(2)}s ` +
+    `(${window.durationS.toFixed(2)}s, ${window.words.length} words, ` +
+    `match ${(window.matchRatio * 100).toFixed(0)}%)`,
+  );
+
+  const vf = ["crop=ih*9/16:ih", "scale=1080:1920", "setsar=1"].join(",");
+  await execFile(FFMPEG, [
+    "-y", "-loglevel", "error",
+    "-ss", String(window.startS),
+    "-i", source,
+    "-t", String(window.durationS),
+    "-vf", vf,
+    "-c:v", "libx264", "-preset", "fast",
+    "-c:a", "aac", "-b:a", "128k",
+    "-movflags", "+faststart",
+    shortPath,
+  ], { maxBuffer: 50 * 1024 * 1024 });
+
+  // Captions re-based onto clip-local time. The crop already seeked to
+  // window.startS, so narration time window.startS + t is clip time t; passing
+  // the window start as the base applies that shift exactly once.
+  let cueCount = 0;
+  if (usedCleanMaster) {
+    const shorts = buildShortsCaptions(all.words, window.startS, window.endS, 0);
+    const assPath = join(tmpDir, "captions.ass");
+    await writeFile(assPath, shorts.ass);
+    const burned = join(tmpDir, "short-captioned.mp4");
+    await execFile(FFMPEG, [
+      "-y", "-loglevel", "error",
+      "-i", shortPath,
+      "-vf", `subtitles=${assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "'\\''")}`,
+      "-c:v", "libx264", "-preset", "fast",
+      "-c:a", "copy",
+      "-movflags", "+faststart",
+      burned,
+    ], { maxBuffer: 50 * 1024 * 1024 });
+    await rename(burned, shortPath);
+    cueCount = shorts.cues.length;
+    log(`[shorts] Burned ${cueCount} Short-sized caption cues`);
+  }
+
+  return { path: shortPath, tmpDir, window, cueCount, usedCleanMaster };
 }
 
 /**
@@ -57,7 +184,7 @@ export async function shortsGenerator(
 
   if (process.env.DISABLE_ELEVEN === "true") {
     console.log("[guard] DISABLE_ELEVEN active — skipping Shorts generation");
-    return { success: true, durationMs: Date.now() - start };
+    return { success: true, data: { outcome: "SKIPPED", reason: "DISABLE_ELEVEN" }, durationMs: Date.now() - start };
   }
 
   const video = await prisma.video.findUnique({
@@ -67,17 +194,17 @@ export async function shortsGenerator(
 
   if (!video?.hookSegment) {
     console.log("[shortsGenerator] No hookSegment — skipping Short");
-    return { success: true, durationMs: Date.now() - start };
+    return { success: true, data: { outcome: "SKIPPED", reason: "no hookSegment" }, durationMs: Date.now() - start };
   }
 
   if (!video.videoPath || !existsSync(video.videoPath)) {
     console.log(`[shortsGenerator] Video file not on disk — skipping Short`);
-    return { success: true, durationMs: Date.now() - start };
+    return { success: true, data: { outcome: "SKIPPED", reason: "master not on disk" }, durationMs: Date.now() - start };
   }
 
   if (!video.youtubeId) {
     console.log("[shortsGenerator] No youtubeId — skipping Short");
-    return { success: true, durationMs: Date.now() - start };
+    return { success: true, data: { outcome: "SKIPPED", reason: "no youtubeId" }, durationMs: Date.now() - start };
   }
 
   let hook: HookSegment;
@@ -85,76 +212,28 @@ export async function shortsGenerator(
     hook = JSON.parse(video.hookSegment);
   } catch {
     console.warn("[shortsGenerator] Invalid hookSegment JSON — skipping");
-    return { success: true, durationMs: Date.now() - start };
+    return { success: true, data: { outcome: "SKIPPED", reason: "hookSegment is not valid JSON" }, durationMs: Date.now() - start };
   }
 
-  const startSec = parseTimestamp(hook.startTime);
-  const endSec = parseTimestamp(hook.endTime);
-  const duration = endSec - startSec;
+  const build = await buildShortFile({
+    videoId: ctx.video.id,
+    videoPath: video.videoPath,
+    hookText: hook.text ?? "",
+    log: (m) => console.log(m),
+  }).catch((err: unknown) => err instanceof Error ? err : new Error(String(err)));
 
-  if (duration <= 0 || duration > 60) {
-    console.warn(`[shortsGenerator] Invalid duration ${duration}s — skipping`);
-    return { success: true, durationMs: Date.now() - start };
+  if (build instanceof Error) {
+    const reason = build.message;
+    console.warn(`[shortsGenerator] ${reason} — no Short produced`);
+    return {
+      success: true,
+      data: { outcome: "SKIPPED", reason },
+      durationMs: Date.now() - start,
+    };
   }
-
-  const tmpDir = join(process.cwd(), "tmp", `short-${ctx.video.id}`);
-  await mkdir(tmpDir, { recursive: true });
-  const shortPath = join(tmpDir, "short.mp4");
+  const { path: shortPath, tmpDir, window } = build;
 
   try {
-    // Crop the caption-free master when it exists, so the Short gets captions
-    // sized for a 1080x1920 frame instead of inheriting long-form captions
-    // that were sized for 1920x1080 and then upscaled by the crop.
-    const cleanMaster = video.videoPath.replace(/final\.mp4$/, "final-clean.mp4");
-    const source = existsSync(cleanMaster) ? cleanMaster : video.videoPath;
-    if (source === cleanMaster) {
-      console.log("[shortsGenerator] Using caption-free master for the crop");
-    } else {
-      console.warn(
-        "[shortsGenerator] No caption-free master found — cropping the burned video; captions will be small",
-      );
-    }
-
-    // Clip, center-crop to 9:16 vertical, scale to 1080x1920
-    const vf = ["crop=ih*9/16:ih", "scale=1080:1920", "setsar=1"].join(",");
-
-    console.log(`[shortsGenerator] Clipping ${hook.startTime}-${hook.endTime} (${duration}s)`);
-    await execFile(FFMPEG, [
-      "-y", "-loglevel", "error",
-      "-ss", String(startSec),
-      "-i", source,
-      "-t", String(duration),
-      "-vf", vf,
-      "-c:v", "libx264", "-preset", "fast",
-      "-c:a", "aac", "-b:a", "128k",
-      "-movflags", "+faststart",
-      shortPath,
-    ], { maxBuffer: 50 * 1024 * 1024 });
-
-    // Burn Short-sized captions from the narration word timings.
-    const manifest = await readManifest(join(process.cwd(), "audio", ctx.video.id));
-    if (manifest && source === cleanMaster) {
-      const alignments = await readAlignments(manifest);
-      const all = buildLongformCaptions(
-        alignments, manifest.segments.map((s) => s.offsetS), TITLE_CARD_DURATION,
-      );
-      const shorts = buildShortsCaptions(all.words, startSec, startSec + duration, 0);
-      const assPath = join(tmpDir, "captions.ass");
-      await writeFile(assPath, shorts.ass);
-      const burned = join(tmpDir, "short-captioned.mp4");
-      await execFile(FFMPEG, [
-        "-y", "-loglevel", "error",
-        "-i", shortPath,
-        "-vf", `subtitles=${assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "'\\''")}`,
-        "-c:v", "libx264", "-preset", "fast",
-        "-c:a", "copy",
-        "-movflags", "+faststart",
-        burned,
-      ], { maxBuffer: 50 * 1024 * 1024 });
-      await rename(burned, shortPath);
-      console.log(`[shortsGenerator] Burned ${shorts.cues.length} Short-sized caption cues`);
-    }
-
     console.log(`[shortsGenerator] Generated: ${shortPath}`);
 
     // Shorts previously uploaded with a hardcoded privacyStatus of "public",
@@ -197,8 +276,11 @@ export async function shortsGenerator(
 
     const shortYoutubeId = res.data.id;
     if (!shortYoutubeId) {
-      console.error("[shortsGenerator] YouTube API returned no Short ID");
-      return { success: true, durationMs: Date.now() - start };
+      // The upload may well have landed; we just cannot name it. Say so rather
+      // than returning a bare success that reads as "no Short was wanted".
+      const reason = "YouTube accepted the upload but returned no Short ID";
+      console.error(`[shortsGenerator] ${reason}`);
+      return { success: true, data: { outcome: "FAILED", reason }, durationMs: Date.now() - start };
     }
 
     const shortsUrl = `https://youtube.com/shorts/${shortYoutubeId}`;
@@ -222,13 +304,21 @@ export async function shortsGenerator(
 
     return {
       success: true,
-      data: { shortsUrl },
+      data: {
+        outcome: "GENERATED", shortsUrl,
+        windowStartS: +window.startS.toFixed(3),
+        windowEndS: +window.endS.toFixed(3),
+        windowDurationS: +window.durationS.toFixed(3),
+      },
       durationMs: Date.now() - start,
     };
   } catch (err) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    console.error(`[shortsGenerator] Failed (non-fatal): ${err instanceof Error ? err.message : err}`);
-    // Non-fatal — don't block the pipeline over a Short
-    return { success: true, durationMs: Date.now() - start };
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`[shortsGenerator] Failed (non-fatal): ${reason}`);
+    // Still non-fatal — a Short must never block publishing the long-form —
+    // but the reason now travels in the result instead of vanishing into a
+    // bare success, so a caller or the run summary can see what happened.
+    return { success: true, data: { outcome: "FAILED", reason }, durationMs: Date.now() - start };
   }
 }
