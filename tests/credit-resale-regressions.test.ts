@@ -248,3 +248,88 @@ describe("G-L. a title may not assert what the script never established", () => 
     assert.ok(pipeline.indexOf('name: "seoGenerator"') < pipeline.indexOf('name: "youtubeUpload"'));
   });
 });
+
+// ── M: the lexicon fires on every inflection, not just one ───────────────
+
+/**
+ * A trigger term that only fires on one inflection is not a guard.
+ *
+ * "stole" existed in this lexicon from the start — but only on the EVIDENCE
+ * side, as a synonym. Nothing in the title ever fired it, so
+ * "Copilot 'Fixed' the Code. Then AI Stole Snowflake's Jira Keys." asserted
+ * theft and shipped against a script that never claims any. Each pair below is
+ * the same title against evidence that earns it and evidence that does not: the
+ * trigger must fire in both cases, and only the earned one may pass.
+ */
+describe("M. every escalation fires on its inflections", () => {
+  const COPILOT = "Copilot 'Fixed' the Code. Then AI Stole Snowflake's Jira Keys.";
+
+  test("the Copilot title fails against a script with no theft in it", () => {
+    const r = checkTitleFidelity(COPILOT,
+      "Copilot proposed a patch that silently changed how credentials were read. "
+      + "The Jira integration kept working, so nobody looked.");
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.ok(r.triggered.includes("stolen"), JSON.stringify(r));
+    assert.ok(r.unsupported.includes("stolen"), JSON.stringify(r));
+  });
+
+  test("the same title passes when the script says the keys were stolen", () => {
+    const r = checkTitleFidelity(COPILOT,
+      "Investigators say the agent stole Jira API keys from the Snowflake tenant.");
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.ok(r.triggered.includes("stolen"));
+  });
+
+  /** [title, term, evidence that earns it, evidence that does not]. */
+  const INFLECTIONS: [string, string, string, string][] = [
+    ["AI Steals Your Style", "stolen",
+      "the model steals artists' styles wholesale", "the model imitates artists' styles"],
+    ["The Theft Nobody Reported", "theft",
+      "a straightforward theft of credentials", "a routine billing dispute"],
+    ["Internal Docs Leak From the Model Vendor", "leaked",
+      "the vendor leaked internal documents", "the vendor published a roadmap"],
+    ["Researchers Expose the Prompt Filter", "exposed",
+      "researchers exposed the filter", "researchers described the filter"],
+    ["This Benchmark Proves It", "proof",
+      "the benchmark proves the regression", "the benchmark measures throughput"],
+    ["The Startup That Defrauded Its Investors", "fraud",
+      "regulators say the startup defrauded investors", "the startup missed its targets"],
+    ["Scammers Are Already Using It", "scam",
+      "the scam ran for six weeks", "the campaign ran for six weeks"],
+    ["The Crime Nobody Charged", "criminal",
+      "prosecutors called it a crime", "prosecutors declined to comment"],
+  ];
+
+  for (const [title, term, supported, bare] of INFLECTIONS) {
+    test(`"${title}" fires ${term} and is judged on the evidence`, () => {
+      const no = checkTitleFidelity(title, bare);
+      assert.ok(no.triggered.includes(term), `should have triggered ${term}: ${JSON.stringify(no)}`);
+      assert.equal(no.ok, false, JSON.stringify(no));
+
+      const yes = checkTitleFidelity(title, supported);
+      assert.ok(yes.triggered.includes(term));
+      assert.equal(yes.ok, true, JSON.stringify(yes));
+    });
+  }
+
+  test("a word merely ENDING in a trigger does not vouch for it", () => {
+    // The trigger forms are matched at a word boundary with any suffix
+    // allowed. Without the leading boundary, "improves" would support a title
+    // claiming proof — the exact over-reach the inflection fix could have
+    // introduced.
+    const r = checkTitleFidelity("This Benchmark Proves It",
+      "the benchmark improves throughput by a third");
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.ok(r.unsupported.includes("proof"));
+  });
+
+  test("ordinary titles still trigger nothing", () => {
+    for (const t of ["How Token Brokers Actually Work",
+                     "The Quiet Improvement in Model Latency",
+                     "What Changed in the Copilot Release"]) {
+      const r = checkTitleFidelity(t, "an ordinary explainer script about model latency");
+      assert.deepEqual(r.triggered, [], `${t}: ${JSON.stringify(r)}`);
+      assert.equal(r.ok, true);
+    }
+  });
+});

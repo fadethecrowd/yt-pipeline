@@ -19,19 +19,74 @@ import { normalize } from "./scriptStructure";
  * justified is the failure mode this exists to catch.
  */
 
-/** Escalations, each with the synonyms that would legitimately support it. */
-const ESCALATIONS: { term: string; synonyms: string[] }[] = [
-  { term: "stolen", synonyms: ["stolen", "steal", "theft", "stole"] },
-  { term: "theft", synonyms: ["theft", "stolen", "steal"] },
-  { term: "black market", synonyms: ["black market", "underground market", "illicit"] },
-  { term: "proof", synonyms: ["proof", "proven", "evidence", "documented"] },
-  { term: "leaked", synonyms: ["leaked", "leak"] },
-  { term: "exposed", synonyms: ["exposed", "expose", "exposé"] },
-  { term: "scam", synonyms: ["scam", "scammed"] },
-  { term: "fraud", synonyms: ["fraud", "fraudulent"] },
-  { term: "illegal", synonyms: ["illegal", "unlawful", "against the law"] },
-  { term: "criminal", synonyms: ["criminal", "crime"] },
+interface Escalation {
+  /** Canonical label reported in `triggered` / `unsupported`. */
+  term: string;
+  /** Surface forms in a TITLE that assert this claim. */
+  triggers: string[];
+  /** Forms in the EVIDENCE that would legitimately support it. */
+  synonyms: string[];
+}
+
+/**
+ * Escalations, each with the title forms that fire it and the evidence forms
+ * that earn it.
+ *
+ * `triggers` used to be a single word matched as a bare substring, and both
+ * halves of that were wrong.
+ *
+ * Too narrow: only the exact listed inflection fired. "stole" appeared solely
+ * in the synonyms — the evidence side — so the title "Copilot 'Fixed' the
+ * Code. Then AI Stole Snowflake's Jira Keys." asserted theft and was never
+ * checked for it, passing against a script containing no stole, stolen or
+ * theft. The same hole existed for leak/leaks, expose/exposes, prove/proves and
+ * crime, and "defraud" was invisible to the "fraud" entry because a bare
+ * substring cannot see a word it does not start.
+ *
+ * Too wide: an unanchored substring lets any word ENDING in a trigger vouch for
+ * it. Adding "prove" to the evidence side of `proof` under the old matcher
+ * would have let a script that says "improve" license a title that claims
+ * proof.
+ *
+ * `containsForm` resolves both: a match must begin at a word boundary, and any
+ * suffix is allowed. "steal" therefore covers steals/stealing, "leak" covers
+ * leaked/leaking, and "prove" covers proven/proves/proved while "improve"
+ * matches nothing.
+ */
+const ESCALATIONS: Escalation[] = [
+  { term: "stolen", triggers: ["stolen", "stole", "steal"],
+    synonyms: ["stolen", "stole", "steal", "theft"] },
+  { term: "theft", triggers: ["theft"],
+    synonyms: ["theft", "stolen", "stole", "steal"] },
+  { term: "black market", triggers: ["black market"],
+    synonyms: ["black market", "underground market", "illicit"] },
+  { term: "proof", triggers: ["proof", "prove"],
+    synonyms: ["proof", "prove", "evidence", "documented"] },
+  { term: "leaked", triggers: ["leak"], synonyms: ["leak"] },
+  { term: "exposed", triggers: ["expose"], synonyms: ["expose"] },
+  { term: "scam", triggers: ["scam"], synonyms: ["scam"] },
+  { term: "fraud", triggers: ["fraud", "defraud"], synonyms: ["fraud", "defraud"] },
+  { term: "illegal", triggers: ["illegal"], synonyms: ["illegal", "unlawful", "against the law"] },
+  { term: "criminal", triggers: ["criminal", "crime"], synonyms: ["criminal", "crime"] },
 ];
+
+/**
+ * Does `haystack` contain `form` starting at a word boundary?
+ *
+ * Both arguments are already `normalize`d to lowercase letters, digits and
+ * single spaces, so the form needs no regex escaping. A trailing boundary is
+ * deliberately NOT required — inflections are the point.
+ */
+const FORM_MATCHERS = new Map<string, RegExp>();
+function containsForm(haystack: string, form: string): boolean {
+  const key = normalize(form);
+  let re = FORM_MATCHERS.get(key);
+  if (!re) {
+    re = new RegExp(`\\b${key}`, "u");
+    FORM_MATCHERS.set(key, re);
+  }
+  return re.test(haystack);
+}
 
 /** "$4", "$1.2b", "4 million dollars" — a figure the script must also carry. */
 const DOLLAR = /\$\s?\d|(\d[\d,.]*)\s*(million|billion|trillion)?\s*dollars?/i;
@@ -102,10 +157,10 @@ export function checkTitleFidelity(title: string, evidence: string): FidelityRes
   const triggered: string[] = [];
   const unsupported: string[] = [];
 
-  for (const { term, synonyms } of ESCALATIONS) {
-    if (!nt.includes(normalize(term))) continue;
+  for (const { term, triggers, synonyms } of ESCALATIONS) {
+    if (!triggers.some((t) => containsForm(nt, t))) continue;
     triggered.push(term);
-    if (!synonyms.some((s) => ne.includes(normalize(s)))) unsupported.push(term);
+    if (!synonyms.some((s) => containsForm(ne, s))) unsupported.push(term);
   }
   if (DOLLAR.test(title)) {
     triggered.push("dollar figure");
