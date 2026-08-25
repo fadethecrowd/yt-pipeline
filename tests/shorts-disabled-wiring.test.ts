@@ -60,8 +60,15 @@ describe("shortsEnabled=false bypasses the Shorts stage entirely", () => {
   test("absence is what prevents generation, auth, upload and artifacts", () => {
     // Every Shorts side effect lives inside the stage function, so a stage that
     // is never selected cannot generate, authenticate, upload or write a file.
+    //
+    // The authentication marker is `buildYouTubeClient` rather than
+    // `google.auth.OAuth2`: the stage no longer constructs its own credential.
+    // It used to, and that is precisely the bug — it verified the channel
+    // through pipeline-core's builder and then inserted on a second, dead
+    // credential. What this assertion cares about is unchanged: an
+    // authenticating call is inside the stage body.
     const src = readFileSync("src/stages/shortsGenerator.ts", "utf8");
-    for (const sideEffect of ["google.auth.OAuth2", "ffmpeg", "writeFile"]) {
+    for (const sideEffect of ["buildYouTubeClient", "ffmpeg", "writeFile"]) {
       assert.ok(src.includes(sideEffect),
         `${sideEffect} is inside the stage — which is why the stage must not be selected`);
     }

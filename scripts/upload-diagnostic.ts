@@ -9,10 +9,9 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { google } from "googleapis";
 import { VideoStatus } from "@prisma/client";
 import {
-  prisma, disconnect, env,
+  prisma, disconnect, buildYouTubeClient,
   verifyChannel, CHANNELS, currentTestStage, isTestStage,
   creditsChargedFor, generationIdsFor, breakerStatus, isRealYoutubeId,
 } from "@yt-pipeline/pipeline-core";
@@ -134,10 +133,10 @@ async function main() {
   }
 
   // ── 8. Upload ────────────────────────────────────────────────────────
-  const config = env();
-  const auth = new google.auth.OAuth2(config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET);
-  auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-  const yt = google.youtube({ version: "v3", auth });
+  // Same builder step 6's verifyChannel() used. Uploading on a second
+  // credential would have let the check pass on one channel and the video
+  // land on another.
+  const yt = buildYouTubeClient();
 
   console.log(`\n  uploading "${titleFor(channel)}" …`);
   const res = await yt.videos.insert({

@@ -16,10 +16,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createReadStream, existsSync } from "node:fs";
-import { google } from "googleapis";
 import { VideoStatus, TopicStatus } from "@prisma/client";
 import {
-  prisma, disconnect, env,
+  prisma, disconnect, buildYouTubeClient,
   runVoiceover, runAssembly, currentTestStage,
   runQa, persistQa, formatQa,
   prepareUpload, confirmUploadState,
@@ -298,10 +297,9 @@ async function main() {
       channelKey: channel, serviceLabel: `${channel}:diag`,
       existingYoutubeId: null, scheduledSlot: null,
     });
-    const config = env();
-    const auth = new google.auth.OAuth2(config.YOUTUBE_CLIENT_ID, config.YOUTUBE_CLIENT_SECRET);
-    auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-    const yt = google.youtube({ version: "v3", auth });
+    // Same builder prepareUpload just verified the channel with — a separate
+    // credential here would make that verification prove nothing.
+    const yt = buildYouTubeClient();
 
     const res = await yt.videos.insert({
       part: ["snippet", "status"],

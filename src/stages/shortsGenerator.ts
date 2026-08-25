@@ -3,9 +3,8 @@ import { mkdir, rm, rename, writeFile } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import { google } from "googleapis";
 import {
-  prisma, env, prepareUpload, confirmUploadState,
+  prisma, prepareUpload, confirmUploadState, buildYouTubeClient,
   readManifest, readAlignments, buildLongformCaptions, buildShortsCaptions,
   resolveHookWindow, validateHookWindow, HookAlignmentError,
   TITLE_CARD_DURATION,
@@ -38,16 +37,6 @@ interface HookSegment {
  */
 const SHORT_MAX_SECS = 55;
 const SHORT_MIN_SECS = 20;
-
-function getYouTubeClient() {
-  const config = env();
-  const auth = new google.auth.OAuth2(
-    config.YOUTUBE_CLIENT_ID,
-    config.YOUTUBE_CLIENT_SECRET,
-  );
-  auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-  return google.youtube({ version: "v3", auth });
-}
 
 export interface ShortBuild {
   /** The finished, captioned MP4. */
@@ -252,7 +241,7 @@ export async function shortsGenerator(
       return { success: true, data: { shortsUrl: video.shortsUrl }, durationMs: Date.now() - start };
     }
 
-    const youtube = getYouTubeClient();
+    const youtube = buildYouTubeClient();
     const title = `${video.seoTitle ?? video.topic.title} #Shorts`;
 
     const res = await youtube.videos.insert({

@@ -1,17 +1,21 @@
 import { google, youtube_v3, youtubeAnalytics_v2 } from "googleapis";
-import { env } from "../config";
+import { buildYouTubeAuth } from "@yt-pipeline/pipeline-core";
 
 let _client: youtube_v3.Youtube | null = null;
 let _analytics: youtubeAnalytics_v2.Youtubeanalytics | null = null;
 
+/**
+ * The monitor's credential, from the one builder the whole repo shares.
+ *
+ * It used to read YOUTUBE_REFRESH_TOKEN straight from the environment while
+ * `index.ts` proved the channel through `verifyChannel()` — which resolves via
+ * `buildYouTubeAuth()`. Two credentials, one of them verified: the monitor
+ * could have reported analytics for a channel other than the one it had just
+ * checked. Same builder now, so the identity it verifies is the identity it
+ * polls.
+ */
 function getAuth() {
-  const config = env();
-  const auth = new google.auth.OAuth2(
-    config.YOUTUBE_CLIENT_ID,
-    config.YOUTUBE_CLIENT_SECRET,
-  );
-  auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-  return auth;
+  return buildYouTubeAuth();
 }
 
 /** OAuth2-authenticated YouTube Data API client. */

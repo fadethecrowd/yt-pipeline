@@ -1,8 +1,7 @@
 import { createReadStream, existsSync } from "node:fs";
-import { google } from "googleapis";
 import { VideoStatus } from "@prisma/client";
 import {
-  prisma, env,
+  prisma, buildYouTubeClient,
   prepareUpload, confirmUploadState, assertNoDuplicateUploadRecord,
   currentPilot, uploadPolicyFor, assertPilotUploadAllowed,
   nextPublishSlot, describeSlot,
@@ -83,16 +82,6 @@ function sanitizeTags(tags: string[]): string[] {
   }
 
   return cleaned.length > 0 ? cleaned : [...SAFE_DEFAULT_TAGS];
-}
-
-function getYouTubeClient() {
-  const config = env();
-  const auth = new google.auth.OAuth2(
-    config.YOUTUBE_CLIENT_ID,
-    config.YOUTUBE_CLIENT_SECRET,
-  );
-  auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-  return google.youtube({ version: "v3", auth });
 }
 
 // ── Stage ────────────────────────────────────────────────────────────────
@@ -250,7 +239,7 @@ export async function wcYoutubeUpload(
     };
   }
 
-  const youtube = getYouTubeClient();
+  const youtube = buildYouTubeClient();
   console.log(`[wc:youtubeUpload] Sanitized tags (${safeTags.length}): ${safeTags.join(", ")}`);
 
   const res = await youtube.videos.insert({

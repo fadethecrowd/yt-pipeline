@@ -49,17 +49,6 @@ async function getNextPublishSlot(): Promise<Date> {
   return slot;
 }
 
-/**
- * Create an authenticated YouTube Data API v3 client.
- *
- * Delegates to the shared constructor so the uploader, the duplicate guard,
- * the reconciler and the preflight can never authenticate as different
- * identities.
- */
-function getYouTubeClient() {
-  return buildYouTubeClient();
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────
 
 /**
@@ -212,7 +201,7 @@ export async function youtubeUpload(
     };
   }
 
-  const youtube = getYouTubeClient();
+  const youtube = buildYouTubeClient();
 
   const res = await youtube.videos.insert({
     part: ["snippet", "status"],

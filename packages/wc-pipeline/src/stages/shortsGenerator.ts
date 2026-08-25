@@ -3,9 +3,8 @@ import { mkdir, rm, writeFile, rename } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import { google } from "googleapis";
 import {
-  prisma, env, prepareUpload, confirmUploadState,
+  prisma, env, prepareUpload, confirmUploadState, buildYouTubeClient,
   readManifest, readAlignments, buildLongformCaptions, buildShortsCaptions,
   resolveHookWindow, validateHookWindow, HookAlignmentError,
   TITLE_CARD_DURATION,
@@ -175,16 +174,6 @@ function parseTimestamp(ts: string): number {
   if (parts.length === 2) return parts[0] * 60 + parts[1];
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return 0;
-}
-
-function getYouTubeClient() {
-  const config = env();
-  const auth = new google.auth.OAuth2(
-    config.YOUTUBE_CLIENT_ID,
-    config.YOUTUBE_CLIENT_SECRET,
-  );
-  auth.setCredentials({ refresh_token: config.YOUTUBE_REFRESH_TOKEN });
-  return google.youtube({ version: "v3", auth });
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
@@ -487,7 +476,7 @@ export async function wcShortsGenerator(
       return { success: true, data: { shortsUrl: video.shortsUrl }, durationMs: Date.now() - start };
     }
 
-    const youtube = getYouTubeClient();
+    const youtube = buildYouTubeClient();
     const title = `${video.seoTitle ?? video.topic?.title ?? ctx.topic.title} #Shorts`;
 
     const res = await youtube.videos.insert({
