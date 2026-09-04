@@ -150,12 +150,32 @@ export interface AssemblyDeps {
   approvedAllocation?: ApprovedAllocation;
   /** Resolves an approved asset id to a downloadable URL. Fails closed. */
   resolveApprovedAsset?: (assetId: string) => Promise<{ url: string; pageUrl?: string; description?: string } | null>;
+  /**
+   * Whether this run will make a Short, and therefore whether the caption-free
+   * master is worth encoding.
+   *
+   * `final-clean.mp4` has exactly one consumer — AI Doom's `shortsGenerator`,
+   * which crops it so Short-sized captions are burned onto an unburned frame.
+   * When Shorts are off that stage never runs, and the second full-length 1080p
+   * encode is pure cost: a whole pass over the same concat.mp4 and final.mp3 to
+   * produce ~134 MB nothing reads.
+   *
+   * FAILS OPEN. Only an explicit `false` skips the encode. `undefined` — an
+   * adapter that does not supply it (Wet Circuit), a pilot-governed run, a run
+   * with no tranche, or any error resolving the authority — produces the file
+   * exactly as before. The saving is real but small; silently withholding an
+   * input that a downstream stage expects is not worth risking for it.
+   */
+  shortsEnabled?: boolean;
 }
 
 export interface AssemblyOutcome {
   videoPath: string;
-  /** Same timeline without burned captions — source for the Shorts crop. */
-  cleanVideoPath: string;
+  /**
+   * Same timeline without burned captions — source for the Shorts crop.
+   * `null` when the run is known not to make a Short and the encode was skipped.
+   */
+  cleanVideoPath: string | null;
   narrationPath: string;
   narrationStartS: number;
   videoDurationS: number;
@@ -999,12 +1019,19 @@ async function finishAssembly(
 
   // ── 6. Final mux: burn captions, delay narration by the title card ───
   //
-  // Two outputs. `final.mp4` carries burned captions and is what gets
-  // uploaded. `final-clean.mp4` is the same timeline WITHOUT captions, so the
-  // Shorts path can crop it and burn Short-sized captions of its own instead
-  // of inheriting long-form ones sized for a different frame.
+  // Up to two outputs. `final.mp4` carries burned captions and is what QA
+  // measures and youtubeUpload ships. `final-clean.mp4` is the same timeline
+  // WITHOUT captions, so the Shorts path can crop it and burn Short-sized
+  // captions of its own instead of inheriting long-form ones sized for a
+  // different frame.
+  //
+  // The clean encode is skipped only when the caller states positively that
+  // this run makes no Short. `final.mp4` is produced identically either way —
+  // same inputs, same filter, same flags, separate ffmpeg invocation — so the
+  // shipped artifact is byte-for-byte unaffected by the decision.
   const finalPath = join(outputDir, "final.mp4");
   const cleanPath = join(outputDir, "final-clean.mp4");
+  const skipCleanEncode = deps.shortsEnabled === false;
 
   const audioArgs = [
     // Applied exactly once, here. No other stage shifts the narration.
@@ -1014,12 +1041,19 @@ async function finishAssembly(
     "-movflags", "+faststart",
   ];
 
-  await ff(
-    ["-i", concatPath, "-i", manifest.finalPath,
-     "-c:v", "libx264", "-preset", "fast",
-     ...audioArgs, cleanPath],
-    label,
-  );
+  if (skipCleanEncode) {
+    console.log(
+      `[${label}] caption-free master SKIPPED — Shorts are disabled for this run, ` +
+      `and shortsGenerator is its only reader`,
+    );
+  } else {
+    await ff(
+      ["-i", concatPath, "-i", manifest.finalPath,
+       "-c:v", "libx264", "-preset", "fast",
+       ...audioArgs, cleanPath],
+      label,
+    );
+  }
 
   await ff(
     ["-i", concatPath, "-i", manifest.finalPath,
@@ -1051,7 +1085,7 @@ async function finishAssembly(
     success: true,
     data: {
       videoPath: finalPath,
-      cleanVideoPath: cleanPath,
+      cleanVideoPath: skipCleanEncode ? null : cleanPath,
       narrationPath: manifest.finalPath,
       narrationStartS: TITLE_CARD_DURATION,
       videoDurationS: finalDuration,
