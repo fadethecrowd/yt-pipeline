@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { VideoStatus } from "@prisma/client";
-import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
+import { prisma, env, createMessage, normalize } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 import { generateScript } from "./scriptGenerator";
 
@@ -19,7 +19,7 @@ export type QualityResult = z.infer<typeof qualitySchema>;
 
 // ── System prompt ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a senior YouTube content quality reviewer for an AI/tech news channel.
+export const SYSTEM_PROMPT = `You are a senior YouTube content quality reviewer for an AI/tech news channel.
 You score scripts on a 0-100 scale across five dimensions.
 
 SCORING RUBRIC:
@@ -44,6 +44,100 @@ Respond ONLY with valid JSON matching this exact structure:
   "verdict": "One-sentence overall assessment"
 }`;
 
+// ── Scoring payload ────────────────────────────────────────────────────────
+
+/**
+ * What the scorer is shown, and why it is not the raw script object.
+ *
+ * Since the Aug 2026 fold reorder, `foldHookAndCtaIntoSegments` is the LAST
+ * transformation and the single origin of hook and CTA text: it prepends the
+ * hook into `segments[0].narration` and appends the CTA to the last one, while
+ * leaving `script.hook` and `script.cta` in place as the fields it copied FROM.
+ * That is the designed shape — `validateScriptStructure` calls containing the
+ * part exactly once "the designed state" — and `buildSpokenUnits` narrates each
+ * segment once, so the audio says the hook once.
+ *
+ * Serialising that object whole showed the scorer the hook twice: once as a
+ * top-level field and again at the head of segment 0. Run 292d7cd2 scored 79
+ * and deducted on two dimensions for an opening "repeated verbatim as the first
+ * segment narration" — a repeat that is real in the JSON and absent from the
+ * audio. The model was reading the payload correctly; the payload was wrong.
+ *
+ * So the fields are dropped ONLY where the segment provably already contains
+ * them, which is exactly the co-occurrence folding creates. Nothing else is
+ * removed, nothing is softened, and no duplication signal is suppressed:
+ *
+ *   - a hook written into the body a SECOND time still appears twice inside
+ *     `segments[0].narration`, and is still visible to the scorer;
+ *   - a hook repeated as its own segment is untouched — it is in `segments[]`
+ *     twice and is serialised twice;
+ *   - an unfolded or partially-folded script fails the containment test, so the
+ *     field is kept and the payload is byte-identical to the old behaviour.
+ *
+ * The deterministic detector is unaffected either way. `validateScriptStructure`
+ * runs in scriptGenerator before this stage, is not scored, and rejects or
+ * repairs every real duplication shape including the e704334a partial-overlap
+ * case. This function changes what the fuzzy second opinion is asked about; it
+ * does not change what the structural gate refuses.
+ */
+export function buildScoringPayload(script: Script): {
+  json: string;
+  foldedHook: boolean;
+  foldedCta: boolean;
+} {
+  const segments = script.segments ?? [];
+  const first = segments[0];
+  const last = segments[segments.length - 1];
+  const hook = (script.hook ?? "").trim();
+  const cta = (script.cta ?? "").trim();
+
+  const contains = (narration: string | undefined, part: string): boolean =>
+    Boolean(part) && Boolean(narration) && normalize(narration!).includes(normalize(part));
+
+  const foldedHook = contains(first?.narration, hook);
+  const foldedCta = contains(last?.narration, cta);
+
+  const view: Record<string, unknown> = { ...script };
+  if (foldedHook) delete view.hook;
+  if (foldedCta) delete view.cta;
+
+  return { json: JSON.stringify(view, null, 2), foldedHook, foldedCta };
+}
+
+/**
+ * Tell the scorer where the hook and CTA live once their fields are gone.
+ *
+ * Hook strength and CTA clarity are two of the five rubric dimensions. Removing
+ * a field without saying where its content went would cost real marks on both,
+ * which is the opposite of the fix.
+ */
+export function foldNote(foldedHook: boolean, foldedCta: boolean): string {
+  if (!foldedHook && !foldedCta) return "";
+  const where: string[] = [];
+  if (foldedHook) {
+    where.push(
+      "The HOOK is the opening of segments[0].narration. It has no separate " +
+      "field because it is spoken there and only there — score Hook strength " +
+      "from the start of that narration.",
+    );
+  }
+  if (foldedCta) {
+    where.push(
+      "The CTA is the close of the final segment's narration. It has no " +
+      "separate field because it is spoken there and only there — score CTA " +
+      "clarity from the end of that narration.",
+    );
+  }
+  return (
+    "NOTE ON STRUCTURE: this script is already assembled for narration. Each " +
+    "segment's narration is the complete text spoken for that segment, read " +
+    "exactly once.\n" + where.map((w) => `- ${w}`).join("\n") +
+    "\nDo not treat the absence of a hook or cta field as a defect. Text that " +
+    "genuinely appears twice in the narration below IS a defect — judge " +
+    "repetition on what you can see here.\n\n"
+  );
+}
+
 function parseJSON(text: string): unknown {
   let raw = text.trim();
   if (raw.startsWith("```")) {
@@ -56,11 +150,14 @@ async function scoreScript(
   anthropic: Anthropic,
   script: Script,
 ): Promise<QualityResult | { error: string }> {
+  const payload = buildScoringPayload(script);
+  const note = foldNote(payload.foldedHook, payload.foldedCta);
+
   const message = await createMessage(anthropic, {
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: `Score the following YouTube script:\n\n${JSON.stringify(script, null, 2)}` }],
+    messages: [{ role: "user", content: `Score the following YouTube script:\n\n${note}${payload.json}` }],
   });
 
   const textBlock = message.content.find((b) => b.type === "text");
