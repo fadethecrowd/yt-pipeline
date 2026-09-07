@@ -54,6 +54,28 @@ function ck(ok: boolean, label: string, detail: string) {
 }
 
 /**
+ * Select the expectation that belongs to the phase being run.
+ *
+ * ARM is itself a state transition, so for the states ARM moves there is no
+ * single correct value — only a correct value on each side of it. The
+ * pre-flight originally asserted the pre-ARM shape in every phase, which made
+ * RUN unpassable after the ARM that RUN requires: `pilot PREPARED`,
+ * `no activation timestamp` and `candidate QUALITY_FAILED` are exactly the
+ * three states ARM creates, so they failed as a set the moment arming
+ * succeeded. The path had never been exercised end to end, so nothing caught
+ * it.
+ *
+ * Only the states ARM moves get this treatment. Everything that guards against
+ * already-spent or already-shipped work — narration artifact, rendered video,
+ * youtubeId, schedule, Short, credit rows, QA records, upload intents,
+ * quarantine — stays unconditional in every phase, because those are what stop
+ * a second RUN from re-spending and none of them is a thing ARM touches.
+ */
+function forPhase<T>(v: { check: T; arm: T; run: T }): T {
+  return PHASE === "RUN" ? v.run : PHASE === "ARM" ? v.arm : v.check;
+}
+
+/**
  * The single controlled transition ARM would perform.
  *
  * Compare-and-set: every precondition is in the WHERE clause, so a row that
@@ -184,8 +206,33 @@ async function main() {
   if (!pilot) { process.exitCode = 1; return; }
   ck(pilot.channel === AUTH.channel && pilot.channelId === AUTH.channelId,
     "pilot bound to the WC channel", `${pilot.channel}/${pilot.channelId}`);
-  ck(pilot.status === "PREPARED", "pilot PREPARED (not yet activated)", pilot.status);
-  ck(!pilot.activatedAt, "pilot has no activation timestamp", String(pilot.activatedAt));
+  // ARM moves the pilot PREPARED → ACTIVE and stamps activatedAt. RUN's own
+  // runtime gate is the exact inverse of the pre-ARM shape — `assertRunnable`
+  // refuses anything that is not ACTIVE and refuses a missing activatedAt — so
+  // asserting the pre-ARM shape at RUN contradicted the runtime it is meant to
+  // pre-flight.
+  ck(forPhase({
+    check: pilot.status === "PREPARED" || pilot.status === "ACTIVE",
+    arm: pilot.status === "PREPARED",
+    run: pilot.status === "ACTIVE",
+  }), forPhase({
+    check: "pilot PREPARED or ACTIVE",
+    arm: "pilot PREPARED (not yet activated)",
+    run: "pilot ACTIVE (armed)",
+  }), pilot.status);
+  // At CHECK the timestamp is not asserted absent — it is asserted CONSISTENT
+  // with the status, which catches an ACTIVE pilot with no activation time and
+  // a PREPARED pilot carrying a stale one. Neither is reachable through ARM,
+  // and both would be invisible if CHECK simply accepted either value.
+  ck(forPhase({
+    check: (pilot.status === "ACTIVE") === !!pilot.activatedAt,
+    arm: !pilot.activatedAt,
+    run: !!pilot.activatedAt,
+  }), forPhase({
+    check: "activation timestamp agrees with status",
+    arm: "pilot has no activation timestamp",
+    run: "pilot activated",
+  }), pilot.activatedAt ? String(pilot.activatedAt) : "none");
   // 0/1 is the pre-run state. Once the canary has produced its one video the
   // pilot stays ACTIVE at 1/1 with no slot left — a completed canary awaiting
   // human acceptance, not a failure. Completion is an explicit, acknowledged
@@ -210,8 +257,29 @@ async function main() {
   });
   ck(!!cand, "candidate exists", cand ? cand.id : "MISSING");
   if (!cand) { process.exitCode = 1; return; }
-  ck(cand.status === VideoStatus.QUALITY_FAILED,
-    "candidate at expected terminal status", cand.status);
+  // The other half of the ARM transition. `runWcCanaryOnce` refuses anything
+  // that is not VOICEOVER_PENDING (CANARY_WRONG_STATUS), so RUN must require
+  // the post-ARM status, not the pre-ARM one.
+  ck(forPhase({
+    check: cand.status === VideoStatus.QUALITY_FAILED
+        || cand.status === VideoStatus.VOICEOVER_PENDING,
+    arm: cand.status === VideoStatus.QUALITY_FAILED,
+    run: cand.status === VideoStatus.VOICEOVER_PENDING,
+  }), forPhase({
+    check: "candidate QUALITY_FAILED or VOICEOVER_PENDING",
+    arm: "candidate at expected terminal status",
+    run: "candidate VOICEOVER_PENDING (armed)",
+  }), cand.status);
+  // ARM is two writes — the candidate compare-and-set, then the pilot
+  // activation — and it says so itself when the second fails: "The candidate
+  // IS armed. Re-run CHECK before RUN." So a half-applied ARM is a real state
+  // CHECK has to be able to see. Requiring the two halves to agree is what
+  // makes accepting either shape above safe: an ACTIVE pilot pointing at an
+  // unarmed candidate, or an armed candidate under a PREPARED pilot, fails
+  // here in every phase including CHECK.
+  ck((pilot.status === "ACTIVE") === (cand.status === VideoStatus.VOICEOVER_PENDING),
+    "pilot and candidate arm state agree",
+    `pilot=${pilot.status} candidate=${cand.status}`);
   ck(!!cand.scriptJson, "durable script present", cand.scriptJson ? "yes" : "no");
   const script = cand.scriptJson as unknown as Script;
   const hash = scriptSha256(script);
