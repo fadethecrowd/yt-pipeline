@@ -67,7 +67,11 @@ describe("WC stage order places final-video QA between assembly and upload", () 
 
   test("Shorts remain pilot-skippable and still exist for normal production", () => {
     assert.match(pipeline, /skipDuringPilot: true/);
-    assert.match(pipeline, /STAGES\.filter\(\(s\) => !\(pilot && s\.skipDuringPilot\)\)/);
+    // Shorts policy now lives in selectWcStages, which keeps the pilot rule
+    // AND adds the pilot-less one. Pin the behaviour, not the expression.
+    assert.match(pipeline, /selectWcStages\(STAGES, \{ isPilot: !!pilot, shortsEnabled \}\)/);
+    assert.match(pipeline, /if \(opts\.isPilot && s\.skipDuringPilot\) return false;/);
+    assert.match(pipeline, /const shortsEnabled = pilot \? false : process\.env\.WC_SHORTS === "true";/);
     assert.ok(idx("shortsGenerator") > 0);
   });
 });

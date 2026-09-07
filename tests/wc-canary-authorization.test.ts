@@ -462,7 +462,11 @@ describe("E. safety controls a profile or window can never relax", () => {
 
   test("Shorts stay skipped during the canary", () => {
     assert.match(pipeline, /skipDuringPilot: true/);
-    assert.match(pipeline, /STAGES\.filter\(\(s\) => !\(pilot && s\.skipDuringPilot\)\)/);
+    // Shorts policy now lives in selectWcStages, which keeps the pilot rule
+    // AND adds the pilot-less one. Pin the behaviour, not the expression.
+    assert.match(pipeline, /selectWcStages\(STAGES, \{ isPilot: !!pilot, shortsEnabled \}\)/);
+    assert.match(pipeline, /if \(opts\.isPilot && s\.skipDuringPilot\) return false;/);
+    assert.match(pipeline, /const shortsEnabled = pilot \? false : process\.env\.WC_SHORTS === "true";/);
     // The window stays a bounded subset of the week, not "any day".
     assert.deepEqual([...AUTH.window.days].sort(), [1, 3, 5]);
     assert.ok(AUTH.window.days.length < 7);

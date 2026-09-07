@@ -221,6 +221,36 @@ async function runStages(
 }
 
 /**
+ * Which stages this run executes.
+ *
+ * Wet Circuit had one source of Shorts policy and it only covered pilots:
+ * `skipDuringPilot` drops the Shorts stage for a PILOT and does nothing else,
+ * and `wcShortsGenerator` never consults `uploadPolicy.shortsEnabled`. A
+ * pilot-less run therefore rendered AND uploaded a Short for every video, with
+ * no flag anywhere that could say otherwise — which is the shape bulk
+ * production runs in.
+ *
+ * The rule is now stated once, here, and matches what AI Doom's `selectStages`
+ * already applies: a pilot never makes Shorts, and ordinary production makes
+ * them only when explicitly asked. Absent authority means off.
+ *
+ * Deciding here rather than inside the stage means the disabled case has no
+ * side effects at all: nothing is searched, downloaded, cropped, captioned or
+ * uploaded, no Pexels quota is spent and no artifact is written. A guard
+ * inside the stage would still have rendered first.
+ */
+export function selectWcStages(
+  all: StageDefinition[],
+  opts: { isPilot: boolean; shortsEnabled: boolean },
+): StageDefinition[] {
+  return all.filter((s) => {
+    if (opts.isPilot && s.skipDuringPilot) return false;
+    if (s.name === "shortsGenerator") return opts.shortsEnabled;
+    return true;
+  });
+}
+
+/**
  * Populate summary outputs from the final state of a WcVideo DB row +
  * run runMode-aware output verification. Called at the successful end of
  * either the resume path or the fresh-pipeline path.
@@ -360,10 +390,15 @@ export async function runPipeline(summary?: RunSummary): Promise<void> {
     }
 
     const pilot = await pilotGate();
-    const stages = STAGES.filter((s) => !(pilot && s.skipDuringPilot));
+    // A pilot never makes Shorts; ordinary production makes them only when
+    // WC_SHORTS is explicitly "true". No flag means no Short.
+    const shortsEnabled = pilot ? false : process.env.WC_SHORTS === "true";
+    const stages = selectWcStages(STAGES, { isPilot: !!pilot, shortsEnabled });
     if (pilot) {
       const skipped = STAGES.filter((s) => s.skipDuringPilot).map((s) => s.name);
       if (skipped.length) console.log(`${LOG} pilot skips: ${skipped.join(", ")}`);
+    } else if (!shortsEnabled) {
+      console.log(`${LOG} SHORTS: SKIPPED_DISABLED — set WC_SHORTS=true to enable`);
     }
 
     // ── Halt-on-failure guard ────────────────────────────────────────
