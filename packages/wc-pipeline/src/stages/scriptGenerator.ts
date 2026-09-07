@@ -55,7 +55,27 @@ ABSOLUTE RULES FOR ALL SCRIPTS:
 - Use real product names, model numbers, and prices where available from the topic content
 - Write for voiceover — natural spoken cadence, short sentences, occasional rhetorical questions
 - Visual prompts should describe real b-roll a marine channel would have: product close-ups, on-water footage, screen recordings of sonar/plotter displays, install shots, comparison graphics
-- Never make up specs, prices, or model numbers that aren't in the source material. If you don't have specifics, speak in ranges or say "check current pricing"`;
+- Never make up specs, prices, or model numbers that aren't in the source material. If you don't have specifics, speak in ranges or say "check current pricing"
+
+THE CTA IS ITS OWN BEAT, NOT A TRAILING SENTENCE:
+The "cta" field is spoken after the final segment ends. It is a separate moment,
+and it must read as one.
+- Do NOT write the CTA, or any part of it, into any segment's narration. It is
+  appended automatically. Writing it into a segment as well makes it play twice.
+- End the final segment on its own conclusion — the payoff of the content, not a
+  wind-down that hands off to a CTA. Do not end it with "if this helped", "if
+  you're new to", or any similar bridge.
+- The CTA itself must earn the click. Name the specific next thing a viewer
+  should watch or do and say why it is worth their time. "Subscribe so you don't
+  miss the next one" is the generic version and scores badly.
+- Two to three sentences. One concrete ask, one reason.
+
+GOOD:  "Next week we're putting three of these transducers on the same hull and
+        running them side by side — same water, same day, same boat. If you've
+        ever wondered whether the expensive one is actually better, that's the
+        video. Subscribe and it'll show up."
+WEAK:  "If this helped, we've got a playlist. Link in the description. Subscribe
+        so you don't miss the next one."`;
 
 // ── Pillar-specific templates ───────────────────────────────────────────────
 
