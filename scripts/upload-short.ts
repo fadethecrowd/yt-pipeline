@@ -81,6 +81,17 @@ const PLANS: Record<string, Plan> = {
       + "#AI #Cybersecurity #GitHub #AppSec #Shorts",
     tags: ["AI security", "AI-generated code", "CI/CD security", "credential exfiltration", "AppSec", "Shorts"],
   },
+  cmtnc1mlk002qmby29mic5n6p: {
+    title: "What Does AI;DR Mean? #Shorts",
+    description:
+      "AI;DR — \"AI; didn't read\" — is spreading as shorthand for ignoring "
+      + "AI-generated text. It started with a single post in August 2026.\n\n"
+      + "Full video: https://youtu.be/wWEzzLhRejM\n\n"
+      + "#AI #AIDR #AISlop #GenerativeAI #Shorts",
+    tags: ["AI;DR", "AI slop", "TL;DR", "artificial intelligence", "AI writing",
+           "AI content", "AI at work", "generative AI", "internet slang",
+           "AI communication", "Shorts"],
+  },
 };
 
 const arg = (f: string) => {
