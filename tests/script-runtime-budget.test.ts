@@ -107,8 +107,20 @@ describe("1-8. generator and gate share one length contract", () => {
     assert.notEqual(wc.maxS, ai.maxS);
     assert.notEqual(wc.charsPerSecond, ai.charsPerSecond);
     assert.equal(wc.charsPerSecond, CHARS_PER_SECOND["wet-circuit"]);
+    // WC now enforces length too, and it must do so from its OWN envelope.
+    // The pin is no longer "WC does not use scriptBudget" but "WC uses it with
+    // its own channel key" — the failure this guards is WC silently inheriting
+    // AI Doom's 300-480s band, which would put every WC script past the gate.
     const wcSrc = readFileSync("packages/wc-pipeline/src/stages/scriptGenerator.ts", "utf8");
-    assert.ok(!wcSrc.includes("scriptBudget"), "WC's generator is deliberately untouched here");
+    assert.match(wcSrc, /scriptBudget\("wet-circuit", "LONGFORM", currentTestStage\(\)\)/);
+    assert.ok(!wcSrc.includes('scriptBudget("ai-doom-scroll"'),
+      "WC must never derive its budget from AI Doom's envelope");
+    // Folding stays the LAST transformation: enforce, then fold, then validate.
+    const enforceAt = wcSrc.indexOf("await enforceScriptLength(script");
+    const foldAt = wcSrc.indexOf("foldHookAndCtaIntoSegments(script)");
+    const validateAt = wcSrc.indexOf("validateScriptStructure(folded)");
+    assert.ok(enforceAt > 0 && foldAt > enforceAt && validateAt > foldAt,
+      "WC order must be enforce -> fold -> validate; reversing it recreates e704334a");
   });
 });
 

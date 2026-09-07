@@ -5,6 +5,8 @@ import { ScriptFailureType } from "@prisma/client";
 import {
   prisma, env, createMessage,
   classifyModelResponse, promptHash, recordScriptFailure, priorAttemptsForPrompt,
+  scriptBudget, segmentBudgets, currentTestStage, trimToLimit,
+  buildSpokenUnits, spokenCharacterCount, validateScriptStructure,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -47,7 +49,7 @@ THE VOICE:
 You are a gear-obsessed enthusiast who knows everything about fishfinders, chartplotters, VHF radios, trolling motors, autopilots, and boat electronics — but you talk like one of us. Not corporate, not stiff. Opinionated, direct, and genuinely excited about this stuff. You've installed transducers in the rain. You've compared units side by side on the water. You have strong opinions and you back them up.
 
 ABSOLUTE RULES FOR ALL SCRIPTS:
-- Target 6-8 minutes of spoken content (~900-1100 words of narration total across hook + segments + CTA)
+- Length is set by the LENGTH BUDGET below, which is derived from what this channel actually publishes. Treat it as a hard budget.
 - No filler: never say "in this video", "don't forget to like and subscribe" at the start, "without further ado", "let's dive in", "so without wasting time"
 - Opinions stated as opinions ("I think", "in my experience"), facts stated as facts
 - Use real product names, model numbers, and prices where available from the topic content
@@ -162,11 +164,19 @@ SEGMENT COUNT: 5-7 segments`,
  * requested length matches what the channel actually publishes.
  */
 function lengthInstruction(): string {
-  const t = Number(process.env.TARGET_RUNTIME_SECONDS ?? 0);
-  if (!t) {
-    return "The estimatedTotalDuration should be 360-480 (6-8 minutes).\n"
-      + "Total narration word count across hook + all segments + CTA should be 900-1100 words.";
-  }
+  // The default is WC's OWN envelope, not a remembered target. The previous
+  // default asked for 360-480s while `visualFeasibilityGate` allows 210-340s,
+  // so the prompt and the gate disagreed by roughly 40% and the model was
+  // being asked to write a script the gate was guaranteed to refuse. Measured
+  // over five generations, mean spoken length was 5,272 chars against a 5,046
+  // ceiling and four of five aborted before spend.
+  //
+  // `scriptBudget` derives target and max from `runtimeRange(channel, ...)`
+  // and this channel's own measured speech rate, so the instruction cannot
+  // drift from the gate again. TARGET_RUNTIME_SECONDS still overrides, for
+  // deliberately shorter diagnostics.
+  const b = scriptBudget("wet-circuit", "LONGFORM", currentTestStage());
+  const t = Number(process.env.TARGET_RUNTIME_SECONDS ?? 0) || b.targetS;
   // Measured from the approved diagnostic: 15.02 spoken characters per second.
   const chars = Math.round((t - 4) * 15.02);
   const words = Math.round(chars / 6.1);
@@ -281,6 +291,155 @@ function buildSystemPrompt(pillar: Pillar): string {
   return `${VOICE}\n\n${PILLAR_TEMPLATES[pillar]}\n${jsonFormat()}`;
 }
 
+// ── Length enforcement ──────────────────────────────────────────────────────
+
+/**
+ * Ask the model to shorten one over-long segment. Best effort, once.
+ *
+ * A failure here is not fatal: the authoritative clamp below runs regardless of
+ * what this returns, including the case where it comes back longer.
+ */
+async function shortenSegment(
+  anthropic: Anthropic,
+  narration: string,
+  budget: { targetChars: number; maxChars: number },
+): Promise<string | null> {
+  const prompt = `Shorten this narration segment. It is otherwise good — do not rewrite it.
+
+CURRENT LENGTH: ${narration.length} characters
+TARGET:         ${budget.targetChars} characters
+HARD MAXIMUM:   ${budget.maxChars} characters
+
+Cut approximately ${narration.length - budget.targetChars} characters.
+
+RULES:
+- Shorten only. Do NOT add anything.
+- Do NOT introduce any new claim, fact, number or example.
+- Keep the segment's purpose and every distinct technical point.
+- Keep the opening sentence.
+- Cut repetition, filler and verbose transitions.
+- Return ONLY the shortened narration text. No JSON, no preamble, no quotes.
+
+SEGMENT:
+${narration}`;
+
+  try {
+    const raw = await createMessage(anthropic, {
+      model: "claude-sonnet-4-6",
+      max_tokens: 2000,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const text = raw.content.find((c) => c.type === "text");
+    if (!text || text.type !== "text") return null;
+    const out = text.text.trim();
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Force a script inside its spoken-character budget. The model writes; this
+ * counts and cuts.
+ *
+ * WHY WET CIRCUIT NEEDS THIS. `visualFeasibilityGate` measures the exact spoken
+ * text and refuses anything outside 210-340s before a character is bought. WC
+ * had no clamp, so the only thing standing between the model's output and that
+ * gate was the prompt — and the prompt asked for 6-8 minutes. Measured over
+ * five generations: mean 5,272 spoken chars against a 5,046 ceiling, four of
+ * five refused. Each refusal returns `success: false`, which `runStages` turns
+ * into `failVideo` → status FAILED with runMode LIVE → the 24h halt guard
+ * blocks every subsequent WC run until a human prefixes failReason with
+ * "[ack]". So an unclamped script did not merely waste a run; it stopped the
+ * pipeline.
+ *
+ * ORDERING. This runs BEFORE `foldHookAndCtaIntoSegments`, so the narration
+ * being trimmed is the model's own body and the hook and CTA are still in their
+ * own fields. `buildSpokenUnits` supplies them on top, and `overhead` measures
+ * exactly what it will add, so the structural text can never be eaten to make
+ * room for itself. Folding stays last — reversing that recreates the
+ * e704334a class, where a trimmed folded hook left a prefix, the containment
+ * check failed, and the whole hook was read a second time.
+ */
+export async function enforceScriptLength(
+  script: Script,
+  b: { targetChars: number; maxChars: number; minChars: number },
+  budgets: { index: number; targetChars: number; maxChars: number }[],
+  shorten: (narration: string, budget: { targetChars: number; maxChars: number }) => Promise<string | null>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const units = () => buildSpokenUnits(script).map((u) => u.text.length);
+  const total = () => spokenCharacterCount(buildSpokenUnits(script));
+  const overhead = (i: number) => units()[i]! - script.segments[i]!.narration.length;
+  const report = () => units()
+    .map((n, i) => `  segment ${i}: ${n} / ${budgets[i]!.targetChars} / ${budgets[i]!.maxChars}`)
+    .join("\n");
+
+  console.log(`[wc:scriptGenerator] length: ${total()} / ${b.targetChars} / ${b.maxChars}\n${report()}`);
+
+  // 1. At most ONE model attempt per oversized segment. Best effort.
+  for (let i = 0; i < script.segments.length; i++) {
+    if (units()[i]! <= budgets[i]!.maxChars) continue;
+    const shorter = await shorten(script.segments[i]!.narration, budgets[i]!);
+    if (shorter) {
+      script.segments[i]!.narration = shorter;
+      console.log(`[wc:scriptGenerator] segment ${i} rewritten once: ${units()[i]} / ${budgets[i]!.maxChars}`);
+    }
+  }
+
+  // 2. Authoritative clamp. No further model calls, whatever step 1 returned.
+  for (let i = 0; i < script.segments.length; i++) {
+    const isLast = i === script.segments.length - 1;
+    let removed = 0;
+    for (let pass = 0; pass < 4 && units()[i]! > budgets[i]!.maxChars; pass++) {
+      const limit = budgets[i]!.maxChars - overhead(i);
+      if (limit <= 0) break;
+      const t = trimToLimit(script.segments[i]!.narration, limit, { keepLast: isLast });
+      if (t.text.length === 0 || t.text === script.segments[i]!.narration) break;
+      script.segments[i]!.narration = t.text;
+      removed += t.removed;
+    }
+    if (removed > 0) {
+      console.log(`[wc:scriptGenerator] segment ${i} clamped: ${units()[i]} / ${budgets[i]!.maxChars}`);
+    }
+    if (units()[i]! > budgets[i]!.maxChars) {
+      return { ok: false,
+        error: `INTERNAL: length enforcement failed for segment ${i} ` +
+          `(${units()[i]} > ${budgets[i]!.maxChars}) — clamp did not reach its limit` };
+    }
+  }
+
+  // 3. Defensive total clamp. Per-segment maxima sum to the budget, so this
+  //    should not normally fire.
+  let guard = script.segments.length * 40;
+  while (total() > b.maxChars && guard-- > 0) {
+    const u = units();
+    let worst = 0;
+    for (let i = 1; i < u.length; i++) {
+      if (u[i]! - budgets[i]!.targetChars > u[worst]! - budgets[worst]!.targetChars) worst = i;
+    }
+    const isLast = worst === script.segments.length - 1;
+    const t = trimToLimit(script.segments[worst]!.narration,
+      Math.max(1, script.segments[worst]!.narration.length - 1), { keepLast: isLast });
+    if (t.text.length === 0 || t.text === script.segments[worst]!.narration) break;
+    script.segments[worst]!.narration = t.text;
+  }
+
+  // 4. The guarantee.
+  const finalChars = total();
+  if (finalChars > b.maxChars) {
+    return { ok: false,
+      error: `INTERNAL: script is ${finalChars} spoken chars, over the ${b.maxChars} budget, ` +
+        "after every segment was clamped" };
+  }
+  if (finalChars < b.minChars) {
+    return { ok: false,
+      error: `script is below the production minimum after length enforcement: ` +
+        `${finalChars} spoken chars is under ${b.minChars}` };
+  }
+  console.log(`[wc:scriptGenerator] final: ${finalChars} / ${b.targetChars} / ${b.maxChars}\n${report()}`);
+  return { ok: true };
+}
+
 // ── Script generation ───────────────────────────────────────────────────────
 
 /**
@@ -383,7 +542,41 @@ export async function generateScript(
     return recordAndReturn("SCHEMA_INVALID", issues);
   }
 
-  return { script: foldHookAndCtaIntoSegments(validation.data) };
+  const script = validation.data as Script;
+
+  // ── Length, then fold, then structure — in that order ───────────────
+  //
+  // Enforcement runs on the UNFOLDED script so the trim only ever touches the
+  // model's own body; the hook and CTA are still in their own fields and
+  // `buildSpokenUnits` accounts for them. Folding is the LAST transformation.
+  const b = scriptBudget("wet-circuit", "LONGFORM", currentTestStage());
+  const budgets = segmentBudgets(b, script.segments.length);
+  const enforced = await enforceScriptLength(script, b, budgets,
+    (narration, budget) => shortenSegment(anthropic, narration, budget));
+  if (!enforced.ok) {
+    // Not a model-response classification — this is our own arithmetic
+    // refusing, so it is not recorded as a ScriptGenerationFailure.
+    return { error: enforced.error };
+  }
+
+  const folded = foldHookAndCtaIntoSegments(script);
+
+  // Clamping is what CREATES the duplication this checks for: trimming a
+  // segment that already contained the CTA can leave a partial overlap, and
+  // `buildSpokenUnits` then re-adds the whole thing — the e704334a shape. The
+  // check is deterministic and unscored, because a sentence read twice is
+  // wrong at any quality score. It repairs where the edit is unambiguous and
+  // refuses otherwise, before anything is bought.
+  const structure = validateScriptStructure(folded);
+  for (const i of structure.issues) {
+    console.log(`[wc:scriptGenerator] structure ${i.code}: ${i.detail}` +
+      `${i.repaired ? " (repaired)" : ""}`);
+  }
+  if (!structure.ok) {
+    return { error: `script structure rejected before spend: ${structure.rejections.join("; ")}` };
+  }
+
+  return { script: folded };
 }
 
 // ── Stage entry point ───────────────────────────────────────────────────────
