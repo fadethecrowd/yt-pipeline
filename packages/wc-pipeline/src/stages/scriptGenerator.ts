@@ -5,7 +5,7 @@ import { ScriptFailureType } from "@prisma/client";
 import {
   prisma, env, createMessage,
   classifyModelResponse, promptHash, recordScriptFailure, priorAttemptsForPrompt,
-  scriptBudget, segmentBudgets, currentTestStage, trimToLimit,
+  scriptBudget, segmentBudgets, currentTestStage, trimToLimit, fetchArticleBody,
   buildSpokenUnits, spokenCharacterCount, validateScriptStructure,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
@@ -312,6 +312,64 @@ function buildSystemPrompt(pillar: Pillar): string {
   return `${VOICE}\n\n${PILLAR_TEMPLATES[pillar]}\n${jsonFormat()}`;
 }
 
+/**
+ * What the model is allowed to say about the source document.
+ *
+ * Every WC topic summary is a truncated RSS teaser — median 400 characters,
+ * none above 600. For NEW_OWNER that is enough, because the script is written
+ * from the writer's own expertise and the topic is only the prompt. For
+ * NEW_DROP, HEAD_TO_HEAD and RANKED_LIST it is not: those need specs, model
+ * numbers and prices, and the model correctly declines THIN_SOURCE rather than
+ * inventing them. Measured: NEW_OWNER 5/5 written, every other pillar 0/7.
+ *
+ * With the article text in hand it may quote, attribute and compare, because it
+ * can check. Without it, the rules are the same ones AI Doom adopted after run
+ * c28dd19c put eleven invented claims in a named report's mouth: the document
+ * may be said to exist, but not to say anything.
+ *
+ * Mirrors src/stages/scriptGenerator.ts's block deliberately. The two channels
+ * have separate generators, but the rule about attributing to a document you
+ * have not read is not channel-specific.
+ */
+export function wcSourceMaterialBlock(
+  topic: { title: string; url: string; summary?: string | null },
+  pillar: Pillar,
+  body: string | null,
+): string {
+  const head = [
+    `Title: ${topic.title}`,
+    `Source: ${topic.url}`,
+    `Content pillar: ${pillar}`,
+    topic.summary ? `Context: ${topic.summary.replace(/^\[.*?\]\s*/, "")}` : null,
+  ].filter(Boolean).join("\n");
+
+  if (body) {
+    return `${head}
+
+ARTICLE TEXT (this is the source document itself — every spec, model number,
+price or claim you attribute to it must appear below; if it is not here, the
+document does not say it):
+"""
+${body}
+"""`;
+  }
+
+  return `${head}
+
+NO ARTICLE TEXT IS AVAILABLE. You have the headline and context above and
+nothing else — you have NOT read the source document.
+- Do NOT state specs, model numbers, prices, dimensions or release dates as if
+  the document gave them. You cannot know them.
+- Do NOT invent a feature list, a comparison table or a ranking presented as the
+  document's own.
+- You MAY say the product or article exists, who makes or published it, and what
+  its stated subject is, because the headline establishes that much.
+- You MAY discuss the category in your own voice as general context, clearly as
+  your framing rather than the document's findings.
+- If the pillar you were given cannot be written honestly on this much, decline
+  using the structured decline format rather than inventing material.`;
+}
+
 // ── Length enforcement ──────────────────────────────────────────────────────
 
 /**
@@ -471,6 +529,12 @@ export async function generateScript(
   anthropic: Anthropic,
   ctx: PipelineContext,
   feedback?: string,
+  /**
+   * Extracted article prose, or null when the fetch declined for any reason.
+   * Optional so the qualityGate rewrite path and the pure review harness keep
+   * working unchanged; null is the pre-existing behaviour, not a degradation.
+   */
+  body: string | null = null,
 ): Promise<{ script?: Script; error?: string; failureType?: ScriptFailureType }> {
   const pillar = extractPillar(ctx.topic);
   const systemPrompt = buildSystemPrompt(pillar);
@@ -478,10 +542,7 @@ export async function generateScript(
   const parts = [
     `Write a Wet Circuit YouTube script for this topic:`,
     ``,
-    `Title: ${ctx.topic.title}`,
-    `Source: ${ctx.topic.url}`,
-    `Content pillar: ${pillar}`,
-    ctx.topic.summary ? `Context: ${ctx.topic.summary.replace(/^\[.*?\]\s*/, "")}` : null,
+    wcSourceMaterialBlock(ctx.topic, pillar, body),
     ``,
     `Use the ${pillar} template structure. Write in the Wet Circuit voice — opinionated, direct, enthusiast-to-enthusiast.`,
   ];
@@ -619,7 +680,20 @@ export async function scriptGenerator(
   const pillar = extractPillar(ctx.topic);
   console.log(`[wc:scriptGenerator] Pillar: ${pillar} | Topic: "${ctx.topic.title}"`);
 
-  const result = await generateScript(anthropic, ctx);
+  // Fetched once per stage, not per attempt: a retry is a second chance at
+  // writing, not a reason to hit the publisher again. Failure is non-fatal by
+  // construction — `fetchArticleBody` returns null rather than throwing, and a
+  // null body switches the prompt to its no-attribution form, which is exactly
+  // today's behaviour.
+  const article = await fetchArticleBody(ctx.topic.url, { log: (m) => console.log(m) });
+  console.log(
+    article
+      ? `[wc:scriptGenerator] source body: ${article.extractedChars} chars extracted` +
+        `${article.truncated ? `, truncated to ${article.text.length}` : ""}`
+      : `[wc:scriptGenerator] source body unavailable — attribution to the document is disallowed`,
+  );
+
+  const result = await generateScript(anthropic, ctx, undefined, article?.text ?? null);
 
   if (result.error || !result.script) {
     // A model decline is the pipeline refusing bad input pre-spend, not a
