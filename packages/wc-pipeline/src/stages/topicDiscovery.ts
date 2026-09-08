@@ -582,8 +582,11 @@ async function classifyPillars(items: ScoredItem[]): Promise<ScoredItem[]> {
   return items;
 }
 
+/** The complete set, so "every pillar" has one definition rather than three. */
+const ALL_PILLARS: readonly Pillar[] = ["RANKED_LIST", "HEAD_TO_HEAD", "NEW_OWNER", "NEW_DROP"];
+
 function isValidPillar(p: string): p is Pillar {
-  return ["RANKED_LIST", "HEAD_TO_HEAD", "NEW_OWNER", "NEW_DROP"].includes(p);
+  return (ALL_PILLARS as readonly string[]).includes(p);
 }
 
 function heuristicPillar(item: ScoredItem): Pillar {
@@ -605,14 +608,67 @@ function buildSummary(item: ScoredItem): string {
 
 // ── Pick best topic from DB ─────────────────────────────────────────────────
 
+/**
+ * Which pillars this pipeline can currently write.
+ *
+ * WC's scriptGenerator has no `fetchArticleBody`. It writes from the topic
+ * summary alone, and every summary in the pool is a truncated RSS teaser —
+ * min 25, median 400, max 432 characters, none above 600. NEW_DROP,
+ * HEAD_TO_HEAD and RANKED_LIST all need specs, model numbers or prices that a
+ * teaser does not contain, so the model correctly declines rather than
+ * inventing them. Measured: NEW_OWNER 5/5 written, everything else 0/7.
+ *
+ * The selector did not know that. It ranked by score alone, and on 2026-09-07
+ * handed a NEW_DROP topic scoring 32.6 to a pillar that could not use it. The
+ * decline was right; giving it that topic was not.
+ *
+ * So selection prefers what can be written. This is a property of the CURRENT
+ * generator, not of the pillars — add `fetchArticleBody` and the others become
+ * writable again — so it is configuration, not a hardcoded restriction:
+ *
+ *   WC_WRITABLE_PILLARS unset  -> NEW_OWNER only (today's honest capability)
+ *   WC_WRITABLE_PILLARS="*"    -> every pillar, no filter
+ *   WC_WRITABLE_PILLARS="NEW_OWNER,NEW_DROP" -> exactly those
+ *
+ * An unparseable or empty value falls back to the default rather than opening
+ * up: a typo must not silently re-enable pillars that waste runs.
+ */
+const DEFAULT_WRITABLE_PILLARS: Pillar[] = ["NEW_OWNER"];
+
+export function writablePillars(
+  raw: string | undefined = process.env.WC_WRITABLE_PILLARS,
+): Pillar[] {
+  const v = (raw ?? "").trim();
+  if (v === "*") return [...ALL_PILLARS];
+  if (!v) return [...DEFAULT_WRITABLE_PILLARS];
+  const picked = v.split(",").map((x) => x.trim().toUpperCase()).filter(isValidPillar);
+  return picked.length > 0 ? (picked as Pillar[]) : [...DEFAULT_WRITABLE_PILLARS];
+}
+
 async function pickBestTopic(startMs: number): Promise<StageResult> {
+  const pillars = writablePillars();
+  const unfiltered = pillars.length === ALL_PILLARS.length;
+  console.log(`[wc:topicDiscovery] writable pillars: ${pillars.join(", ")}`);
+
   const topic = await prisma.wcTopic.findFirst({
-    where: { status: TopicStatus.DISCOVERED },
+    where: {
+      status: TopicStatus.DISCOVERED,
+      // The pillar is the `[PILLAR]` prefix classifyPillars wrote into summary.
+      ...(unfiltered ? {} : { OR: pillars.map((p) => ({ summary: { startsWith: `[${p}]` } })) }),
+    },
     orderBy: [{ score: "desc" }, { createdAt: "desc" }],
   });
 
   if (!topic) {
-    return { success: false, error: "No viable topics", durationMs: Date.now() - startMs };
+    // Name the filter. "No viable topics" on a pool of 50 is not diagnosable.
+    const available = await prisma.wcTopic.count({ where: { status: TopicStatus.DISCOVERED } });
+    return {
+      success: false,
+      error: `No DISCOVERED topic in writable pillars [${pillars.join(", ")}] `
+        + `(${available} DISCOVERED overall). Widen with WC_WRITABLE_PILLARS, `
+        + `or run discovery to replenish.`,
+      durationMs: Date.now() - startMs,
+    };
   }
 
   await prisma.wcTopic.update({
