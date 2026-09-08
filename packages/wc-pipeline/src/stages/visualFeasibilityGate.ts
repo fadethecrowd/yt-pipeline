@@ -7,6 +7,7 @@ import {
   currentPilot,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult, Script } from "@yt-pipeline/pipeline-core";
+import { preSpendDecline } from "../declines";
 import { tieAwareConceptAccounting, tieAwareChecks } from "./conceptAccounting";
 import { longestNoNewConceptRun } from "./monotonyDiagnostics";
 import { resolveWcCanaryAuthorization } from "../canary/authorization";
@@ -80,6 +81,8 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
     return {
       success: false,
       error: `visual feasibility: ${detail}`,
+      // failCandidate already set QUALITY_FAILED; keep it that way.
+      data: preSpendDecline("RUNTIME_ENVELOPE"),
       durationMs: Date.now() - start,
     };
   }
@@ -174,6 +177,9 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
     return {
       success: false,
       error: `visual feasibility FAILED — no narration purchased: ${reason}`,
+      // Also pre-spend and also already QUALITY_FAILED: an unsourceable topic
+      // is a refused input, not a broken pipeline.
+      data: preSpendDecline("VISUAL_FEASIBILITY"),
       durationMs: Date.now() - start,
     };
   }

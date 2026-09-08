@@ -35,6 +35,7 @@ import { wcNotify } from "./stages/notify";
 import {
   findWcCanaryAuthorization, assertWcCanaryWindow, resolveWcCanaryAuthorization,
 } from "./canary/authorization";
+import { isPreSpendDecline } from "./declines";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -147,6 +148,13 @@ async function failVideo(
   ctx: PipelineContext,
   stageName: string,
   reason: string,
+  /**
+   * A stage that refused its INPUT before any spend, rather than failing.
+   * Settles as QUALITY_FAILED, which is terminal and outside RESUME_FROM but
+   * outside the halt guard's `FAILED AND runMode='LIVE'` condition too. See
+   * ./declines for why the two are not the same event.
+   */
+  declined = false,
 ) {
   // Settle first: the cycle's terminal state governs whether another container
   // may act, and it must not depend on the notification succeeding.
@@ -157,7 +165,7 @@ async function failVideo(
   await prisma.wcVideo.update({
     where: { id: ctx.video.id },
     data: {
-      status: VideoStatus.FAILED,
+      status: declined ? VideoStatus.QUALITY_FAILED : VideoStatus.FAILED,
       failReason,
       retryCount: { increment: 1 },
     },
@@ -210,7 +218,10 @@ async function runStages(
       console.error(`${LOG} ✗ ${stage.name} rejected: ${result.error}`);
       console.log(`${LOG} ▸ ${stage.name} ended at ${ts()} (${fmtDuration(Date.now() - stageStart)})`);
       summary?.markFailed(stage.name, new Error(result.error ?? "unknown error"));
-      await failVideo(ctx, stage.name, result.error ?? "unknown error");
+      // An exception is never a decline — only a stage that returned a marked
+      // result asserted that it refused the input rather than broke.
+      await failVideo(ctx, stage.name, result.error ?? "unknown error",
+        isPreSpendDecline(result));
       return false;
     }
 

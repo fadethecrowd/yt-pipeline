@@ -3,6 +3,7 @@ import { z } from "zod";
 import { VideoStatus } from "@prisma/client";
 import { prisma, env, createMessage } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
+import { preSpendDecline } from "../declines";
 import { generateScript } from "./scriptGenerator";
 
 const MAX_REWRITES = 2;
@@ -178,7 +179,9 @@ export async function qualityGate(
   return {
     success: false,
     error: failReason,
-    data: { score: lastScore, reasons: lastReasons, verdict: lastVerdict },
+    // Already persisted as QUALITY_FAILED above; the marker stops `failVideo`
+    // overwriting that with FAILED and arming the halt guard.
+    data: { ...preSpendDecline("QUALITY_BELOW_THRESHOLD"), score: lastScore, reasons: lastReasons, verdict: lastVerdict },
     durationMs: Date.now() - start,
   };
 }

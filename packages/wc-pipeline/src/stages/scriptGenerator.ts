@@ -9,6 +9,7 @@ import {
   buildSpokenUnits, spokenCharacterCount, validateScriptStructure,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, Script, StageResult } from "@yt-pipeline/pipeline-core";
+import { preSpendDecline, isDeclineFailureType } from "../declines";
 
 // ── Zod schema for Claude's JSON output ────────────────────────────────────
 
@@ -621,9 +622,18 @@ export async function scriptGenerator(
   const result = await generateScript(anthropic, ctx);
 
   if (result.error || !result.script) {
+    // A model decline is the pipeline refusing bad input pre-spend, not a
+    // fault. Marking it keeps it out of the halt guard. API_ERROR and our own
+    // enforcement/structure refusals carry no decline failureType and so still
+    // settle as FAILED — see ../declines.
+    const declined = isDeclineFailureType(result.failureType);
+    if (declined) {
+      console.log(`[wc:scriptGenerator] declined (${result.failureType}) — pre-spend, not a fault`);
+    }
     return {
       success: false,
       error: result.error ?? "No script generated",
+      ...(declined ? { data: preSpendDecline(String(result.failureType)) } : {}),
       durationMs: Date.now() - start,
     };
   }
