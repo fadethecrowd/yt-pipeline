@@ -24,7 +24,7 @@ import {
 } from "../lib/visualSubject";
 import { planVisualBeats, summarizeBeats, minimumBeatsFor, BEAT_MAX_S, MIN_FRAGMENT_S, fitFragment, outroCardPlan } from "../lib/visualBeats";
 import type { VisualBeat } from "../lib/visualBeats";
-import { checkBrandFromMetadata, brandAdmits, isHighBrandRiskFootage } from "../lib/brandGuard";
+import { checkBrandFromMetadata, brandAdmits, isHighBrandRiskFootage, brandSubject } from "../lib/brandGuard";
 import type { BrandCheck } from "../lib/brandGuard";
 import { wordsFromAlignment } from "../lib/captions";
 import type { Candidate } from "../lib/visuals";
@@ -540,6 +540,12 @@ async function renderBeat(
   deps: AssemblyDeps,
   videoId: string,
   isOutro: boolean,
+  /**
+   * The video's subject line for the brand guard — topic title plus hook. Named
+   * apart from `subject` above, which is the per-segment VISUAL subject and a
+   * different thing entirely.
+   */
+  brandSubjectText: string,
 ): Promise<RenderedBeat[]> {
   const { label, channel } = deps;
   const out: RenderedBeat[] = [];
@@ -618,6 +624,7 @@ async function renderBeat(
 
     const brand = checkBrandFromMetadata(
       `${c.description ?? ""} ${c.pageUrl ?? ""}`, seg.visual_prompt, beat.narration,
+      brandSubjectText,
     );
     if (!brandAdmits(brand)) {
       console.log(`[${label}] beat ${beat.index}.${fragment}: reject ${c.assetId} — ${brand.rejectionReason}`);
@@ -903,13 +910,18 @@ export async function runAssembly(
   }
   console.log(`[${label}] global candidate pool: ${globalPool.length} unique assets for ${beats.length} beats`);
 
+  // What the video is ABOUT, for the brand guard. A brand named in the title or
+  // the hook is the subject and its footage is supported on every beat; one
+  // named only mid-script is a passing mention and stays local to its beat.
+  const brandSubjectText = brandSubject(ctx.topic.title, ctx.script.hook);
+
   for (const beat of beats) {
     const seg = segments[beat.segmentIndex] ?? segments[segments.length - 1];
     const pool = globalPool;
     rendered.push(
       ...(await renderBeat(
         beat, seg, subjects.get(seg.segmentIndex)!, pool, ledger, plan, tmpDir, deps, ctx.video.id,
-        beat.index === outroIndex,
+        beat.index === outroIndex, brandSubjectText,
       )),
     );
   }

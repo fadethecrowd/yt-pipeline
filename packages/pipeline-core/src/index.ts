@@ -208,7 +208,7 @@ export { lastOutroBeatIndex } from "./stages/assemblyShared";
 export type { VisualBeat, BeatPlanSummary } from "./lib/visualBeats";
 export {
   checkBrandFromMetadata, brandCheckFromFrameInspection, brandAdmits,
-  narrationMentionsBrand, isHighBrandRiskFootage,
+  narrationMentionsBrand, isHighBrandRiskFootage, brandSubject,
 } from "./lib/brandGuard";
 export type { BrandCheck, BrandDecision } from "./lib/brandGuard";
 

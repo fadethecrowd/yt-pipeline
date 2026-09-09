@@ -96,10 +96,37 @@ export interface BrandCheck {
   rejectionReason: string | null;
   /** Which surface produced the verdict. */
   source: "metadata" | "frame-inspection" | "none";
+  /**
+   * Where the support came from when the verdict is RELEVANT: the beat's own
+   * words, or the video's subject. Recorded so a QA record shows which rule
+   * admitted the asset.
+   */
+  relevanceSource?: "beat" | "subject" | null;
 }
 
 function norm(s: string): string {
   return ` ${s.toLowerCase().replace(/[^a-z0-9&.\- ]/g, " ").replace(/\s+/g, " ")} `;
+}
+
+/**
+ * What the video is ABOUT, as opposed to what any one beat happens to say.
+ *
+ * The guard tests `beat.narration` — a 9-27 second slice of spoken words. That
+ * is the right question for an incidental brand and the wrong one for the
+ * brand the video is a review OF. Run cmtt7hovx (Garmin GMI 40) said "Garmin"
+ * ten times across the script and in the topic title, yet 8 of its 16 beats do
+ * not contain the word, so Garmin's own footage was rejected on those beats as
+ * "an unsupported connection" and three of them starved into fallback cards
+ * after 4,453 credits had been spent.
+ *
+ * The title and the hook are what establish the subject: they are where a video
+ * says what it is about. A brand named there is supported everywhere in that
+ * video. A brand named only in the middle of one segment is not the subject —
+ * it is a passing comparison — and stays supported only on the beat that
+ * actually discusses it.
+ */
+export function brandSubject(topicTitle: string, hook: string): string {
+  return `${topicTitle} ${hook}`;
 }
 
 /** True when the narration actually discusses this brand or entity. */
@@ -123,6 +150,14 @@ export function checkBrandFromMetadata(
   text: string,
   query: string,
   narration: string,
+  /**
+   * The video's subject — `brandSubject(topicTitle, hook)`. A brand named here
+   * is the thing the video is about, so its footage is supported on EVERY beat,
+   * not only the beats that happen to repeat the name. Optional: omitted, the
+   * check behaves exactly as it did, which is what keeps callers that have no
+   * subject to offer honest rather than silently permissive.
+   */
+  subject?: string,
 ): BrandCheck {
   const haystack = norm(`${text} ${query}`);
 
@@ -144,10 +179,16 @@ export function checkBrandFromMetadata(
       brandDecision: "NO_BRAND",
       rejectionReason: null,
       source: "none",
+      relevanceSource: null,
     };
   }
 
-  const relevant = narrationMentionsBrand(narration, detected);
+  // Two independent sufficient conditions. The beat discusses the brand, OR the
+  // brand is what the video is about. Either supports the footage; neither, and
+  // it still implies a connection the script never makes.
+  const onBeat = narrationMentionsBrand(narration, detected);
+  const isSubject = !onBeat && !!subject && narrationMentionsBrand(subject, detected);
+  const relevant = onBeat || isSubject;
   return {
     visibleBrandDetected: true,
     detectedBrandOrSignage: detected,
@@ -155,8 +196,9 @@ export function checkBrandFromMetadata(
     brandDecision: relevant ? "RELEVANT" : "IRRELEVANT",
     rejectionReason: relevant
       ? null
-      : `visible branding "${detected}" is not discussed in the narration — would imply an unsupported connection`,
+      : `visible branding "${detected}" is unrelated to this beat and is not the subject of the video — would imply an unsupported connection`,
     source: "metadata",
+    relevanceSource: onBeat ? "beat" : isSubject ? "subject" : null,
   };
 }
 
@@ -171,6 +213,8 @@ export function checkBrandFromMetadata(
 export function brandCheckFromFrameInspection(
   signage: string | null,
   narration: string,
+  /** See `checkBrandFromMetadata`. Roof signage of the subject brand is fine. */
+  subject?: string,
 ): BrandCheck {
   if (!signage) {
     return {
@@ -182,7 +226,9 @@ export function brandCheckFromFrameInspection(
       source: "frame-inspection",
     };
   }
-  const relevant = narrationMentionsBrand(narration, signage);
+  const onBeat = narrationMentionsBrand(narration, signage);
+  const isSubject = !onBeat && !!subject && narrationMentionsBrand(subject, signage);
+  const relevant = onBeat || isSubject;
   return {
     visibleBrandDetected: true,
     detectedBrandOrSignage: signage,
@@ -190,8 +236,9 @@ export function brandCheckFromFrameInspection(
     brandDecision: relevant ? "RELEVANT" : "IRRELEVANT",
     rejectionReason: relevant
       ? null
-      : `visible signage "${signage}" is unrelated to the narration`,
+      : `visible signage "${signage}" is unrelated to this beat and is not the subject of the video`,
     source: "frame-inspection",
+    relevanceSource: onBeat ? "beat" : isSubject ? "subject" : null,
   };
 }
 
