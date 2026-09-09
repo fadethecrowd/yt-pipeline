@@ -91,6 +91,7 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
     {
       channel: CHANNEL,
       topicTitle: ctx.topic.title,
+      hook: script.hook,
       targetRuntimeS: Math.round(videoS),
       // Byte-identical to what narration will submit.
       segments: spokenOutlineSegments(script).map((s) => ({

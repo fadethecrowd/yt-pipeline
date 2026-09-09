@@ -33,7 +33,7 @@ import {
   scoreRelevance, VisualPlan, buildSearchQueries, REJECT_THRESHOLD,
 } from "./visualRelevance";
 import type { RelevanceResult } from "./visualRelevance";
-import { checkBrandFromMetadata, brandAdmits, isHighBrandRiskFootage } from "./brandGuard";
+import { checkBrandFromMetadata, brandAdmits, isHighBrandRiskFootage, brandSubject } from "./brandGuard";
 import { searchPexelsCandidates, validateCandidateMeta, AssetLedger } from "./visuals";
 import type { Candidate } from "./visuals";
 import {
@@ -144,6 +144,13 @@ export interface OutlineSegment {
 export interface FeasibilityInput {
   channel: ChannelKey;
   topicTitle: string;
+  /**
+   * The script's hook. With `topicTitle` it forms the brand guard's subject
+   * line, which MUST be computed the same way here as in assembly — a subject
+   * that is wider here than there would reopen the gap this models, letting
+   * feasibility admit footage assembly will reject.
+   */
+  hook: string;
   /** Target total video runtime in seconds, including the title card. */
   targetRuntimeS: number;
   segments: OutlineSegment[];
@@ -493,6 +500,9 @@ export async function assessVisualFeasibility(
   let strong = 0, acceptable = 0, generic = 0, rejected = 0, brandRisk = 0;
   const accepted: ScoredCandidate[] = [];
 
+  // What the video is about, for the brand guard — the same line assembly uses.
+  const subjectText = brandSubject(input.topicTitle, input.hook);
+
   for (const c of pool) {
     let best: { r: RelevanceResult; segIndex: number; narration: string } | null = null;
     for (const beat of beats) {
@@ -514,7 +524,7 @@ export async function assessVisualFeasibility(
     // the report shows the true composition of what the source returned.
     const seg = input.segments[best.segIndex] ?? input.segments[0];
     const brand = checkBrandFromMetadata(
-      `${c.description ?? ""} ${c.pageUrl ?? ""}`, seg.visual_prompt, best.narration,
+      `${c.description ?? ""} ${c.pageUrl ?? ""}`, seg.visual_prompt, best.narration, subjectText,
     );
     const risky = isHighBrandRiskFootage(c.description ?? "") || brand.visibleBrandDetected;
     if (risky) brandRisk += 1;
@@ -563,8 +573,29 @@ export async function assessVisualFeasibility(
 
   for (const beat of beats) {
     const seg = input.segments[beat.segmentIndex] ?? input.segments[input.segments.length - 1];
+    // THE BRAND CHECK IS PER-BEAT IN ASSEMBLY, SO IT IS PER-BEAT HERE.
+    //
+    // This loop already re-scores relevance against THIS beat's narration
+    // because that is what renderBeat does. It did not re-run the brand guard,
+    // which renderBeat also does per beat — so an asset admitted once, against
+    // whichever beat it scored highest on, was predicted to fill every beat.
+    //
+    // That is the disagreement that cost run cmtt7hovx 4,453 credits. The
+    // brand was detected from the SEARCH QUERY — segment 3's visual_prompt
+    // names Garmin — so every candidate returned for that query was flagged
+    // Garmin-branded, and beats 8, 9 and 10 do not repeat the word. Feasibility
+    // reported 106 usable and green-lit the spend; assembly then rejected 16,
+    // 76 and 76 clips on exactly those beats and starved them into cards.
+    //
+    // Filtering here makes a beat that assembly would refuse show up as a beat
+    // with no fragments, which the starvation checks below already catch —
+    // before narration is purchased.
+    const admissible = accepted.filter((x) => brandAdmits(checkBrandFromMetadata(
+      `${x.candidate.description ?? ""} ${x.candidate.pageUrl ?? ""}`,
+      seg.visual_prompt, beat.narration, subjectText,
+    )));
     // Re-score against THIS beat's narration — the same thing renderBeat does.
-    const scored = accepted
+    const scored = admissible
       .map((x) => ({
         x,
         r: scoreRelevance({
