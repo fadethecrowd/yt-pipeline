@@ -143,7 +143,9 @@ export function narrationMentionsBrand(narration: string, brand: string): boolea
  * Metadata-surface brand check, run before download on every candidate.
  *
  * @param text   asset description / slug / title
- * @param query  the search query used
+ * @param query  the search query used. Retained for the call signature and the
+ *               scene record; deliberately NOT scanned for branding — see the
+ *               haystack comment below.
  * @param narration the narration this scene sits under
  */
 export function checkBrandFromMetadata(
@@ -159,7 +161,17 @@ export function checkBrandFromMetadata(
    */
   subject?: string,
 ): BrandCheck {
-  const haystack = norm(`${text} ${query}`);
+  // The ASSET's own words only. The query says what was ASKED FOR, not what is
+  // visible in what came back: HBM segment 3's prompt reads "B-roll of TSMC
+  // facility exterior", and with the query in the haystack every candidate
+  // returned for that beat — "silicon wafer inspection in a cleanroom" included
+  // — was condemned as TSMC branding it does not show. The same shape flagged
+  // every Garmin-query candidate in run cmtt7hovx and cost 4,453 credits.
+  //
+  // This can only ADMIT footage the guard used to refuse, never the reverse, so
+  // it cannot newly starve a beat. Real signage still has two surfaces: the
+  // asset description here, and frame inspection for what metadata cannot see.
+  const haystack = norm(text);
 
   const hit = KNOWN_BRANDS.find(
     (b) => haystack.includes(` ${b.trim()} `) && ambiguousBrandConfirmed(b.trim(), haystack),

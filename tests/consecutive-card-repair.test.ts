@@ -7,6 +7,9 @@ import {
 } from "@yt-pipeline/pipeline-core";
 import { MIN_FRAGMENT_S, fitFragment } from "../packages/pipeline-core/src/lib/visualBeats";
 import type { Candidate, FeasibilityDeps, OutlineSegment } from "@yt-pipeline/pipeline-core";
+import {
+  brandAdmits, checkBrandFromMetadata, brandSubject,
+} from "../packages/pipeline-core/src/lib/brandGuard";
 
 /**
  * Two fallback cards in a row, from 237 usable assets.
@@ -283,5 +286,97 @@ describe("regression: the 2026-08-16 shape", () => {
     assert.equal(MIN_FRAGMENT_S, 6);
     assert.equal(fitFragment(8.6, 8.0), null, "a 0.6s sliver is still refused");
     assert.deepEqual(fitFragment(10, 40), { useS: 10 }, "a long clip still closes a beat outright");
+  });
+});
+
+// ── The repair may not admit what assembly will refuse ───────────────────
+
+describe("22. a repair passes the brand guard, not only the relevance floor", () => {
+  /**
+   * The five conditions the repair enforced were all about relevance and
+   * duration. None was the brand guard, so a clip legitimately placed on the
+   * one beat that names a brand could be MOVED to a beat that does not.
+   *
+   * That is what happened to run cmtvw27ix0001mbzyikvd7baz: feasibility
+   * repaired beat 8 with 38875223, assembly refused it as Raymarine branding
+   * unsupported by that beat's narration, and beats 8 and 9 starved into the
+   * consecutive cards QA fails on — after 4,483 characters had been bought.
+   */
+  const BRAND_SEG = 2;
+  const brandSegments: OutlineSegment[] = Array.from({ length: 6 }, (_, i) => ({
+    segmentIndex: i,
+    title: `Segment ${i}`,
+    // Only ONE segment discusses the brand. The others must not inherit it,
+    // and the topic title deliberately does not name it either, so there is no
+    // subject credit to fall back on.
+    narration: (i === BRAND_SEG
+      ? "Nvidia ships these racks by the container load, and Nvidia says demand is still climbing. "
+      : "Industrial robot arms now run the automated assembly line inside modern manufacturing " +
+        "plants, machine vision cameras inspect every part, and engineers monitor the line from a " +
+        "research workstation. ").repeat(10),
+    visual_prompt: "A manufacturing plant floor with automated assembly line machinery, robot arms, " +
+      "machine vision cameras, and engineers monitoring from a research workstation",
+  }));
+
+  const brandInput = () => ({
+    channel: CH, topicTitle: "Automated plant floors", targetRuntimeS: 450,
+    segments: brandSegments,
+  });
+
+  /** Long clips carry the brand; short unbranded ones are abundant. */
+  const brandPool = (): Candidate[] => {
+    const out: Candidate[] = [];
+    for (let i = 0; i < 8; i++) {
+      out.push(candidate(`nv-${i}`, `nvidia dgx server rack in an automated manufacturing plant ${i}`, 40));
+    }
+    for (let i = 0; i < 140; i++) {
+      out.push(candidate(`short-${i}`, `industrial robot arm on an automated assembly line shot ${i}`, 9));
+    }
+    return out;
+  };
+
+  test("every predicted fragment is admissible on the beat it sits on", async () => {
+    // An invariant, not a regression test: I could not build a fixture in
+    // reasonable time where the repair actually WANTS the branded donor — the
+    // arrangements that starve beats also deny the repair a backfill covering
+    // the donor's exact seconds, so it never fires. This asserts the property
+    // assembly re-checks; the guard below is what pins the fix itself.
+    const r = await assessVisualFeasibility(brandInput(), fixed(brandPool()));
+    const subjectText = brandSubject("Automated plant floors", "");
+    const offending: string[] = [];
+    for (const beat of r.predictedBeats) {
+      const seg = brandSegments[beat.segmentIndex] ?? brandSegments[brandSegments.length - 1];
+      for (const f of beat.fragments) {
+        const ok = brandAdmits(checkBrandFromMetadata(
+          `${f.description} https://www.pexels.com/video/${f.assetId}/`,
+          seg.visual_prompt, beat.narration, subjectText,
+        ));
+        if (!ok) offending.push(`beat ${beat.index}: ${f.assetId} "${f.description}"`);
+      }
+    }
+    assert.deepEqual(offending, [],
+      "assembly re-checks exactly this and will card the beat otherwise");
+  });
+
+  test("the branded clips reach only the beat that names the brand", async () => {
+    // Proves the fixture is wired the way the comment claims: without the
+    // per-beat filter these would be spread across all six segments.
+    const r = await assessVisualFeasibility(brandInput(), fixed(brandPool()));
+    const segsUsed = new Set(r.predictedBeats
+      .filter((b) => b.fragments.some((f) => f.assetId.startsWith("nv-")))
+      .map((b) => b.segmentIndex));
+    assert.deepEqual([...segsUsed], [BRAND_SEG]);
+  });
+
+  test("the repair consults the guard on BOTH sides of the swap", () => {
+    const src = readFileSync("packages/pipeline-core/src/lib/visualFeasibility.ts", "utf8");
+    const fn = src.slice(src.indexOf("function repairConsecutiveCards(input:"),
+      src.indexOf("// ── The gate ─"));
+    assert.match(fn, /const admits = \(b: PredictedBeat, a: ScoredCandidate\) => brandAdmits\(/,
+      "the repair needs its own per-beat admissibility test");
+    assert.match(fn, /if \(!admits\(target, donorAsset\)\) continue;/,
+      "the donated clip must be admissible on the beat it moves TO");
+    assert.match(fn, /if \(!admits\(donorBeat, backfill\)\) continue;/,
+      "the backfill must be admissible on the beat it moves INTO");
   });
 });

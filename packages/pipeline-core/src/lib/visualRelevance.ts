@@ -163,6 +163,51 @@ const PERFORMANCE_TERMS = [
 ];
 
 /**
+ * Subjects that are not marine, whatever the marine taxonomy scores them.
+ *
+ * `MARINE_SUBJECTS.electronics` is nine bare single tokens, four of which —
+ * display, screen, instrument, gauge — describe a piece of glass rather than a
+ * boat. Anything with a readout on it therefore reads as marine electronics.
+ * Run cmtvw27ix0001mbzyikvd7baz shipped 9 off-domain clips out of 24 on that
+ * basis: three stock-market screens, three cryptocurrency displays, a gas pump
+ * price board, a flashlight, and — as the OPENING shot of a Garmin instrument
+ * review — "close up of wooden string instruments on display".
+ *
+ * A term list, not a taxonomy change. The taxonomy says what a marine subject
+ * looks like; this says what is definitely not one, and the two are easier to
+ * reason about kept apart. Widening the taxonomy to exclude these would mean
+ * teaching every concept about finance.
+ *
+ * Deliberately narrow, because the near-misses are real WC subjects:
+ *   - "fuel gauge" and "fuel pump" are boat instruments — only the forecourt
+ *     words (gas pump, gas station, petrol, gasoline, fuel price) are listed
+ *   - "drum" is a winch drum and "keyboard" is a computer keyboard, so neither
+ *     appears; "drum kit" and "drummer" do
+ *   - bare "market" is a fish market, so only "stock market" / "market graph"
+ *     style phrases are listed
+ *
+ * Wet Circuit only. AI Doom is live and its topics genuinely include AI in
+ * finance, so a blanket finance veto there could starve legitimate beats; there
+ * is no evidence of this failure on that channel. Widening it later is one
+ * line.
+ */
+const OFF_DOMAIN_SUBJECTS: string[] = [
+  // Finance / markets / crypto
+  "stock market", "stock exchange", "stock trading", "stock chart", "stock price",
+  "trading screen", "trading chart", "trading floor", "trading platform",
+  "market analysis", "market graph", "market data", "financial chart",
+  "forex", "candlestick", "cryptocurrency", "crypto", "bitcoin", "ethereum",
+  "blockchain", "ticker", "investment", "investor", "trader", "banking",
+  // Fuel forecourt — NOT boat fuel instruments
+  "gas pump", "gas station", "gas price", "fuel price", "petrol", "gasoline",
+  "filling station", "fuel dispenser",
+  // Musical instruments — the performance veto catches players, not objects
+  "musical instrument", "string instrument", "guitar", "violin", "cello",
+  "saxophone", "trumpet", "orchestra", "drum kit", "drummer", "ukulele",
+  "banjo", "sheet music", "piano",
+];
+
+/**
  * Narration topics that legitimately justify a microphone / studio / voice
  * performance visual. Matching the bare word "voice" is deliberately NOT
  * enough — "the voice of the industry" must not unlock singer footage.
@@ -396,6 +441,24 @@ export function scoreRelevance(input: RelevanceInput): RelevanceResult {
       };
     }
     reasons.push(`performance imagery allowed — narration is about voice/audio AI`);
+  }
+
+  // ── Hard veto: off-domain subject the marine taxonomy would admit ────
+  // Placed before the subject match so a clip cannot be credited "electronics"
+  // on the strength of the word "display" and then argue its way past the
+  // threshold. Same shape as the performance veto above: score 0, no appeal.
+  if (input.channel === "wet-circuit") {
+    const off = hits(desc, OFF_DOMAIN_SUBJECTS);
+    if (off.length > 0) {
+      return {
+        score: 0,
+        verdict: "REJECT",
+        concept: "off-domain",
+        reasons: [
+          `asset depicts an off-domain subject (${off.join(", ")}) — a readout or an instrument is not marine footage`,
+        ],
+      };
+    }
   }
 
   // ── Subject match ────────────────────────────────────────────────────

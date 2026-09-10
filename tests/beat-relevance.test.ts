@@ -241,3 +241,69 @@ describe("surrounding policy is unchanged", () => {
     assert.ok(off.score < 0.75);
   });
 });
+
+// ── Off-domain veto ──────────────────────────────────────────────────────
+
+describe("a readout is not marine footage", () => {
+  // MARINE_SUBJECTS.electronics is nine bare tokens, four of which — display,
+  // screen, instrument, gauge — name a piece of glass rather than a boat. Run
+  // cmtvw27ix0001mbzyikvd7baz shipped 9 off-domain clips out of 24 on that
+  // basis, including "close up of wooden string instruments on display" as the
+  // OPENING shot of a Garmin instrument review.
+  const wc = (description: string) => scoreRelevance({
+    channel: "wet-circuit",
+    narration: "The GMI 40 shows depth, speed and wind on one screen at the helm.",
+    prompt: "marine instrument display on a boat",
+    description,
+  });
+
+  test("the clips that actually shipped are refused", () => {
+    for (const d of [
+      "cryptocurrency market analysis display screen",
+      "dynamic stock market trading screen display",
+      "stock market screen display in dim room",
+      "a reel time record of cryptocurrency",
+      "dynamic cryptocurrency market graph display",
+      "close up of gas pump display increasing prices",
+      "close up of wooden string instruments on display",
+      "man and woman playing musical instrument",
+    ]) {
+      const r = wc(d);
+      assert.equal(r.verdict, "REJECT", `must refuse: ${d}`);
+      assert.equal(r.concept, "off-domain", `must name the reason: ${d}`);
+      assert.equal(r.score, 0, `a veto scores zero, not merely below threshold: ${d}`);
+    }
+  });
+
+  test("real marine subjects with readouts still pass", () => {
+    // The near-misses the list is deliberately narrow to protect: a boat has a
+    // fuel gauge and a fuel pump; a forecourt has a gas pump.
+    for (const d of [
+      "close up shot of gps screen",
+      "close up shot of a gauge",
+      "close up shot of fuel gauge",
+      "boat engine fuel pump maintenance",
+      "chartplotter screen showing a nautical chart",
+      "sonar fishfinder display on a console",
+      "digital pressure gauge with colorful wiring",
+      "scenic marina view with boats and dinghy",
+    ]) {
+      const r = wc(d);
+      assert.notEqual(r.concept, "off-domain", `must not veto a marine subject: ${d}`);
+      assert.ok(r.score > 0, `${d} scored ${r.score}`);
+    }
+  });
+
+  test("the veto is Wet Circuit only — AI Doom keeps finance footage", () => {
+    // AI Doom's topics genuinely include AI in finance, and the failure has
+    // never been observed there. Widening this is a deliberate act, not a
+    // side effect.
+    const r = scoreRelevance({
+      channel: "ai-doom-scroll",
+      narration: "Trading desks now run models that move faster than any human.",
+      prompt: "stock market trading floor",
+      description: "dynamic stock market trading screen display",
+    });
+    assert.notEqual(r.concept, "off-domain");
+  });
+});

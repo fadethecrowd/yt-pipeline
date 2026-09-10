@@ -110,7 +110,7 @@ export function resolveConceptShareTolerance(
 }
 
 /** Labels that are not concrete visual categories a viewer would perceive. */
-const NON_CONCRETE = new Set(["none", "ambiguous", "generic-abstract", "card", "unknown", "human-performance"]);
+const NON_CONCRETE = new Set(["none", "ambiguous", "generic-abstract", "card", "unknown", "human-performance", "off-domain"]);
 
 export type FragmentOutcome = "SINGLE" | "TIE" | "GENUINE_NONE" | "NON_CONCRETE";
 

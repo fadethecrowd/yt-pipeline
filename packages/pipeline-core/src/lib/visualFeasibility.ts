@@ -349,6 +349,9 @@ interface ScoredCandidate {
  *   - the backfill covers exactly the seconds it replaces, so the donor beat
  *     does not acquire a card of its own and the timeline still adds up
  *   - the backfill is relevant to the beat it moves INTO, on the same terms
+ *   - BOTH pass the brand guard against the beat they move to, on the same
+ *     terms as any other assignment — a repair may not admit footage that
+ *     assembly will refuse
  *
  * Ranked so the best repair is taken first: prefer the strongest relevance on
  * the carding beat, then avoid brand-risk footage, then prefer the strongest
@@ -360,8 +363,10 @@ function repairConsecutiveCards(input: {
   ledger: AssetLedger;
   channel: ChannelKey;
   segments: OutlineSegment[];
+  /** `brandSubject(topicTitle, hook)` — the same line selection and assembly use. */
+  subjectText: string;
 }): string[] {
-  const { predicted, accepted, ledger, channel, segments } = input;
+  const { predicted, accepted, ledger, channel, segments, subjectText } = input;
   const notes: string[] = [];
 
   const pairs: number[] = [];
@@ -375,6 +380,17 @@ function repairConsecutiveCards(input: {
     (segments[b.segmentIndex] ?? segments[segments.length - 1])!.visual_prompt;
   const rel = (b: PredictedBeat, description: string) =>
     scoreRelevance({ channel, narration: b.narration, prompt: promptFor(b), description });
+  // A repair moves a clip to a beat it was never admitted against. The five
+  // conditions below re-checked relevance and forgot the brand guard, so a
+  // repair could hand a beat footage assembly refuses. Run
+  // cmtvw27ix0001mbzyikvd7baz was repaired that way: 38875223 was moved into
+  // beat 8, assembly rejected it as Raymarine branding unsupported by that
+  // beat, and beats 8 and 9 starved into consecutive cards after 4,483
+  // characters had been bought.
+  const admits = (b: PredictedBeat, a: ScoredCandidate) => brandAdmits(checkBrandFromMetadata(
+    `${a.candidate.description ?? ""} ${a.candidate.pageUrl ?? ""}`,
+    promptFor(b), b.narration, subjectText,
+  ));
 
   for (const i of pairs) {
     // Fixing either member breaks the adjacency; try the one with the smaller
@@ -404,6 +420,8 @@ function repairConsecutiveCards(input: {
           // Must be a legitimate assignment on the beat it moves to.
           const tScore = rel(target, donorAsset.candidate.description ?? "");
           if (tScore.verdict === "REJECT" || tScore.score < REJECT_THRESHOLD) continue;
+          // ...and admissible on it. Relevance and branding are separate gates.
+          if (!admits(target, donorAsset)) continue;
 
           for (const backfill of accepted) {
             if (!ledger.isAvailable(backfill.candidate.assetId)) continue;
@@ -414,6 +432,7 @@ function repairConsecutiveCards(input: {
             if (!fit || Math.abs(fit.useS - frag.durationS) > 0.01) continue;
             const bScore = rel(donorBeat, backfill.candidate.description ?? "");
             if (bScore.verdict === "REJECT" || bScore.score < REJECT_THRESHOLD) continue;
+            if (!admits(donorBeat, backfill)) continue;
             options.push({
               donorBeat, donorIdx: fi, donorAsset, backfill,
               targetScore: tScore.score, targetVerdict: tScore.verdict,
@@ -674,6 +693,7 @@ export async function assessVisualFeasibility(
   // the pre-repair arrangement.
   const repairNotes = repairConsecutiveCards({
     predicted, accepted, ledger, channel: input.channel, segments: input.segments,
+    subjectText,
   });
   if (repairNotes.length > 0) for (const n of repairNotes) console.log(`[feasibility] ${n}`);
 
