@@ -21,22 +21,38 @@ import type {
  *
  * A tie is not an absence of meaning; it is two meanings at once. "A boat on
  * the water" genuinely is both vessel and water, and the honest accounting is
- * to divide the fragment's seconds between them rather than discard both.
+ * to keep those seconds rather than discard both.
+ *
+ * They are kept as ONE bucket named for the tied set, not divided among its
+ * members. Dividing was tried first and was wrong in a way the fixtures make
+ * plain: MARINE_SUBJECTS is five concepts of single-token terms, so a tie
+ * fires whenever two of them match one word each, and `water` is nine SETTING
+ * words — water, ocean, sea, lake, marina, harbor, harbour, wake, dock — that
+ * appear in nearly every legitimate marine clip. vessel|water is 85% of all
+ * tie-seconds across the three recorded WC timeline fixtures, and `water` drew
+ * 312s from ties against 157s of its own singles. An even split therefore
+ * handed half of every boat shot to whichever member was already ahead, and
+ * pushed the leader past 40% on all three recorded timelines — including two
+ * a human reading the fixture would call varied.
  *
  * Bucketing every tie under one "ambiguous" label would be no better: it would
  * merge vessel+water with electronics+install into a single category that no
  * viewer perceives, and could manufacture a dominant concept out of unrelated
- * pairs.
+ * pairs. Keying by the tied SET keeps those two apart while still measuring
+ * what the cap actually asks — how much of the runtime is the same kind of
+ * shot. On the fixtures that clears A (28.9%) and C (33.2%) and still fails B
+ * at 57.9%, where the timeline really is boat-on-water for most of its length.
  *
  * Rules:
  *   A. one winning concrete concept → all of the fragment's seconds to it
- *   B. N tied concrete concepts     → seconds / N to each
+ *   B. N tied concrete concepts     → all seconds to the "a+b" set bucket
  *   C. no concept matched at all    → all seconds to "none"
  *   D. "ambiguous" is never itself a bucket
  *
- * Splitting divides; it never duplicates. The sum of allocated seconds equals
- * the projected timeline exactly, so the denominator is unchanged and the 40%
- * cap means what it always meant.
+ * A fragment lands in exactly one bucket; nothing is duplicated. The sum of
+ * allocated seconds equals the projected timeline exactly, so the denominator
+ * is unchanged and the 40% cap means what it always meant. Set buckets count
+ * toward the share cap whole, and toward the diversity floor by their members.
  *
  * Wet Circuit only. AI Doom's gate is untouched and keeps its existing
  * behaviour; nothing here is reachable from it.
@@ -178,11 +194,17 @@ export function tieAwareConceptAccounting(
         outcome = "NON_CONCRETE";
         allocation[f.concept] = f.durationS;
       } else if (raw.concept === "ambiguous" && (raw.tied?.length ?? 0) > 1) {
-        // B. Split evenly among the concepts that actually tied.
+        // B. A tie is ONE perceptual shot-kind — "a boat on the water" — and
+        //    gets its own bucket. Splitting it evenly fed half of every such
+        //    second to whichever member was already ahead. vessel|water is 85%
+        //    of all tie-seconds across the recorded WC timeline fixtures, so
+        //    the split made vessel or water the leader on essentially every
+        //    marine timeline. A per-SET key still keeps electronics+install
+        //    from merging with vessel+water, which one "ambiguous" bucket
+        //    would have done.
         outcome = "TIE";
-        tiedConcepts = [...raw.tied!];
-        const each = f.durationS / tiedConcepts.length;
-        for (const c of tiedConcepts) allocation[c] = (allocation[c] ?? 0) + each;
+        tiedConcepts = [...raw.tied!].sort();
+        allocation[tiedConcepts.join("+")] = f.durationS;
       } else if (raw.concept === "none") {
         // C. Nothing matched — this is a real absence of recognised subject.
         outcome = "GENUINE_NONE";
@@ -222,7 +244,10 @@ export function tieAwareConceptAccounting(
   const concreteEntries = Object.entries(conceptSeconds)
     .filter(([c, s]) => !NON_CONCRETE.has(c) && s > 0)
     .sort((a, b) => b[1] - a[1]);
-  const concreteConcepts = concreteEntries.map(([c]) => c);
+  // A composite tie key names every concept the viewer does see, so each of
+  // its members counts toward the diversity floor even though the seconds sit
+  // in one bucket for the share cap.
+  const concreteConcepts = [...new Set(concreteEntries.flatMap(([c]) => c.split("+")))];
 
   const dominantConcept = concreteEntries[0]?.[0] ?? null;
   const dominantShare = concreteEntries[0] && denominatorSeconds > 0

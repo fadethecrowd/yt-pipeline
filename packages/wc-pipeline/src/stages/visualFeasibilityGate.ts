@@ -1,4 +1,4 @@
-import { VideoStatus } from "@prisma/client";
+import { TopicStatus, VideoStatus } from "@prisma/client";
 import {
   prisma, env,
   assessVisualFeasibility, pexelsOnlySource, formatFeasibility,
@@ -77,7 +77,9 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
     const detail =
       `${submitChars} spoken chars renders ${(videoS / 60).toFixed(1)} min, outside `
       + `${(range.minS / 60).toFixed(1)}-${(range.maxS / 60).toFixed(1)} min`;
-    await failCandidate(ctx.video.id, detail);
+    // A runtime-envelope miss is a SCRIPT defect — the same topic rewritten to
+    // length could pass — so the topic itself is not condemned here.
+    await failCandidate(ctx.video.id, null, detail);
     return {
       success: false,
       error: `visual feasibility: ${detail}`,
@@ -174,7 +176,7 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
 
   if (failed.length > 0) {
     const reason = failed.map((c) => `${c.name}: ${c.detail}`).join("; ");
-    await failCandidate(ctx.video.id, reason);
+    await failCandidate(ctx.video.id, ctx.topic.id, reason);
     return {
       success: false,
       error: `visual feasibility FAILED — no narration purchased: ${reason}`,
@@ -200,13 +202,27 @@ export async function wcVisualFeasibilityGate(ctx: PipelineContext): Promise<Sta
  * QUALITY_FAILED sits outside RESUME_FROM, so an unsourceable topic stops here
  * and waits for a human rather than being retried into a spend.
  */
-async function failCandidate(videoId: string, reason: string): Promise<void> {
-  await prisma.wcVideo.update({
-    where: { id: videoId },
-    data: {
-      status: VideoStatus.QUALITY_FAILED,
-      failReason: `[VISUAL_FEASIBILITY] ${reason}`.slice(0, 1000),
-    },
-  });
+async function failCandidate(
+  videoId: string, unsourceableTopicId: string | null, reason: string,
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.wcVideo.update({
+      where: { id: videoId },
+      data: {
+        status: VideoStatus.QUALITY_FAILED,
+        failReason: `[VISUAL_FEASIBILITY] ${reason}`.slice(0, 1000),
+      },
+    }),
+    // An unsourceable topic is refused, and the row should say so. Until now it
+    // stayed APPROVED and was kept out of both selectors only incidentally:
+    // `pickBestTopic` wants DISCOVERED, and the fallback additionally requires
+    // `videos: { none: {} }`. Deleting the failed video row to tidy up would
+    // therefore have re-armed the topic at the top of the fallback queue.
+    // Neither selector reads REJECTED, so this states the verdict they relied on.
+    ...(unsourceableTopicId ? [prisma.wcTopic.update({
+      where: { id: unsourceableTopicId },
+      data: { status: TopicStatus.REJECTED },
+    })] : []),
+  ]);
   console.error(`${LOG} BLOCKED before spend: ${reason}`);
 }

@@ -434,7 +434,7 @@ describe("E. safety controls a profile or window can never relax", () => {
     const feas = pipeline.indexOf('name: "visualFeasibilityGate"');
     const vo = pipeline.indexOf('name: "voiceover"');
     assert.ok(feas > 0 && vo > feas, "feasibility must precede narration");
-    assert.match(gate, /await failCandidate\(ctx\.video\.id, reason\)/,
+    assert.match(gate, /await failCandidate\(ctx\.video\.id, ctx\.topic\.id, reason\)/,
       "a failed gate marks the candidate and returns before any spend");
   });
 

@@ -12,13 +12,19 @@ import {
 } from "../packages/wc-pipeline/src/stages/conceptAccounting";
 
 /**
- * Wet Circuit divides a tied fragment between the concepts that tied.
+ * Wet Circuit files a tied fragment under a bucket named for the tied set.
  *
  * Production previously filed every tie as "none", so "sailboat sailing in
  * lake at dawn" counted as footage with no recognisable subject. A replay of
  * both failed candidates showed 100% of their "none" seconds were ties of this
- * kind. These tests pin the corrected accounting and, just as importantly,
- * that splitting never invents or loses a second.
+ * kind.
+ *
+ * The first correction divided a tie evenly among its members, which was worse
+ * than it looked: vessel|water is the overwhelming majority of marine ties, so
+ * half of every boat shot landed on whichever of the two was already ahead and
+ * pushed it over the cap. A tie is one kind of shot — "a boat on the water" —
+ * and is counted as one. These tests pin that, that unrelated pairs still do
+ * not merge, and that the accounting never invents or loses a second.
  */
 
 // ── Fixture builder ──────────────────────────────────────────────────────
@@ -107,30 +113,59 @@ describe("rule A — a single concrete concept takes the whole fragment", () => 
   });
 });
 
-describe("rule B — N tied concepts split the fragment evenly", () => {
-  test("10 s vessel+water → vessel 5, water 5", () => {
+describe("rule B — N tied concepts form one set bucket", () => {
+  test("10 s vessel+water → one 10 s \"vessel+water\" bucket", () => {
     const a = acc([frag("a boat on the water", 10)]);
-    assert.equal(a.conceptSeconds.vessel, 5);
-    assert.equal(a.conceptSeconds.water, 5);
-    assert.equal(a.denominatorSeconds, 10, "splitting must not change the total");
+    assert.equal(a.conceptSeconds["vessel+water"], 10);
+    assert.equal(a.conceptSeconds.vessel, undefined, "no member absorbs tie seconds");
+    assert.equal(a.conceptSeconds.water, undefined);
+    assert.equal(a.denominatorSeconds, 10, "bucketing must not change the total");
     assert.equal(a.fragments[0].outcome, "TIE");
     assert.deepEqual([...a.fragments[0].tiedConcepts].sort(), ["vessel", "water"]);
   });
 
-  test("12 s electronics+install → 6 and 6", () => {
+  test("12 s electronics+install → one \"electronics+install\" bucket", () => {
     const a = acc([frag("a gauge and some wiring", 12)]);
-    assert.equal(a.conceptSeconds.electronics, 6);
-    assert.equal(a.conceptSeconds.install, 6);
+    assert.equal(a.conceptSeconds["electronics+install"], 12);
+    assert.equal(a.conceptSeconds.electronics, undefined);
+    assert.equal(a.conceptSeconds.install, undefined);
     assert.equal(a.denominatorSeconds, 12);
   });
 
-  test("12 s three-way tie → 4, 4, 4", () => {
+  test("12 s three-way tie → one bucket keyed by all three, sorted", () => {
     const a = acc([frag("a boat on the water with a sonar", 12)]);
-    assert.equal(a.conceptSeconds.vessel, 4);
-    assert.equal(a.conceptSeconds.water, 4);
-    assert.equal(a.conceptSeconds.electronics, 4);
+    assert.equal(a.conceptSeconds["electronics+vessel+water"], 12);
     assert.equal(a.denominatorSeconds, 12);
     assert.equal(a.fragments[0].tiedConcepts.length, 3);
+    assert.deepEqual(a.fragments[0].tiedConcepts, ["electronics", "vessel", "water"],
+      "the key is order-independent because the set is sorted");
+  });
+
+  test("the set key counts toward diversity by its members", () => {
+    const a = acc([frag("a boat on the water", 10)]);
+    assert.deepEqual([...a.concreteConcepts].sort(), ["vessel", "water"],
+      "the viewer sees both, so both satisfy the diversity floor");
+    assert.equal(a.distinctConcreteConcepts, 2);
+  });
+
+  test("a leader does not absorb tie seconds and cross the cap", () => {
+    // The GMI 40 shape (run cmtvls9gg0006mbngq6pgt4bi), to scale: electronics
+    // 39 s, water 34 s, vessel|water ties 18 s, unrecognisable 9 s. Splitting
+    // gave water 34 + 9 = 43% and failed the 40% cap; the honest reading is
+    // that the largest single kind of shot is electronics at 39%.
+    const a = acc([
+      frag("a sonar display", 39),
+      frag("the open ocean", 34),
+      frag("a boat on the water", 18),
+      frag("a person holding a white box", 9),
+    ]);
+    assert.equal(a.denominatorSeconds, 100);
+    assert.equal(a.conceptSeconds.water, 34, "water keeps only the seconds it won outright");
+    assert.equal(a.conceptSeconds["vessel+water"], 18);
+    assert.equal(a.dominantAnyConcept, "electronics");
+    assert.ok(a.dominantAnyShare <= MAX_CONCEPT_SHARE,
+      `dominant ${a.dominantAnyShare} must clear the ${MAX_CONCEPT_SHARE} cap`);
+    assert.ok(a.concentrationOk);
   });
 
   test("a fragment's own allocation sums to its duration", () => {
@@ -173,10 +208,13 @@ describe("rule D — ambiguous is never a concentration bucket", () => {
       frag("a boat on the water", 20),        // vessel+water
       frag("a gauge and some wiring", 20),    // electronics+install
     ]);
-    assert.equal(a.conceptSeconds.vessel, 10);
-    assert.equal(a.conceptSeconds.water, 10);
-    assert.equal(a.conceptSeconds.electronics, 10);
-    assert.equal(a.conceptSeconds.install, 10);
+    assert.equal(a.conceptSeconds["vessel+water"], 20);
+    assert.equal(a.conceptSeconds["electronics+install"], 20);
+    assert.equal(a.conceptSeconds.ambiguous, undefined);
+    assert.equal(a.dominantAnyShare, 0.5,
+      "two unrelated kinds of shot, not one 100% 'ambiguous' block");
+    assert.deepEqual([...a.concreteConcepts].sort(),
+      ["electronics", "install", "vessel", "water"]);
     assert.equal(a.distinctConcreteConcepts, 4,
       "four real categories, not one artificial 'ambiguous' block");
   });
@@ -209,11 +247,12 @@ describe("splitting conserves the timeline exactly", () => {
   });
 
   test("a tie cannot double-count duration", () => {
-    // If splitting duplicated instead of divided, a 3-way tie would inflate
-    // the denominator by 2x its duration.
+    // If a tie were credited to each member instead of bucketed once, a 3-way
+    // tie would inflate the denominator by 2x its duration.
     const one = acc([frag("a boat on the water with a sonar", 30)]);
-    assert.equal(one.denominatorSeconds, 30, "30s must stay 30s across three concepts");
-    assert.equal(one.conceptSeconds.vessel + one.conceptSeconds.water + one.conceptSeconds.electronics, 30);
+    assert.equal(one.denominatorSeconds, 30, "30s must stay 30s for a three-way tie");
+    assert.equal(one.conceptSeconds["electronics+vessel+water"], 30);
+    assert.equal(Object.keys(one.conceptSeconds).length, 1, "one fragment, one bucket");
   });
 
   test("every fragment's allocation sums to its own seconds", () => {
@@ -308,7 +347,7 @@ describe("evidence retains the raw classifier result alongside the accounting", 
     assert.equal(f.conceptRaw, "ambiguous", "the raw answer is not discarded");
     assert.equal(f.conceptFinal, "none", "production's own label is retained");
     assert.deepEqual([...f.tiedConcepts].sort(), ["vessel", "water"]);
-    assert.deepEqual(f.allocation, { vessel: 5, water: 5 });
+    assert.deepEqual(f.allocation, { "vessel+water": 10 });
     assert.ok(f.score > 0, "the score behind the decision is recorded");
     assert.equal(typeof f.longest, "number");
   });
