@@ -194,6 +194,11 @@ const PERFORMANCE_TERMS = [
 const OFF_DOMAIN_SUBJECTS: string[] = [
   // Finance / markets / crypto
   "stock market", "stock exchange", "stock trading", "stock chart", "stock price",
+  // Bare "trading", not only the phrases: "dynamic trading scene with tech
+  // display" cleared the phrase list and scored as marine electronics on the
+  // word "display". Nothing marine trades, so the bare token is safe here in a
+  // way it would not be on a channel that covers markets.
+  "trading",
   "trading screen", "trading chart", "trading floor", "trading platform",
   "market analysis", "market graph", "market data", "financial chart",
   "forex", "candlestick", "cryptocurrency", "crypto", "bitcoin", "ethereum",
