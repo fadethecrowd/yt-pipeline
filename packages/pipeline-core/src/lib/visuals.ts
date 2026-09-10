@@ -251,6 +251,25 @@ export async function recordScene(input: SceneRecordInput): Promise<void> {
   });
 }
 
+/**
+ * Drop every scene record for a video before a fresh render writes new ones.
+ *
+ * `recordScene` upserts on (videoId, sceneNumber) and nothing ever deleted, so
+ * rows outlived the artifact they described. A re-assembly that fills a beat
+ * which previously carded writes scene 801 and leaves the old card at 849
+ * untouched — and `no_consecutive_fallback_cards` reads EVERY row for the
+ * video, in sceneNumber order, so two stale cards from a dead render still
+ * read as a consecutive pair and fail QA on a video that no longer has one.
+ * `fallback_cards_bounded` counts them too.
+ *
+ * Assembly is re-entrant by design (VOICEOVER_DONE resumes into it), so the
+ * scene records must describe the CURRENT artifact and nothing else.
+ */
+export async function clearSceneRecords(videoId: string): Promise<number> {
+  const { count } = await prisma.sceneRecord.deleteMany({ where: { videoId } });
+  return count;
+}
+
 export async function sceneRecordsFor(videoId: string) {
   return prisma.sceneRecord.findMany({
     where: { videoId },

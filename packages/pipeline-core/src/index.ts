@@ -328,7 +328,10 @@ export { runVoiceover, readManifest, readAlignments, manifestPath } from "./stag
 export type { NarrationManifest, VoiceoverDeps } from "./stages/voiceoverShared";
 export { videoAssembly } from "./stages/videoAssembly";
 export { runAssembly, cleanupAssemblyTmp, TITLE_CARD_DURATION, DURATION_TOLERANCE } from "./stages/assemblyShared";
-export type { AssemblyOutcome, AssemblyDeps } from "./stages/assemblyShared";
+export type { AssemblyOutcome, AssemblyDeps, RenderedBeat } from "./stages/assemblyShared";
+export { chooseAssemblyRepair } from "./stages/assemblyShared";
+export type { AssemblyRepairOption } from "./stages/assemblyShared";
+export { clearSceneRecords } from "./lib/visuals";
 export { youtubeUpload } from "./stages/youtubeUpload";
 export { thumbnailGenerator } from "./stages/thumbnailGenerator";
 export { notify } from "./stages/notify";

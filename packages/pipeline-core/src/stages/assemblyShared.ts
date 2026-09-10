@@ -11,12 +11,12 @@ import {
 import { buildLongformCaptions } from "../lib/captions";
 import type { BuiltCaptions } from "../lib/captions";
 import {
-  AssetLedger, recordScene, searchPexelsCandidates,
+  AssetLedger, clearSceneRecords, recordScene, searchPexelsCandidates,
   validateCandidateMeta, validateDownloadedClip, wrapCardText, writeCardTextFile,
 } from "../lib/visuals";
 import {
   scoreRelevance, VisualPlan, buildSearchQueries, classifyConcept,
-  AI_SUBJECTS, MARINE_SUBJECTS,
+  AI_SUBJECTS, MARINE_SUBJECTS, REJECT_THRESHOLD,
 } from "../lib/visualRelevance";
 import {
   comparisonVehicles, borrowedFromVehicle, subjectTerms, isOutroBeat,
@@ -194,6 +194,16 @@ export interface RenderedBeat {
    */
   decision: "RENDERED" | "FALLBACK_CARD" | "BRANDED_OUTRO";
   clipPath: string;
+  /** The scene record this beat wrote, so a later pass can rewrite that row. */
+  sceneNumber: number;
+  /** Which segment this beat belongs to — its subject, prompt and vehicles. */
+  segmentIndex: number;
+  /**
+   * The undownscaled source on disk, kept so the consecutive-card repair can
+   * re-cut a clip to a different length without downloading it a second time.
+   * Null for cards and outros, which have no source.
+   */
+  rawPath: string | null;
 }
 
 /**
@@ -347,7 +357,8 @@ async function renderApprovedBeat(
       assetUrl: null, sourceStartS: 0, sourceEndS: dur, looped: false, reused: false,
       relevanceScore: null, concept: "card",
       brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
-      decision: "FALLBACK_CARD", clipPath,
+      decision: "FALLBACK_CARD", clipPath, sceneNumber, rawPath: null,
+      segmentIndex: seg.segmentIndex,
     });
     cursor += dur;
   }
@@ -417,7 +428,10 @@ async function renderApprovedBeat(
       sourceStartS: 0, sourceEndS: useDur, looped: false, reused: false,
       relevanceScore: null, concept: "approved",
       brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "metadata" },
-      decision: "RENDERED", clipPath,
+      // An approved allocation is frozen: it is never repaired, so it needs no
+      // source to re-cut from.
+      decision: "RENDERED", clipPath, sceneNumber, rawPath: null,
+      segmentIndex: seg.segmentIndex,
     });
     cursor += useDur;
   }
@@ -518,7 +532,8 @@ async function renderOutroBeat(
       sourceStartS: 0, sourceEndS: dur, looped: false, reused: false,
       relevanceScore: null, concept: "outro",
       brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
-      decision: "BRANDED_OUTRO", clipPath,
+      decision: "BRANDED_OUTRO", clipPath, sceneNumber, rawPath: null,
+      segmentIndex: beat.segmentIndex,
     });
     cursor += dur;
   }
@@ -683,7 +698,8 @@ async function renderBeat(
       narration: beat.narration, assetId: c.assetId, assetDescription: c.description ?? null,
       assetUrl: c.pageUrl ?? c.url, sourceStartS: 0, sourceEndS: useDur,
       looped: false, reused: false, relevanceScore: r.score, concept: r.concept,
-      brand, decision: "RENDERED", clipPath,
+      brand, decision: "RENDERED", clipPath, sceneNumber, rawPath,
+      segmentIndex: seg.segmentIndex,
     });
     cursor += useDur;
     remaining -= useDur;
@@ -717,11 +733,299 @@ async function renderBeat(
       assetUrl: null, sourceStartS: 0, sourceEndS: remaining,
       looped: false, reused: false, relevanceScore: null, concept: "card",
       brand: { visibleBrandDetected: false, detectedBrandOrSignage: null, brandRelevantToNarration: null, brandDecision: "NO_BRAND", rejectionReason: null, source: "none" },
-      decision: "FALLBACK_CARD", clipPath,
+      decision: "FALLBACK_CARD", clipPath, sceneNumber, rawPath: null,
+      segmentIndex: seg.segmentIndex,
     });
   }
 
   return out;
+}
+
+export interface AssemblyRepairOption {
+  donor: RenderedBeat;
+  donorCandidate: Candidate;
+  backfill: Candidate;
+  targetScore: number;
+  backfillScore: number;
+  brandRisk: boolean;
+}
+
+/**
+ * Which swap, if any, closes `target` without breaking anything else.
+ *
+ * Pure: it reads state and returns a decision, and every fallible or expensive
+ * step — download, decode, cut, persist — is the caller's. Kept separate from
+ * `repairAssemblyConsecutiveCards` so the conditions can be tested without
+ * ffmpeg, a network or a database, which is the only reason feasibility's
+ * equivalent went four months with a missing brand check nobody could see.
+ *
+ * Ranked so the best repair is taken first: prefer non-brand-risk footage, then
+ * the strongest relevance on the carding beat, then the strongest backfill.
+ * Ties break on asset id so a plan is reproducible.
+ */
+export function chooseAssemblyRepair(input: {
+  target: RenderedBeat;
+  rendered: RenderedBeat[];
+  globalPool: Candidate[];
+  ledger: AssetLedger;
+  rel: (b: RenderedBeat, description: string) => ReturnType<typeof scoreRelevance>;
+  brandOn: (b: RenderedBeat, description: string, pageUrl: string) => BrandCheck;
+  /** Whether this beat's source is still on disk to be re-cut. */
+  hasSource: (b: RenderedBeat) => boolean;
+}): AssemblyRepairOption | null {
+  const { target, rendered, globalPool, ledger, rel, brandOn, hasSource } = input;
+  const need = target.durationS;
+  const options: AssemblyRepairOption[] = [];
+
+  for (const donor of rendered) {
+    if (donor === target || donor.decision !== "RENDERED") continue;
+    if (donor.index === target.index) continue;
+    // A frozen (approved) or card entry has no source to re-cut from.
+    if (!donor.assetId || !hasSource(donor)) continue;
+    const donorCandidate = globalPool.find((c) => c.assetId === donor.assetId);
+    if (!donorCandidate) continue;
+    // The donated clip must close the card outright, not shrink it.
+    if ((donorCandidate.durationS ?? 0) < need) continue;
+
+    const tScore = rel(target, donor.assetDescription ?? "");
+    if (tScore.verdict === "REJECT" || tScore.score < REJECT_THRESHOLD) continue;
+    // The condition feasibility's repair omitted until ac41266. Assembly
+    // re-checks branding per beat, so a swap that skips it moves the failure
+    // rather than fixing it.
+    if (!brandAdmits(brandOn(target, donor.assetDescription ?? "", donor.assetUrl ?? ""))) continue;
+
+    for (const backfill of globalPool) {
+      if (!ledger.isAvailable(backfill.assetId)) continue;
+      if (backfill.assetId === donor.assetId) continue;
+      if (!validateCandidateMeta(backfill, MIN_FRAGMENT_S).ok) continue;
+      // Must cover EXACTLY the seconds it replaces, or the donor beat acquires
+      // a card of its own and the timeline stops adding up.
+      const src = backfill.durationS ?? 0;
+      if (src < donor.durationS) continue;
+      const fit = fitFragment(donor.durationS, src);
+      if (!fit || Math.abs(fit.useS - donor.durationS) > 0.01) continue;
+
+      const bScore = rel(donor, backfill.description ?? "");
+      if (bScore.verdict === "REJECT" || bScore.score < REJECT_THRESHOLD) continue;
+      if (!brandAdmits(brandOn(donor, backfill.description ?? "", backfill.pageUrl ?? backfill.url))) continue;
+
+      options.push({
+        donor, donorCandidate, backfill,
+        targetScore: tScore.score, backfillScore: bScore.score,
+        brandRisk: isHighBrandRiskFootage(donor.assetDescription ?? "")
+          || isHighBrandRiskFootage(backfill.description ?? ""),
+      });
+      break; // the best available backfill for this donor is enough
+    }
+  }
+  if (options.length === 0) return null;
+
+  options.sort((a, b) =>
+    Number(a.brandRisk) - Number(b.brandRisk) ||
+    b.targetScore - a.targetScore ||
+    b.backfillScore - a.backfillScore ||
+    a.donor.assetId!.localeCompare(b.donor.assetId!));
+  return options[0]!;
+}
+
+/**
+ * Move a rendered clip onto a carding beat, and backfill the donor.
+ *
+ * Feasibility has had this since 2026-08-16; assembly never did. Assembly
+ * carded a starved beat and moved on, so an arrangement feasibility would have
+ * rearranged pre-spend became a FATAL `no_consecutive_fallback_cards` AFTER the
+ * narration was bought. Run cmtvw27ix0001mbzyikvd7baz died exactly there: beats
+ * 8 and 9 carded from a 599-asset pool, 4,483 characters already spent.
+ *
+ * The shape is feasibility's, deliberately — the two planners disagreeing is the
+ * bug class this repo keeps paying for. A swap is offered only when all hold:
+ *
+ *   - the donated clip can close the carding beat outright, so the card
+ *     disappears rather than shrinking
+ *   - the donated clip is relevant to the beat it moves TO, by the same
+ *     `scoreRelevance` and REJECT_THRESHOLD as any other assignment
+ *   - the donated clip passes the BRAND GUARD on the beat it moves to. This is
+ *     the condition feasibility's own repair omitted until ac41266, and the one
+ *     that makes a repair honest: assembly re-checks branding per beat, so a
+ *     repair that skips it only moves the failure
+ *   - the backfill is unused, so no asset appears twice
+ *   - the backfill covers exactly the seconds it replaces, so the donor beat
+ *     does not acquire a card of its own and the timeline still adds up
+ *   - the backfill is relevant AND admissible on the beat it moves INTO
+ *
+ * Cost: the donor is re-cut from the raw file already on disk, so a repair
+ * downloads exactly one new clip — the backfill. Nothing is re-searched.
+ *
+ * The repaired beat REUSES the card's own scene number, so `recordScene`
+ * overwrites the RENDERED_FALLBACK row rather than leaving it beside the clip
+ * that replaced it. QA counts rows, not beats.
+ */
+async function repairAssemblyConsecutiveCards(input: {
+  rendered: RenderedBeat[];
+  segments: ScriptSegment[];
+  subjects: Map<number, SegmentSubject>;
+  globalPool: Candidate[];
+  ledger: AssetLedger;
+  plan: VisualPlan;
+  tmpDir: string;
+  deps: AssemblyDeps;
+  videoId: string;
+  brandSubjectText: string;
+}): Promise<string[]> {
+  const {
+    rendered, segments, subjects, globalPool, ledger, plan,
+    tmpDir, deps, videoId, brandSubjectText,
+  } = input;
+  const { label, channel } = deps;
+  const notes: string[] = [];
+
+  const segFor = (b: RenderedBeat) =>
+    segments[b.segmentIndex] ?? segments[segments.length - 1]!;
+  const subjectFor = (b: RenderedBeat) => subjects.get(segFor(b).segmentIndex)!;
+
+  /** Exactly the scoring that placed the clip in the first place. */
+  const rel = (b: RenderedBeat, description: string) => {
+    const subject = subjectFor(b);
+    return scoreRelevance({
+      channel: channel as "ai-doom-scroll" | "wet-circuit",
+      narration: deVehicle(b.narration, subject.vehicles),
+      prompt: subject.prompt,
+      description,
+    });
+  };
+
+  /** Exactly the guard assembly applies per beat. */
+  const brandOn = (b: RenderedBeat, description: string, pageUrl: string) =>
+    checkBrandFromMetadata(
+      `${description} ${pageUrl}`, segFor(b).visual_prompt, b.narration, brandSubjectText,
+    );
+
+  // One repair per pass, re-scanning each time: closing one card can dissolve
+  // a neighbouring pair, and re-scanning is cheaper than reasoning about it.
+  // Bounded by the beat count, so this cannot loop.
+  for (let pass = 0; pass < rendered.length; pass++) {
+    const pairAt = rendered.findIndex((b, i) =>
+      i > 0 && b.decision === "FALLBACK_CARD" && rendered[i - 1]!.decision === "FALLBACK_CARD");
+    if (pairAt < 0) break;
+
+    // Fixing either member breaks the adjacency; try the smaller card first,
+    // since it is the easier one to close.
+    const members = [rendered[pairAt]!, rendered[pairAt - 1]!]
+      .sort((a, b) => a.durationS - b.durationS);
+
+    let repaired = false;
+    for (const target of members) {
+      const need = target.durationS;
+
+      const pick = chooseAssemblyRepair({
+        target, rendered, globalPool, ledger, rel, brandOn,
+        hasSource: (b) => !!b.rawPath && existsSync(b.rawPath),
+      });
+      if (!pick) continue;
+      const { donor, backfill } = pick;
+
+      // ── Acquire before mutating ──────────────────────────────────────
+      // Every fallible step runs first, so a download or decode failure
+      // leaves the timeline exactly as it was rather than half-swapped.
+      const backfillRaw = join(tmpDir, `raw-${donor.sceneNumber}-repair.mp4`);
+      try { await downloadTo(backfill.url, backfillRaw); } catch { continue; }
+      if (!(await validateDownloadedClip(backfillRaw, MIN_FRAGMENT_S)).ok) continue;
+      const backfillSrcDur = await videoDuration(backfillRaw).catch(() => 0);
+      const backfillFit = fitFragment(donor.durationS, backfillSrcDur);
+      if (!backfillFit || Math.abs(backfillFit.useS - donor.durationS) > 0.01) continue;
+
+      const cut = async (from: string, seconds: number, to: string) => ff(
+        ["-i", from, "-t", String(seconds),
+         "-vf", `scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},setsar=1,format=yuv420p`,
+         "-r", String(FPS), "-c:v", "libx264", "-preset", "fast", "-an", to],
+        label,
+      );
+      // The card's own scene number, so its row is overwritten, not orphaned.
+      const targetClip = join(tmpDir, `beat-${target.sceneNumber}.mp4`);
+      const donorClip = join(tmpDir, `beat-${donor.sceneNumber}.mp4`);
+      try {
+        await cut(donor.rawPath!, need, targetClip);
+        await cut(backfillRaw, donor.durationS, donorClip);
+      } catch { continue; }
+
+      // ── Commit ───────────────────────────────────────────────────────
+      const tScore = rel(target, donor.assetDescription ?? "");
+      const bScore = rel(donor, backfill.description ?? "");
+      const tBrand = brandOn(target, donor.assetDescription ?? "", donor.assetUrl ?? "");
+      const bBrand = brandOn(donor, backfill.description ?? "", backfill.pageUrl ?? backfill.url);
+      const movedId = donor.assetId!;
+      const movedFrom = donor.index;
+
+      target.assetId = movedId;
+      target.assetDescription = donor.assetDescription;
+      target.assetUrl = donor.assetUrl;
+      target.relevanceScore = tScore.score;
+      target.concept = tScore.concept;
+      target.brand = tBrand;
+      target.decision = "RENDERED";
+      target.clipPath = targetClip;
+      target.rawPath = donor.rawPath;
+      target.sourceEndS = need;
+
+      donor.assetId = backfill.assetId;
+      donor.assetDescription = backfill.description ?? null;
+      donor.assetUrl = backfill.pageUrl ?? backfill.url;
+      donor.relevanceScore = bScore.score;
+      donor.concept = bScore.concept;
+      donor.brand = bBrand;
+      donor.clipPath = donorClip;
+      donor.rawPath = backfillRaw;
+
+      ledger.claim(backfill.assetId);
+      plan.claim(bScore);
+
+      const donorSubject = subjectFor(donor);
+      const targetSubject = subjectFor(target);
+      await recordScene({
+        channel, videoId, sceneNumber: target.sceneNumber, narration: target.narration,
+        startTimeS: TITLE_CARD_DURATION + target.startS,
+        endTimeS: TITLE_CARD_DURATION + target.startS + need,
+        prompt: segFor(target).visual_prompt,
+        assetSource: pick.donorCandidate.provider, assetId: movedId,
+        assetUrl: target.assetUrl, assetDescription: target.assetDescription,
+        localPath: targetClip,
+        width: pick.donorCandidate.width, height: pick.donorCandidate.height, durationS: need,
+        cropMethod: "scale-increase+centre-crop; cut (never looped); repaired from beat " + movedFrom,
+        relevanceScore: tScore.score, relevanceVerdict: tScore.verdict,
+        relevanceReasons: [...tScore.reasons, `brand:${tBrand.brandDecision}`, "consecutive-card repair"],
+        retrievalQuery: targetSubject.queries.join(" | "),
+        subjectPrompt: targetSubject.prompt === segFor(target).visual_prompt ? null : targetSubject.prompt,
+        validation: "PASS", renderStatus: "RENDERED",
+      });
+      await recordScene({
+        channel, videoId, sceneNumber: donor.sceneNumber, narration: donor.narration,
+        startTimeS: TITLE_CARD_DURATION + donor.startS,
+        endTimeS: TITLE_CARD_DURATION + donor.startS + donor.durationS,
+        prompt: segFor(donor).visual_prompt,
+        assetSource: backfill.provider, assetId: backfill.assetId,
+        assetUrl: donor.assetUrl, assetDescription: donor.assetDescription,
+        localPath: donorClip,
+        width: backfill.width, height: backfill.height, durationS: donor.durationS,
+        cropMethod: "scale-increase+centre-crop; cut (never looped); backfill for beat " + movedFrom,
+        relevanceScore: bScore.score, relevanceVerdict: bScore.verdict,
+        relevanceReasons: [...bScore.reasons, `brand:${bBrand.brandDecision}`, "consecutive-card repair backfill"],
+        retrievalQuery: donorSubject.queries.join(" | "),
+        subjectPrompt: donorSubject.prompt === segFor(donor).visual_prompt ? null : donorSubject.prompt,
+        validation: "PASS", renderStatus: "RENDERED",
+      });
+
+      notes.push(
+        `repaired consecutive cards at beat ${target.index}: moved ${movedId} ` +
+        `(${tScore.verdict} ${tScore.score.toFixed(2)}) from beat ${movedFrom} to close ` +
+        `${need.toFixed(1)}s, backfilled with ${backfill.assetId} ` +
+        `(${bScore.verdict} ${bScore.score.toFixed(2)})`);
+      repaired = true;
+      break;
+    }
+    if (!repaired) break; // no progress on this pair; further passes cannot help
+  }
+
+  return notes;
 }
 
 /**
@@ -763,6 +1067,19 @@ export async function runAssembly(
   }
 
   await deps.setStatus(ctx.video.id, "ASSEMBLY_PENDING");
+
+  // Scene records describe the artifact this run is about to build, and nothing
+  // else. `recordScene` upserts on (videoId, sceneNumber) and nothing ever
+  // deleted, so a re-assembly left the previous render's rows in place: a beat
+  // that carded at scene 849 and now renders a clip at 801 kept BOTH rows, and
+  // `no_consecutive_fallback_cards` reads every row for the video in
+  // sceneNumber order — so two dead cards still failed QA on a video that no
+  // longer had one. Assembly is re-entrant by design (VOICEOVER_DONE resumes
+  // straight into it), so this must run before the first beat is written.
+  const dropped = await clearSceneRecords(ctx.video.id);
+  if (dropped > 0) {
+    console.log(`[${label}] cleared ${dropped} scene record(s) from a previous render`);
+  }
 
   const config = env();
   const tmpDir = join(process.cwd(), "tmp", ctx.video.id);
@@ -925,6 +1242,15 @@ export async function runAssembly(
       )),
     );
   }
+
+  // ── Consecutive-card repair ──────────────────────────────────────────
+  // Feasibility rearranges before it gives up; assembly used to card and move
+  // on, turning a fixable arrangement into a post-spend QA failure.
+  const repairNotes = await repairAssemblyConsecutiveCards({
+    rendered, segments, subjects, globalPool, ledger, plan,
+    tmpDir, deps, videoId: ctx.video.id, brandSubjectText,
+  });
+  for (const n of repairNotes) console.log(`[${label}] ${n}`);
 
   // ── Pacing invariants ────────────────────────────────────────────────
   const assetIds = rendered.map((b) => b.assetId).filter(Boolean) as string[];
