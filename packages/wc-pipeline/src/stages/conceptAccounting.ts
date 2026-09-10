@@ -1,7 +1,7 @@
 import {
   classifyConcept, MARINE_SUBJECTS,
   MAX_CONCEPT_SHARE, MIN_DISTINCT_CONCEPTS,
-  qualityProfile,
+  qualityProfile, feasibilityPolicyFor,
 } from "@yt-pipeline/pipeline-core";
 import type {
   FeasibilityReport, FeasibilityCheck, QualityProfileName,
@@ -260,6 +260,11 @@ export function tieAwareConceptAccounting(
   const dominantAnyShare = anyEntries[0] && denominatorSeconds > 0
     ? anyEntries[0][1] / denominatorSeconds : 0;
 
+  // This module is Wet Circuit's alone, so it reads Wet Circuit's policy. The
+  // named channel is deliberate: it makes the coupling greppable from the
+  // policy table, which is where someone retiring or restoring a cap will look.
+  const enforceCap = feasibilityPolicyFor("wet-circuit").enforceDominantConceptCap;
+
   const checks: FeasibilityCheck[] = [
     {
       name: "concept-diversity",
@@ -270,13 +275,21 @@ export function tieAwareConceptAccounting(
     },
     {
       name: "no-dominant-concept",
-      ok: dominantAnyShare <= tolerance.maxConceptShare,
+      // Still measured and still reported — the number is useful diagnostics.
+      // Whether it may FAIL a candidate is the channel's policy, and reading it
+      // here is the point: this check used to enforce the cap unconditionally
+      // while the shared gate consulted FEASIBILITY_POLICY, so the table could
+      // say the cap was retired for Wet Circuit and this path would go on
+      // enforcing it.
+      ok: !enforceCap || dominantAnyShare <= tolerance.maxConceptShare,
       detail: dominantAnyConcept
         ? `largest concept "${dominantAnyConcept}" holds ` +
-          `${(dominantAnyShare * 100).toFixed(1)}% of projected timeline; ` +
-          `cap ${(tolerance.maxConceptShare * 100).toFixed(0)}% ` +
-          `[${tolerance.mode}${tolerance.profileName ? ` ${tolerance.profileName}` : ""}] ` +
-          `(tie-aware accounting)`
+          `${(dominantAnyShare * 100).toFixed(1)}% of projected timeline` +
+          (enforceCap
+            ? `; cap ${(tolerance.maxConceptShare * 100).toFixed(0)}% ` +
+              `[${tolerance.mode}${tolerance.profileName ? ` ${tolerance.profileName}` : ""}]`
+            : "; DIAGNOSTIC ONLY — cap retired for this channel, see FEASIBILITY_POLICY") +
+          ` (tie-aware accounting)`
         : "no concepts projected",
     },
   ];

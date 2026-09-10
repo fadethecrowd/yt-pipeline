@@ -210,9 +210,14 @@ describe("adjacent footage is demoted, not banned", () => {
 // ── Nothing else moved ───────────────────────────────────────────────────
 
 describe("surrounding policy is unchanged", () => {
-  test("AI Doom dominant-concept stays diagnostic, Wet Circuit stays enforced", () => {
+  test("the dominant-concept cap is diagnostic on both channels", () => {
+    // AI Doom retired it on 2026-08-13 because the measure was untrustworthy;
+    // Wet Circuit on 2026-09-10 because it was accurate and asked the wrong
+    // question — a marine-ELECTRONICS channel is supposed to be mostly
+    // electronics. The threshold itself is untouched, so restoring either
+    // channel is a one-word edit to FEASIBILITY_POLICY.
     assert.equal(FEASIBILITY_POLICY["ai-doom-scroll"].enforceDominantConceptCap, false);
-    assert.equal(FEASIBILITY_POLICY["wet-circuit"].enforceDominantConceptCap, true);
+    assert.equal(FEASIBILITY_POLICY["wet-circuit"].enforceDominantConceptCap, false);
     assert.equal(MAX_CONCEPT_SHARE, 0.4);
   });
 

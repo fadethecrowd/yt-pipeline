@@ -108,14 +108,30 @@ export interface FeasibilityPolicy {
  * brand-risk-not-load-bearing, the concept-diversity floor, and the no-reuse
  * ledger. Only the dominant-share cap is retired.
  *
- * Wet Circuit keeps it, deliberately. Its taxonomy is closed and
- * domain-complete — five concepts that between them name essentially every
- * legitimate marine visual — so there the measure means what it says, and it
- * additionally has its own enforcement in wc-pipeline's conceptAccounting.
+ * Wet Circuit retired it on 2026-09-10, for a different reason than AI Doom.
+ * AI Doom's measure was untrustworthy. Wet Circuit's is accurate and asks the
+ * wrong question: the channel reviews marine ELECTRONICS, so a correct video
+ * about a Garmin instrument is mostly footage of instruments. The Signal VHF
+ * candidate was blocked at electronics 50% under both accountings — that is
+ * the subject, not monotony. A cap that fires on a video for being about its
+ * own topic cannot be satisfied without making the video worse.
+ *
+ * The measure is still computed and still logged, on both channels, because
+ * the number is useful when reading a plan. Only its power to fail a candidate
+ * is gone. Variety on Wet Circuit is protected by the controls that have caught
+ * real defects: fallback-card-share, no-consecutive-cards,
+ * unique-assets-cover-timeline, pool-safety-margin, usable-duration-margin,
+ * brand-risk-not-load-bearing, the concept-diversity floor (which still demands
+ * three distinct concrete categories), the no-reuse ledger, and — since
+ * 2026-09-10 — the off-domain veto that stops "electronics" admitting a
+ * trading screen.
+ *
+ * wc-pipeline's own tie-aware accounting reads this table rather than
+ * enforcing independently, so this row is the single switch for the channel.
  */
 export const FEASIBILITY_POLICY: Record<ChannelKey, FeasibilityPolicy> = {
   "ai-doom-scroll": { enforceDominantConceptCap: false },
-  "wet-circuit": { enforceDominantConceptCap: true },
+  "wet-circuit": { enforceDominantConceptCap: false },
 };
 
 export function feasibilityPolicyFor(channel: ChannelKey): FeasibilityPolicy {

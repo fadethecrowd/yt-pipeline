@@ -277,16 +277,27 @@ describe("the unchanged 40% cap is applied to the corrected accounting", () => {
     assert.equal(MIN_DISTINCT_CONCEPTS, 3);
   });
 
-  test("a dominated timeline still fails", () => {
+  test("a dominated timeline is measured accurately but no longer fails", () => {
+    // Wet Circuit retired the cap on 2026-09-10 (FEASIBILITY_POLICY). The
+    // accounting is unchanged and still reports the true share — only its
+    // power to fail a candidate is gone.
     const a = acc([
       frag("a fishing rod and reel", 90),
       frag("a boat on the water", 10),
     ]);
-    assert.ok(a.dominantAnyShare > MAX_CONCEPT_SHARE);
-    assert.equal(a.checks.find((c) => c.name === "no-dominant-concept")!.ok, false);
+    assert.ok(a.dominantAnyShare > MAX_CONCEPT_SHARE, "the number is still correct");
+    assert.equal(a.dominantAnyConcept, "fishing");
+    const c = a.checks.find((ch) => ch.name === "no-dominant-concept")!;
+    assert.equal(c.ok, true);
+    assert.match(c.detail, /DIAGNOSTIC ONLY/);
+    assert.match(c.detail, /90\.0% of projected timeline/);
   });
 
-  test("genuine none still participates in the cap", () => {
+  test("genuine none is still counted in the share it reports", () => {
+    // Known consequence of the retirement, recorded rather than hidden: a
+    // timeline that is mostly unrecognisable footage no longer fails on THIS
+    // check. It is still caught by fallback-card-share (empty beats become
+    // cards) and by the concept-diversity floor below.
     const a = acc([
       frag("a person holding a white box", 60),  // none
       frag("a fishing rod and reel", 20),
@@ -294,9 +305,19 @@ describe("the unchanged 40% cap is applied to the corrected accounting", () => {
     ]);
     assert.equal(a.genuineNoneSeconds, 60);
     assert.equal(a.dominantAnyConcept, "none");
-    assert.ok(a.dominantAnyShare > MAX_CONCEPT_SHARE);
-    assert.equal(a.checks.find((c) => c.name === "no-dominant-concept")!.ok, false,
-      "a timeline of unrecognisable footage must still fail");
+    assert.ok(a.dominantAnyShare > MAX_CONCEPT_SHARE,
+      "none still participates in the measurement, so the number stays honest");
+    assert.equal(a.checks.find((c) => c.name === "no-dominant-concept")!.ok, true,
+      "but it can no longer fail the candidate — see FEASIBILITY_POLICY");
+  });
+
+  test("restoring the cap is a one-word change, and the wiring is live", () => {
+    // The check reads the policy rather than a constant, so flipping
+    // FEASIBILITY_POLICY["wet-circuit"] back re-arms this path with no other
+    // edit. Proven by source, since the table is a compile-time constant.
+    const src = readFileSync("packages/wc-pipeline/src/stages/conceptAccounting.ts", "utf8");
+    assert.match(src, /const enforceCap = feasibilityPolicyFor\("wet-circuit"\)\.enforceDominantConceptCap/);
+    assert.match(src, /ok: !enforceCap \|\| dominantAnyShare <= tolerance\.maxConceptShare/);
   });
 
   test("a genuinely diverse timeline passes both concept checks", () => {

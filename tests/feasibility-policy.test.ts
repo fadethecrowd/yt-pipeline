@@ -84,10 +84,12 @@ describe("the dominant-concept policy is stated per channel, not inferred", () =
   test("both channels are listed explicitly", () => {
     assert.deepEqual(Object.keys(FEASIBILITY_POLICY).sort(), ["ai-doom-scroll", "wet-circuit"]);
     assert.equal(FEASIBILITY_POLICY["ai-doom-scroll"].enforceDominantConceptCap, false);
-    assert.equal(FEASIBILITY_POLICY["wet-circuit"].enforceDominantConceptCap, true);
+    assert.equal(FEASIBILITY_POLICY["wet-circuit"].enforceDominantConceptCap, false);
   });
 
-  test("an unknown channel fails closed", () => {
+  test("an unknown channel STILL fails closed, even with both rows now false", () => {
+    // The default is not read from the table, so a third channel added later
+    // inherits enforcement and has to opt out deliberately.
     assert.equal(feasibilityPolicyFor("mystery" as never).enforceDominantConceptCap, true);
   });
 
@@ -127,22 +129,31 @@ describe("AI Doom does not fail on dominant concept share alone", () => {
 
 // ── Wet Circuit keeps it ──────────────────────────────────────────────────
 
-describe("Wet Circuit still enforces its dominant-concept cap", () => {
-  test("the same concentrated pool FAILS on wet-circuit", async () => {
+describe("Wet Circuit retired its dominant-concept cap too", () => {
+  test("the same concentrated pool no longer fails on concentration alone", async () => {
+    // Retired 2026-09-10 for a different reason than AI Doom's: the measure is
+    // accurate here and asks the wrong question. Wet Circuit reviews marine
+    // ELECTRONICS, so a correct video about a Garmin instrument is mostly
+    // instruments — the Signal VHF candidate was blocked at electronics 50%,
+    // which is the subject, not monotony.
     const r = await assessVisualFeasibility(input("wet-circuit"), fixed(monotonePool()));
     const ndc = r.checks.find((c) => c.name === "no-dominant-concept")!;
-    assert.equal(ndc.ok, false, "wet-circuit must still fail on concentration");
-    assert.match(ndc.detail, /cap 40%/);
-    assert.equal(r.pass, false);
-    assert.match(r.failureReason!, /no-dominant-concept/);
+    assert.equal(ndc.ok, true, "concentration alone must not fail a WC candidate");
+    assert.match(ndc.detail, /DIAGNOSTIC ONLY/);
+    assert.match(ndc.detail, /holds \d+% of projected timeline/,
+      "the number is still measured and reported");
   });
 
-  test("wc-pipeline keeps its own independent enforcement too", () => {
+  test("wc-pipeline's own accounting reads the policy rather than enforcing alone", () => {
+    // This is what made the table a half-truth before: the shared gate honoured
+    // FEASIBILITY_POLICY while WC's tie-aware check enforced unconditionally,
+    // so retiring the cap here would have changed nothing on the path that
+    // actually decides a WC candidate.
     const acct = readFileSync("packages/wc-pipeline/src/stages/conceptAccounting.ts", "utf8");
     assert.match(acct, /name: "no-dominant-concept"/);
-    assert.match(acct, /ok: dominantAnyShare <= tolerance\.maxConceptShare/);
-    assert.ok(!/enforceDominantConceptCap/.test(acct),
-      "WC's own accounting must not consult the AI Doom retirement flag");
+    assert.match(acct, /feasibilityPolicyFor\("wet-circuit"\)\.enforceDominantConceptCap/,
+      "WC's accounting must consult the policy table");
+    assert.match(acct, /ok: !enforceCap \|\| dominantAnyShare <= tolerance\.maxConceptShare/);
   });
 });
 

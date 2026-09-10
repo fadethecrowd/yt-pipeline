@@ -146,42 +146,50 @@ describe("profile selection is explicit, run-scoped and fails closed", () => {
 // ── 5–10. The three measured candidates ──────────────────────────────────
 
 describe("eligibility of the three measured candidates", () => {
-  test("5. A strict → concept-share FAIL", () => {
-    const r = dominantOk("A", {});
-    assert.equal(r.ok, false);
-    assert.ok(Math.abs(r.share - 0.442) < 0.005, `${r.share}`);
-    assert.equal(r.cap, 0.4);
+  // Wet Circuit retired the dominant-concept cap on 2026-09-10
+  // (FEASIBILITY_POLICY), so `ok` is now true for every candidate regardless of
+  // tolerance. What these still prove is that the MEASUREMENT and the tolerance
+  // RESOLUTION are unchanged — which is what a re-armed cap would run on, and
+  // what the FINITE_CREDIT profile still selects.
+
+  test("5/7/9. strict resolves the 40% tolerance and measures each share", () => {
+    assert.ok(Math.abs(dominantOk("A", {}).share - 0.442) < 0.005);
+    assert.ok(dominantOk("B", {}).share > 0.6);
+    assert.ok(Math.abs(dominantOk("C", {}).share - 0.456) < 0.02);
+    for (const k of ["A", "B", "C"] as const) {
+      const r = dominantOk(k, {});
+      assert.equal(r.cap, 0.4, "strict is still the repository constant");
+      assert.equal(r.mode, "STRICT");
+    }
   });
 
-  test("6. A finite-credit → concept-share PASS", () => {
-    const r = dominantOk("A", { qualityProfileName: FINITE });
-    assert.equal(r.ok, true);
-    assert.equal(r.cap, 0.6);
-    assert.equal(r.mode, "FINITE_CREDIT");
+  test("6/8/10. finite-credit still resolves its own 60% tolerance", () => {
+    for (const k of ["A", "B", "C"] as const) {
+      const r = dominantOk(k, { qualityProfileName: FINITE });
+      assert.equal(r.cap, 0.6);
+      assert.equal(r.mode, "FINITE_CREDIT");
+    }
   });
 
-  test("7. B strict → FAIL", () => {
-    assert.equal(dominantOk("B", {}).ok, false);
+  test("B remains the monotonous counterexample the tolerance would not admit", () => {
+    // Recorded because it is the one candidate a re-armed cap should still
+    // refuse at EITHER tolerance: 65.6% of B's timeline is one kind of shot.
+    const b = dominantOk("B", { qualityProfileName: FINITE });
+    assert.ok(b.share > b.cap,
+      `B ${b.share.toFixed(3)} must exceed even the relaxed ${b.cap}`);
+    const a = dominantOk("A", { qualityProfileName: FINITE });
+    const c = dominantOk("C", { qualityProfileName: FINITE });
+    assert.ok(a.share <= a.cap && c.share <= c.cap,
+      "A and C sit under the relaxed tolerance; only B does not");
   });
 
-  test("8. B finite-credit → STILL FAIL — the monotonous counterexample is not admitted", () => {
-    const r = dominantOk("B", { qualityProfileName: FINITE });
-    assert.equal(r.ok, false, "65.6% exceeds even the relaxed 60% tolerance");
-    assert.ok(r.share > 0.6, `${r.share} must exceed the relaxed cap`);
-  });
-
-  test("9. C strict → FAIL", () => {
-    assert.equal(dominantOk("C", {}).ok, false);
-  });
-
-  test("10. C finite-credit → PASS", () => {
-    assert.equal(dominantOk("C", { qualityProfileName: FINITE }).ok, true);
-  });
-
-  test("the relaxed tolerance admits A and C but not B", () => {
-    const admitted = (["A", "B", "C"] as const)
-      .filter((k) => dominantOk(k, { qualityProfileName: FINITE }).ok);
-    assert.deepEqual(admitted, ["A", "C"]);
+  test("with the cap retired, tolerance no longer changes any verdict", () => {
+    // Stated explicitly so the profile's inertness is visible. Re-arming
+    // FEASIBILITY_POLICY["wet-circuit"] restores the discrimination above.
+    for (const k of ["A", "B", "C"] as const) {
+      assert.equal(dominantOk(k, {}).ok, true, `${k} strict`);
+      assert.equal(dominantOk(k, { qualityProfileName: FINITE }).ok, true, `${k} finite`);
+    }
   });
 });
 

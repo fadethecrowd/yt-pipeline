@@ -202,8 +202,13 @@ describe("evidence enabled: the artifact reproduces the gate exactly", () => {
     assert.equal(top[0], report.conceptBreakdown[0].concept);
     const dominant = top[1] / denom;
     const gate = report.checks.find((c) => c.name === "no-dominant-concept")!;
-    assert.equal(dominant > MAX_CONCEPT_SHARE, !gate.ok,
-      "the evidence must agree with the gate about whether the cap was breached");
+    // The cap is retired for Wet Circuit (FEASIBILITY_POLICY), so the check no
+    // longer tracks the breach. What must still agree is the NUMBER: the
+    // evidence and the gate must describe the same timeline.
+    assert.match(gate.detail, new RegExp(`${(dominant * 100).toFixed(0)}(\\.\\d)?% of projected timeline`),
+      "the evidence must report the same dominant share the gate did");
+    assert.equal(gate.ok, true, "diagnostic only on this channel");
+    assert.ok(dominant > 0 && dominant <= 1);
   });
 
   test("no asset is silently omitted or double-counted within a beat", async () => {
