@@ -1,0 +1,17 @@
+# Wet Circuit — sourced NEW_OWNER marine-electronics set, 2026-09-11
+# Title	URL	angle.  Every URL verified with scripts/verify-topic-urls.ts.
+Building Your First NMEA 2000 Network	https://www.saltwatersportsman.com/building-an-nmea-2000-network/	backbone, drops, power tap and terminators, and the mistakes that break a network
+Network Termination: Why Two Resistors Decide If Your Network Works	https://www8.garmin.com/manuals/webhelp/GUID-1415AAD0-FE63-42A6-8F8D-DB713D616122/EN-US/GUID-FABDEBBC-4930-4460-BC64-232E160406E3.html	termination as the first thing to check when devices drop off the bus
+NMEA 2000 Terms Every New Owner Hears	https://www8.garmin.com/manuals/webhelp/GUID-1415AAD0-FE63-42A6-8F8D-DB713D616122/EN-US/GUID-9C47C97C-88A2-4EC6-9846-9B6937C3ACA7.html	the vocabulary in plain language, before you start buying parts
+Transom-Mount vs Thru-Hull Transducers: The Real Tradeoff	https://www.saltwatersportsman.com/gear/transom-mount-vs-thru-hull-transducers/	easy install versus signal quality, and who should pick which
+How a Fish Finder Actually Works	https://www.saltwatersportsman.com/gear/how-does-a-fish-finder-work/	from ping to picture, in plain language
+Reading CHIRP Sonar: How the Sweep Finds What a Single Ping Misses	https://www.sportfishingmag.com/fishing-boats/using-chirp-sonar-find-more-fish-and-bait/	target separation and clarity, not marketing
+Cheap CHIRP vs Expensive CHIRP: Where the Money Actually Goes	https://www.sportfishingmag.com/fishing-boats/making-sense-higher-and-lower-cost-chirp-sounders/	what more money buys in a sounder, and when it stops mattering
+How Imaging Sonar Builds the Picture You Are Looking At	https://www.sportfishingmag.com/how-imaging-sonar-helps-you-find-fish/	why imaging looks photographic and what that costs you
+Side-Scan Sonar: Reading What the Beam Shows You	https://www.saltwatersportsman.com/side-scan-sonar-tips/	interpreting the image instead of just looking at it
+Choosing a Multifunction Display for Your Helm	https://boatingmag.com/story/gear/we-test-marine-multifunction-displays/	screen size, sunlight readability, and what the box can actually drive
+Marine Autopilot Basics: What It Does and What It Cannot	https://www.saltwatersportsman.com/fishing-with-autopilot/	the components, the integration, and the honest limits
+Trolling Motor Batteries: Lead-Acid, AGM, or Lithium	https://boatingmag.com/gear/best-trolling-motor-battery/	runtime, weight, charging, and when lithium actually pays
+Battery Monitors: Knowing What Your Bank Is Actually Doing	https://boatingmag.com/gear/boat-battery-monitor-gauges-compared/	why guessing at state of charge is what kills electronics
+What You Need to Know About Your DSC-VHF Radio	https://www.boatus.com/news-room/release/boatus-what-you-need-to-know-about-your-dsc-v	what the distress button really sends, and why it needs an MMSI
+Get an MMSI: The Registration Step Most Owners Skip	https://www.boatus.com/products-and-services/membership/mmsi	what an MMSI is, who issues it, and why DSC is inert without one
