@@ -85,9 +85,20 @@ const STAGES: StageDefinition[] = [
  * resuming a narrated video at the wrong stage — and a pilot run, which filters
  * shortsGenerator out, shifts them differently again. Names cannot drift.
  *
- * Deliberately NOT included: VOICEOVER_PENDING / SCRIPT_PENDING / SEO_PENDING.
- * Auto-resuming those would re-spend ElevenLabs / Anthropic credits — the
- * operator must decide.
+ * Deliberately NOT included: VOICEOVER_PENDING / SEO_PENDING. Auto-resuming
+ * those re-enters the pipeline PAST its pre-spend gates — VOICEOVER_PENDING
+ * lands directly in paid narration — so the operator must decide.
+ *
+ * SCRIPT_PENDING used to sit in that list for the same stated reason ("would
+ * re-spend Anthropic credits"). It is included now because the two cases are
+ * not alike. SCRIPT_PENDING resumes at `scriptGenerator`, the FIRST stage, so
+ * every downstream gate — quality, visual feasibility — still runs, and the
+ * narration window still opens only inside `voiceover`. The cost of resuming
+ * is one Anthropic script call; the cost of NOT resuming is worse, because
+ * SCRIPT_PENDING is the schema default for a freshly created row: a container
+ * death between row creation and the first stage left the row stranded in a
+ * status nothing would ever pick up, while its topic stayed marked USED. That
+ * silently burned a curated library topic per crash (observed 2026-09-11).
  */
 const RESUME_FROM: Partial<Record<VideoStatus, string>> = {
   [VideoStatus.SEO_DONE]:         "wcThumbnailHeadlineGenerator",
@@ -101,6 +112,11 @@ const RESUME_FROM: Partial<Record<VideoStatus, string>> = {
   // completion). Safe to auto-retry: these stages make no paid API calls.
   [VideoStatus.ASSEMBLY_PENDING]: "videoAssembly",
   [VideoStatus.UPLOAD_PENDING]:   "youtubeUpload",
+  // Crash before the first stage completed. Unlike the two above this DOES
+  // re-spend an Anthropic call, but it re-enters ahead of every pre-spend gate
+  // rather than past one, and it is what keeps a crash from orphaning the
+  // topic the row already consumed. See the note above.
+  [VideoStatus.SCRIPT_PENDING]:   "scriptGenerator",
 };
 
 /** Fails closed rather than resuming at an arbitrary stage. */

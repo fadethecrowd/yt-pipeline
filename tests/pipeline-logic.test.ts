@@ -308,6 +308,27 @@ describe("stale-job quarantine", () => {
       assert.ok(RESUMABLE_STATUSES.includes(s as never), `${s} should be resumable`);
     }
   });
+
+  /**
+   * SCRIPT_PENDING is the schema default for a newly created row, so a crash
+   * between creating the row and finishing the first stage used to strand it in
+   * a status nothing resumed — while the topic it consumed stayed marked USED.
+   * That burned one curated library topic per crash (observed 2026-09-11, an
+   * OOM kill mid-batch). Resuming is safe specifically because SCRIPT_PENDING
+   * re-enters at the FIRST stage, ahead of every pre-spend gate, unlike
+   * VOICEOVER_PENDING which would land directly in paid narration.
+   */
+  test("SCRIPT_PENDING is resumable so a crash cannot orphan its topic", () => {
+    assert.ok(RESUMABLE_STATUSES.includes("SCRIPT_PENDING" as never),
+      "a row stranded at SCRIPT_PENDING must be resumable, or its topic is burned");
+  });
+
+  test("resuming never re-enters past a pre-spend gate", () => {
+    for (const s of ["VOICEOVER_PENDING", "SEO_PENDING"]) {
+      assert.ok(!RESUMABLE_STATUSES.includes(s as never),
+        `${s} must stay operator-only — resuming it skips a pre-spend gate`);
+    }
+  });
 });
 
 // ── Test-stage / privacy enforcement ──────────────────────────────────────

@@ -11,13 +11,25 @@ import { prisma } from "./db";
  * the change is reversible by writing `originalStatus` back.
  */
 
-/** Statuses the pipelines will auto-resume from. Keep in sync with RESUME_FROM. */
+/**
+ * Statuses the pipelines will auto-resume from. Keep in sync with RESUME_FROM.
+ *
+ * This is the UNION of both pipelines' maps, and it tracks wc-pipeline's, which
+ * is the wider of the two. AI Doom's RESUME_FROM (src/pipeline.ts) carries only
+ * SEO_DONE / VOICEOVER_DONE / ASSEMBLY_DONE, so `resumableJobs("ai-doom-scroll")`
+ * already over-reports ASSEMBLY_PENDING and UPLOAD_PENDING as "would auto-resume"
+ * when AI Doom would in fact never pick them up. SCRIPT_PENDING extends that
+ * existing skew rather than introducing a new kind of it — the over-report is
+ * conservative (it can only claim more is at risk, never less), but it is a real
+ * divergence and the right fix is one map, not two. Flagged, not fixed here.
+ */
 export const RESUMABLE_STATUSES: VideoStatus[] = [
   VideoStatus.SEO_DONE,
   VideoStatus.VOICEOVER_DONE,
   VideoStatus.ASSEMBLY_DONE,
   VideoStatus.ASSEMBLY_PENDING,
   VideoStatus.UPLOAD_PENDING,
+  VideoStatus.SCRIPT_PENDING,
 ];
 
 /** Terminal status used for quarantine. Deliberately not in RESUMABLE_STATUSES. */
