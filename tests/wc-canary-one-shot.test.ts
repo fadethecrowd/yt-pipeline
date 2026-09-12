@@ -16,7 +16,13 @@ import { WC_CANARY_AUTHORIZATIONS } from "../packages/wc-pipeline/src/canary/aut
  *
  * These tests pin the shape of the fix: an explicit, id-addressed one-shot
  * runner that no container start can reach, and an ordinary runner that still
- * refuses to auto-resume anything that would re-spend.
+ * refuses to auto-resume anything that would re-enter PAST a pre-spend gate.
+ *
+ * "Past a gate", not "costs money" — SCRIPT_PENDING is resumable and does
+ * re-spend an Anthropic call, because it re-enters ahead of every gate and so
+ * can still be refused. VOICEOVER_PENDING and SEO_PENDING cannot: their gate
+ * has already been satisfied and would never be consulted again. Both remain
+ * excluded, each asserted on its own below.
  */
 
 /** Repo-relative, matching the other suites: `npm test` runs from the root. */
@@ -38,6 +44,22 @@ function resumeFromBody(): string {
   return PIPELINE.slice(start, end);
 }
 
+/**
+ * The statuses RESUME_FROM actually maps, parsed from its keys.
+ *
+ * Keys, not a substring search of the body. The body carries explanatory
+ * comments, and a comment that NAMES an excluded status — "deliberately not
+ * VOICEOVER_PENDING" is exactly the kind of note someone would add here —
+ * would fail a raw `includes` check while the map itself was still correct.
+ * A safety assertion that can be broken by writing a comment about the safety
+ * property is one that gets deleted rather than fixed.
+ */
+function resumableKeys(): string[] {
+  return [...resumeFromBody().matchAll(/VideoStatus\.([A-Z_]+)\]/g)]
+    .map((m) => m[1]!)
+    .sort();
+}
+
 /** Body of runWcCanaryOnce, likewise. */
 function canaryBody(): string {
   const start = PIPELINE.indexOf("export async function runWcCanaryOnce");
@@ -48,29 +70,52 @@ function canaryBody(): string {
 }
 
 describe("the ordinary runner still cannot start the canary", () => {
-  test("VOICEOVER_PENDING is absent from RESUME_FROM", () => {
+  test("VOICEOVER_PENDING is NOT resumable — it would auto-re-spend narration", () => {
     // The whole reason the one-shot runner exists. If someone widens
     // RESUME_FROM to make the runbook work, every future crashed-mid-narration
     // row auto-resumes into paid ElevenLabs narration on the next container
     // boot. That is the regression this test exists to catch.
     assert.ok(
-      !resumeFromBody().includes("VOICEOVER_PENDING"),
+      !resumableKeys().includes("VOICEOVER_PENDING"),
       "VOICEOVER_PENDING must NOT be resumable — it would auto-re-spend narration",
     );
   });
 
-  test("SCRIPT_PENDING and SEO_PENDING are absent too", () => {
-    const body = resumeFromBody();
-    for (const status of ["SCRIPT_PENDING", "SEO_PENDING"]) {
-      assert.ok(!body.includes(status), `${status} must NOT be resumable`);
-    }
+  test("SEO_PENDING is NOT resumable — it would re-enter past a pre-spend gate", () => {
+    // Split out from VOICEOVER_PENDING rather than sharing a loop with it, so
+    // that neither invariant can be weakened by editing a list it happens to
+    // share. A row stranded at SEO_PENDING has already paid for its script and
+    // its narration; resuming it re-enters BEYOND the gate that authorised that
+    // spend, with no operator deciding to spend again.
+    assert.ok(
+      !resumableKeys().includes("SEO_PENDING"),
+      "SEO_PENDING must NOT be resumable — it would re-enter past a pre-spend gate",
+    );
   });
 
-  test("resumable statuses are exactly the five paid-work-complete states", () => {
-    const body = resumeFromBody();
-    const found = [...body.matchAll(/VideoStatus\.([A-Z_]+)\]/g)].map((m) => m[1]).sort();
-    assert.deepEqual(found, [
-      "ASSEMBLY_DONE", "ASSEMBLY_PENDING", "SEO_DONE", "UPLOAD_PENDING", "VOICEOVER_DONE",
+  test("SCRIPT_PENDING IS resumable, and is the one deliberate exception", () => {
+    // Added deliberately: an OOM kill at SCRIPT_PENDING used to strand the row
+    // forever while the topic_library row it had consumed stayed USED — one
+    // curated topic burned, no video produced.
+    //
+    // It is not a hole in the rule above. SCRIPT_PENDING re-enters AHEAD of
+    // every pre-spend gate rather than past one, so the gate still gets to
+    // refuse the work; the other two re-enter behind a gate that has already
+    // been satisfied and would never be consulted again. That distinction —
+    // not "is it free?" — is what makes a status safe to auto-resume.
+    assert.ok(
+      resumableKeys().includes("SCRIPT_PENDING"),
+      "SCRIPT_PENDING must stay resumable — otherwise a crash burns its topic",
+    );
+  });
+
+  test("resumable statuses are exactly these six, and no others", () => {
+    // An exhaustive list, so WIDENING the map fails here even if the two
+    // invariants above are somehow satisfied. Adding a status is meant to
+    // require editing this line and justifying it.
+    assert.deepEqual(resumableKeys(), [
+      "ASSEMBLY_DONE", "ASSEMBLY_PENDING", "SCRIPT_PENDING", "SEO_DONE",
+      "UPLOAD_PENDING", "VOICEOVER_DONE",
     ]);
   });
 
