@@ -1,16 +1,34 @@
 /**
- * One-time OAuth2 setup script to get a YouTube refresh token for the
- * AI Doom Scroll channel.
+ * One-time OAuth2 setup script to mint a YouTube refresh token.
+ *
+ * Serves BOTH channels. The channel is selected by `--channel=` or
+ * OAUTH_CHANNEL and defaults to ai-doom-scroll, so the historical invocation
+ * is unchanged.
+ *
+ * Why parameterised rather than copied: get-wc-youtube-token.ts was a fork of
+ * this file, and when ad5a43d migrated this one off Google's retired
+ * out-of-band redirect it did not migrate the fork. Wet Circuit was left
+ * minting through `urn:ietf:wg:oauth:2.0:oob` and failed with "Error 400:
+ * invalid_request" at the consent screen — eleven months after the flow it
+ * used had been deleted here. The fork had also missed every safety property
+ * added since: it wrote its token 0644 (which resolveYouTubeCredential refuses
+ * outright), printed the refresh token to stdout, and never checked which
+ * channel it had actually authorised. One flow with two entry points means the
+ * next auth change cannot reach only one of them.
  *
  * Prerequisites:
  *   1. Go to https://console.cloud.google.com
  *   2. Create a project and enable the "YouTube Data API v3"
  *   3. Create OAuth2 credentials (Desktop app type)
  *   4. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env
+ *      (optionally WC_YOUTUBE_CLIENT_ID / WC_YOUTUBE_CLIENT_SECRET to give
+ *      Wet Circuit its own OAuth client; it falls back to the shared one)
  *
  * Usage:
- *   npx tsx get-youtube-token.ts
- *   OAUTH_PORT=53690 npx tsx get-youtube-token.ts   # if the default port is busy
+ *   npx tsx get-youtube-token.ts                      # AI Doom Scroll
+ *   npx tsx get-wc-youtube-token.ts                   # Wet Circuit
+ *   npx tsx get-youtube-token.ts --channel=wet-circuit
+ *   OAUTH_PORT=53690 npx tsx get-youtube-token.ts     # if the default port is busy
  *
  * Flow:
  *   1. A temporary HTTP listener starts on 127.0.0.1.
@@ -29,7 +47,7 @@
  *
  * SAFETY: the newly issued credentials are written to a TEMPORARY file and
  * used to resolve the authenticated channel BEFORE the real token file is
- * touched. If the identity is not AI Doom Scroll, the temporary file is
+ * touched. If the identity is not the selected channel, the temporary file is
  * deleted and the existing token is left exactly as it was.
  */
 import "dotenv/config";
@@ -43,12 +61,61 @@ import { google } from "googleapis";
 import { CodeChallengeMethod } from "google-auth-library";
 import type { Credentials } from "google-auth-library";
 
-const TOKEN_FILE = "token-ai-doom-scroll.json";
-const TEMP_TOKEN_FILE = ".token-ai-doom-scroll.verify.json";
+/**
+ * The channels this script can mint for. `id`/`title` mirror youtubeAuth.ts
+ * CHANNELS and are what the freshly-issued token is verified against before it
+ * is allowed to replace anything.
+ *
+ * `clientIdEnv` lets a channel carry its own OAuth client; both fall back to
+ * the shared YOUTUBE_CLIENT_ID/SECRET. That fallback matters: with one shared
+ * client, the Google identity chosen in the browser is the ONLY thing deciding
+ * which channel the token belongs to — which is precisely why the verify step
+ * below is not optional.
+ */
+const TARGETS = {
+  "ai-doom-scroll": {
+    id: "UCSbJfiA1aobp6G_rgwbHPMw",
+    title: "AI Doom Scroll",
+    tokenFile: "token-ai-doom-scroll.json",
+    clientIdEnv: "YOUTUBE_CLIENT_ID",
+    clientSecretEnv: "YOUTUBE_CLIENT_SECRET",
+    entry: "get-youtube-token.ts",
+  },
+  "wet-circuit": {
+    id: "UC9iJDqlrKEs0uuMeIjb9DVA",
+    title: "Wet Circuit",
+    tokenFile: "token-wet-circuit.json",
+    clientIdEnv: "WC_YOUTUBE_CLIENT_ID",
+    clientSecretEnv: "WC_YOUTUBE_CLIENT_SECRET",
+    entry: "get-wc-youtube-token.ts",
+  },
+} as const;
+
+type TargetKey = keyof typeof TARGETS;
+
+/** Defaults to AI Doom so the historical invocation keeps its meaning. */
+const REQUESTED_CHANNEL =
+  process.argv.find((a) => a.startsWith("--channel="))?.slice("--channel=".length) ??
+  process.env.OAUTH_CHANNEL ??
+  "ai-doom-scroll";
+
+if (!Object.prototype.hasOwnProperty.call(TARGETS, REQUESTED_CHANNEL)) {
+  // Not fail(): a bad channel is a usage error, and naming the valid set is
+  // more useful than the generic failure banner.
+  console.error(
+    `\n✗ unknown channel "${REQUESTED_CHANNEL}". Valid: ${Object.keys(TARGETS).join(", ")}\n`,
+  );
+  process.exit(1);
+}
+
+const TARGET = TARGETS[REQUESTED_CHANNEL as TargetKey];
+
+const TOKEN_FILE = TARGET.tokenFile;
+const TEMP_TOKEN_FILE = `.${TOKEN_FILE.replace(/\.json$/, "")}.verify.json`;
 
 /** The identity this token MUST resolve to. Mirrors youtubeAuth.ts CHANNELS. */
-const EXPECTED_CHANNEL_ID = "UCSbJfiA1aobp6G_rgwbHPMw";
-const EXPECTED_CHANNEL_TITLE = "AI Doom Scroll";
+const EXPECTED_CHANNEL_ID = TARGET.id;
+const EXPECTED_CHANNEL_TITLE = TARGET.title;
 
 const SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
@@ -120,7 +187,7 @@ async function listenOnLoopback(
   fail(
     `could not start the local OAuth listener.\n    ${errors.join("\n    ")}\n\n` +
       `  Free one of these ports, or choose another:\n` +
-      `      OAUTH_PORT=53690 npx tsx get-youtube-token.ts`,
+      `      OAUTH_PORT=53690 npx tsx ${TARGET.entry}`,
   );
 }
 
@@ -240,11 +307,18 @@ function awaitCallback(
 }
 
 async function main() {
-  const clientId = process.env.YOUTUBE_CLIENT_ID;
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+  // Channel-specific client if configured, else the shared pair.
+  const clientId =
+    process.env[TARGET.clientIdEnv] ?? process.env.YOUTUBE_CLIENT_ID;
+  const clientSecret =
+    process.env[TARGET.clientSecretEnv] ?? process.env.YOUTUBE_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    fail("Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env first.");
+    fail(
+      `Set ${TARGET.clientIdEnv} and ${TARGET.clientSecretEnv} (or ` +
+        `YOUTUBE_CLIENT_ID/SECRET) in .env first.\n` +
+        `    .env is read from the CURRENT DIRECTORY — run this from the repo root.`,
+    );
   }
 
   let handler: (req: IncomingMessage, res: ServerResponse) => void = (_req, res) => {
@@ -270,13 +344,13 @@ async function main() {
     code_challenge: codeChallenge,
   });
 
-  console.log("=== YouTube OAuth2 Setup — AI Doom Scroll ===\n");
+  console.log(`=== YouTube OAuth2 Setup — ${EXPECTED_CHANNEL_TITLE} ===\n`);
   console.log(`  listening on : ${redirectUri}`);
   console.log(`  expected     : ${EXPECTED_CHANNEL_TITLE} (${EXPECTED_CHANNEL_ID})\n`);
   console.log("  In the browser:");
   console.log("    • sign in as the PARENT Google account for this channel");
   console.log("    • on the account/brand chooser, pick the Brand Account identity");
-  console.log("      that owns AI Doom Scroll — not a personal Gmail identity");
+  console.log(`      that owns ${EXPECTED_CHANNEL_TITLE} — not a personal Gmail identity`);
   console.log("    • the account shown by default is NOT proof of the right channel;");
   console.log("      this script verifies the channel ID via the API afterwards\n");
   console.log("  Opening your browser. If it does not open, paste this URL:\n");
@@ -347,7 +421,9 @@ async function main() {
     console.error("\n✗ CHANNEL IDENTITY MISMATCH — the existing token file was NOT modified.\n");
     console.error(`  Authorized as : ${channelTitle} (${channelId})`);
     console.error(`  Required      : ${EXPECTED_CHANNEL_TITLE} (${EXPECTED_CHANNEL_ID})\n`);
-    console.error("  Re-run and choose the Brand Account identity that owns AI Doom Scroll.\n");
+    console.error(
+      `  Re-run and choose the Brand Account identity that owns ${EXPECTED_CHANNEL_TITLE}.\n`,
+    );
     process.exit(2);
   }
 

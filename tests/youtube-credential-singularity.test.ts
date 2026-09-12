@@ -46,12 +46,14 @@ const SANCTIONED = new Map<string, string>([
   ],
   [
     "get-youtube-token.ts",
-    "OAuth consent flow: mints the AI Doom refresh token the builder consumes",
+    "OAuth consent flow: mints BOTH channels' refresh tokens (--channel/OAUTH_CHANNEL)",
   ],
-  [
-    "get-wc-youtube-token.ts",
-    "OAuth consent flow: mints the Wet Circuit refresh token",
-  ],
+  // get-wc-youtube-token.ts is deliberately ABSENT. It used to be a fork of
+  // get-youtube-token.ts and constructed its own client, which is how it came
+  // to still be using Google's retired out-of-band redirect long after the
+  // original had moved to loopback. It is now a thin wrapper that sets
+  // OAUTH_CHANNEL and delegates, so it constructs nothing and needs no
+  // exemption — one fewer file in this repository may mint a credential.
   [
     "scripts/get-youtube-token.ts",
     "OAuth consent flow (older helper): mints a refresh token",
