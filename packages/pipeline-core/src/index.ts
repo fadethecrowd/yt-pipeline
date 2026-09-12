@@ -93,6 +93,9 @@ export type {
 // ── ElevenLabs (TTS + usage accounting + idempotency) ─────────────────────
 export {
   synthesizeSegment,
+  voiceForChannel,
+  VoiceMismatchError,
+  CHANNEL_VOICE,
   scriptHashFor,
   creditsChargedFor,
   generationIdsFor,

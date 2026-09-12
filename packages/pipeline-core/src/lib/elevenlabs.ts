@@ -17,6 +17,76 @@ export const ELEVEN_SIMILARITY = Number(process.env.ELEVENLABS_SIMILARITY ?? 0.7
 
 const API_BASE = "https://api.elevenlabs.io";
 
+/**
+ * The voice each channel speaks in. Pinned, and checked before any spend.
+ *
+ * `ELEVENLABS_VOICE_ID` is a single global env var serving two channels, so the
+ * voice a render uses is decided by whichever `.env` happened to be loaded —
+ * exactly the shape of the split-credential bug that youtube-credential-
+ * singularity exists to prevent, but with no guard on this side.
+ *
+ * It fired on 2026-09-12. A Wet Circuit batch was run with the repo-root
+ * `.env`, which is configured for AI Doom (it also points YOUTUBE_TOKEN_FILE at
+ * token-ai-doom-scroll.json). The YouTube credential was passed explicitly so
+ * `verifyChannel` passed and the run looked correct — while the narration was
+ * rendered in AI Doom's voice. Measured over 234 generations the two voices
+ * differ by 26% in delivery rate (WC 15.81 chars/s, AI Doom 12.52), so the
+ * video came out 5:59 against a 5:40 ceiling and was refused at QA. 4,373
+ * credits bought an unusable render, and the only reason it was caught at all
+ * is that the wrong voice happened to be slow enough to breach a duration gate.
+ * A voice that differed in timbre but not pace would have published.
+ *
+ * Overridable per channel by env for a deliberate voice change; the point is
+ * that the default cannot drift silently.
+ */
+export const CHANNEL_VOICE: Record<"wet-circuit" | "ai-doom-scroll", string> = {
+  "wet-circuit": process.env.WC_ELEVENLABS_VOICE_ID ?? "VAnZB441uRGQ8uoZunqz",
+  "ai-doom-scroll": process.env.AI_DOOM_ELEVENLABS_VOICE_ID ?? "pg7Nd5b8Y3tnfSndq5lh",
+};
+
+export class VoiceMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VoiceMismatchError";
+  }
+}
+
+/**
+ * The voice this channel must speak in, refusing a mismatch BEFORE any spend.
+ *
+ * Returns the pinned voice rather than merely validating the caller's, so a
+ * stale `ELEVENLABS_VOICE_ID` cannot be used even by accident. Throws only when
+ * the env explicitly disagrees, so the failure names the mistake instead of
+ * silently substituting.
+ */
+export function voiceForChannel(
+  /**
+   * Deliberately `string`, not the union: this is a spend gate, and the
+   * shared voiceover deps carry `channel: string`. A guard that can only run
+   * where the types already line up is a guard that a refactor turns off.
+   */
+  channel: string,
+  configured: string | undefined,
+): string {
+  const pinned = CHANNEL_VOICE[channel as keyof typeof CHANNEL_VOICE];
+  if (!pinned) {
+    throw new VoiceMismatchError(
+      `no pinned ElevenLabs voice for channel "${channel}" — add it to CHANNEL_VOICE `
+      + `before rendering, rather than falling back to whatever the environment holds.`,
+    );
+  }
+  if (configured && configured !== pinned) {
+    const other = (Object.keys(CHANNEL_VOICE) as Array<keyof typeof CHANNEL_VOICE>)
+      .find((k) => CHANNEL_VOICE[k] === configured);
+    throw new VoiceMismatchError(
+      `ELEVENLABS_VOICE_ID is ${configured} but ${channel} speaks in ${pinned}`
+      + (other ? ` — that is ${other}'s voice. The wrong .env is loaded.` : ".")
+      + ` Refusing to spend credits on a render in the wrong voice.`,
+    );
+  }
+  return pinned;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────
 
 /**

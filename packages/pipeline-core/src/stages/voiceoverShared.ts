@@ -5,7 +5,7 @@ import type { TestStage } from "@prisma/client";
 import { env } from "../config";
 import { buildNarrationTrack } from "../lib/ffmpeg";
 import { buildSpokenUnits } from "../lib/spokenUnits";
-import { synthesizeSegment } from "../lib/elevenlabs";
+import { synthesizeSegment, voiceForChannel } from "../lib/elevenlabs";
 import type { Alignment } from "../lib/elevenlabs";
 import type { PipelineContext, StageResult, VoiceoverResult } from "../types";
 
@@ -107,7 +107,11 @@ export async function runVoiceover(
   await deps.setStatus(ctx.video.id, "VOICEOVER_PENDING");
 
   const config = env();
-  const voiceId = config.ELEVENLABS_VOICE_ID;
+  // The channel's pinned voice, not whatever ELEVENLABS_VOICE_ID happens to
+  // hold. Checked here because this is the last point before credits are
+  // reserved, and a render in the wrong voice is unusable however good it is.
+  const voiceId = voiceForChannel(deps.channel, config.ELEVENLABS_VOICE_ID);
+  console.log(`[${label}] voice ${voiceId} (pinned for ${deps.channel})`);
   const audioDir = join(process.cwd(), "audio", ctx.video.id);
   await mkdir(audioDir, { recursive: true });
 

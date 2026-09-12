@@ -16,6 +16,9 @@ import {
   dropDisallowed,
 } from "../packages/pipeline-core/src/lib/metadataFidelity";
 import { measureCaptionOffsets } from "../packages/pipeline-core/src/lib/qa";
+import {
+  voiceForChannel, VoiceMismatchError, CHANNEL_VOICE,
+} from "../packages/pipeline-core/src/lib/elevenlabs";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -366,6 +369,45 @@ describe("duplicate-upload prevention", () => {
     assert.equal(isRealYoutubeId(null), false);
     assert.equal(isRealYoutubeId(undefined), false);
     assert.equal(isRealYoutubeId(""), false);
+  });
+});
+
+describe("a channel cannot be rendered in the other channel's voice", () => {
+  // 2026-09-12: a WC batch ran with the repo-root .env, which is AI Doom's.
+  // The YouTube token was passed explicitly so verifyChannel passed; only the
+  // voice was wrong. 4,373 credits produced a 5:59 render against a 5:40 cap.
+  const WC = "VAnZB441uRGQ8uoZunqz";
+  const DOOM = "pg7Nd5b8Y3tnfSndq5lh";
+
+  test("the pinned voice is returned when the env agrees", () => {
+    assert.equal(voiceForChannel("wet-circuit", WC), WC);
+    assert.equal(voiceForChannel("ai-doom-scroll", DOOM), DOOM);
+  });
+
+  test("an absent env var still yields the channel's pinned voice", () => {
+    assert.equal(voiceForChannel("wet-circuit", undefined), WC,
+      "the pinned value is the source of truth, not the environment");
+  });
+
+  test("the exact incident is refused, and the error names the other channel", () => {
+    assert.throws(
+      () => voiceForChannel("wet-circuit", DOOM),
+      (err: Error) => {
+        assert.ok(err instanceof VoiceMismatchError);
+        assert.match(err.message, /ai-doom-scroll's voice/);
+        assert.match(err.message, /wrong \.env/);
+        return true;
+      },
+    );
+  });
+
+  test("the mirror case is refused too", () => {
+    assert.throws(() => voiceForChannel("ai-doom-scroll", WC), VoiceMismatchError);
+  });
+
+  test("the two channels never share a voice", () => {
+    assert.notEqual(CHANNEL_VOICE["wet-circuit"], CHANNEL_VOICE["ai-doom-scroll"],
+      "one voice for both channels would make the guard meaningless");
   });
 });
 
