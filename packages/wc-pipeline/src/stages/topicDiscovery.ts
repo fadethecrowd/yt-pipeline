@@ -174,7 +174,19 @@ const TECHNICAL_CORE_KEYWORDS = [
 // paddleboard / PWC / jet ski / personal watercraft) reached production
 // with only a Minn-Kota-style positive signal. Rejecting them outright
 // here closes that bypass.
-const WC_LIBRARY_DISALLOWED: RegExp[] = [
+/**
+ * Craft types Wet Circuit does not cover.
+ *
+ * Exported because this list has to screen two different things and used to
+ * screen only the first: the TOPIC at seed time, and the metadata the script
+ * and SEO stages GENERATE. A batch shipped a chapter titled "Trolling Motor
+ * Mount — The Kayak and Bass Angler's Best Friend", the tag "kayak fishing
+ * gear" and `#kayakfishing` on a channel that blocks `/\bkayak/i`, because the
+ * SEO prompt's own hashtag pool and tag examples offered them. The topic gate
+ * did its job; nothing checked the output. See screenDisallowed in
+ * pipeline-core and the SEO stage's post-generation screen.
+ */
+export const WC_LIBRARY_DISALLOWED: RegExp[] = [
   /\bkayak/i,
   /\bcanoe/i,
   /\bpaddle\s*board/i,

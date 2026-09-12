@@ -1,17 +1,20 @@
 import { buildYouTubeClient, CHANNELS, verifyChannel } from "../youtubeAuth";
 import type { ChannelKey } from "../youtubeAuth";
 import { currentTestStage, isTestStage } from "./testStage";
+import { findPlaceholders } from "./metadataFidelity";
 import { prisma } from "./db";
 import { tripBreaker } from "./circuitBreaker";
 
 /**
  * Upload-boundary safety.
  *
- * Three guarantees, enforced here rather than at each call site:
+ * Four guarantees, enforced here rather than at each call site:
  *  1. The authenticated channel matches the channel this service is pinned to.
  *  2. Test and qualification renders are always uploaded private with no
  *     scheduled publish, regardless of the channel's normal configuration.
  *  3. An asset that already has a YouTube ID is never uploaded a second time.
+ *  4. No unresolved template placeholder reaches a published title or
+ *     description.
  */
 
 export interface UploadDecision {
@@ -27,6 +30,36 @@ export interface UploadDecision {
 /** Placeholder IDs written by dry runs are not real uploads. */
 export function isRealYoutubeId(id: string | null | undefined): boolean {
   return Boolean(id) && !id!.startsWith("dryrun-");
+}
+
+/**
+ * Refuse metadata still carrying template scaffolding.
+ *
+ * Guarantee 4. One batch published `[AFFILIATE_LINK_placeholder]` literally, 33
+ * times across 8 of 10 descriptions, because the SEO prompt asked for it by
+ * name and nothing between the model and YouTube looked. The prompt has since
+ * been fixed and the SEO stage strips placeholders before the row is written —
+ * this is the backstop, at the last point where the text is still ours.
+ *
+ * Throws rather than sanitising: by the time an upload is in flight the
+ * description has been through generation, review and a DB write, so a
+ * placeholder here means one of those is broken and silently papering over it
+ * would hide the regression. The stage's own strip is the place to be lenient.
+ */
+export function assertNoPlaceholders(fields: {
+  title?: string | null;
+  description?: string | null;
+}): void {
+  const found: string[] = [];
+  for (const [name, value] of Object.entries(fields)) {
+    if (!value) continue;
+    for (const p of findPlaceholders(value)) found.push(`${name}: ${p}`);
+  }
+  if (found.length > 0) {
+    throw new Error(
+      `refusing to upload: unresolved placeholder(s) in metadata — ${found.join(", ")}`,
+    );
+  }
 }
 
 /**

@@ -190,6 +190,13 @@ export {
 export type { StructureResult, StructureIssue } from "./lib/scriptStructure";
 export { checkTitleFidelity, selectFaithfulTitle } from "./lib/titleFidelity";
 export type { FidelityResult } from "./lib/titleFidelity";
+export {
+  checkMetadataClaim, performedEvidence, findPlaceholders, stripPlaceholders,
+  screenDisallowed, dropDisallowed,
+} from "./lib/metadataFidelity";
+export type {
+  ClaimCheck, ClaimViolation, ClaimKind, DisallowedHit,
+} from "./lib/metadataFidelity";
 export type { TrimResult } from "./lib/scriptClamp";
 export type { RuntimeRange, RuntimeCheck, Format } from "./lib/runtimeTargets";
 
@@ -315,6 +322,7 @@ export {
   prepareUpload,
   confirmUploadState,
   assertNoDuplicateUploadRecord,
+  assertNoPlaceholders,
   isRealYoutubeId,
 } from "./lib/uploadSafety";
 export type { UploadDecision } from "./lib/uploadSafety";

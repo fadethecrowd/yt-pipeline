@@ -10,7 +10,11 @@ import {
 import { classifyModelResponse, isRetryable } from "../packages/pipeline-core/src/lib/modelResponse";
 import { RESUMABLE_STATUSES, QUARANTINE_STATUS } from "../packages/pipeline-core/src/lib/quarantine";
 import { isTestStage, currentTestStage } from "../packages/pipeline-core/src/lib/testStage";
-import { isRealYoutubeId } from "../packages/pipeline-core/src/lib/uploadSafety";
+import { isRealYoutubeId, assertNoPlaceholders } from "../packages/pipeline-core/src/lib/uploadSafety";
+import {
+  checkMetadataClaim, findPlaceholders, stripPlaceholders, screenDisallowed,
+  dropDisallowed,
+} from "../packages/pipeline-core/src/lib/metadataFidelity";
 import { measureCaptionOffsets } from "../packages/pipeline-core/src/lib/qa";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
@@ -362,5 +366,204 @@ describe("duplicate-upload prevention", () => {
     assert.equal(isRealYoutubeId(null), false);
     assert.equal(isRealYoutubeId(undefined), false);
     assert.equal(isRealYoutubeId(""), false);
+  });
+});
+
+// ── Metadata fidelity ─────────────────────────────────────────────────────
+//
+// Fixtures are the real strings from the 2026-09-11 WC batch: the thumbnails
+// that shipped, and the narration they were advertising.
+
+describe("metadata may not assert what the script disclaims", () => {
+  /** Forward-facing sonar (y7zguBq87m8): refuses to pick, promises testing. */
+  const NO_WINNER = [
+    "All three systems — Garmin LiveScope, Humminbird MEGA Live, and Lowrance",
+    "ActiveTarget — do this core thing. LiveScope has a reputation for fine",
+    "detail. MEGA Live is often praised for wide coverage. None of them are bad.",
+    "We're going deep on each of these systems individually — real on-water",
+    "testing, settings walkthroughs. Subscribe and you'll see each video the",
+    "week it drops.",
+  ].join(" ");
+
+  /** Transducer mounts (W2wZZuqFeqA): picks per situation, tests nothing. */
+  const PROMISED_TEST = [
+    "Aluminum boat, any speed — transom mount, full stop. Don't overthink it.",
+    "We're putting all three mount types on the same hull back-to-back — same",
+    "water, same unit, same day. That video is coming. Subscribe so it shows up.",
+  ].join(" ");
+
+  test("a TESTED badge is blocked when the script only promises the test", () => {
+    const r = checkMetadataClaim("ALL THREE TESTED", PROMISED_TEST);
+    assert.equal(r.ok, false, "nothing was tested — this shipped on a thumbnail");
+    assert.equal(r.violations[0]!.kind, "performed");
+  });
+
+  test("test language inside a future promise cannot license the claim", () => {
+    // The script literally contains "real on-water testing" — as a promise.
+    assert.match(NO_WINNER, /on-water\s+testing/);
+    assert.equal(checkMetadataClaim("TESTED ON THE WATER", NO_WINNER).ok, false);
+  });
+
+  test("a script that really did test earns the badge", () => {
+    const done = "We tested all three on the same hull on the same day. Here is what we measured.";
+    assert.equal(checkMetadataClaim("ALL THREE TESTED", done).ok, true);
+  });
+
+  test("a single-winner headline is blocked when the script names no winner", () => {
+    const r = checkMetadataClaim("LIVESCOPE KILLS MEGA LIVE", NO_WINNER);
+    assert.equal(r.ok, false, "the script says 'None of them are bad'");
+    assert.ok(r.violations.some((v) => v.kind === "winner"));
+  });
+
+  test("the house style survives when the script does pick a side", () => {
+    const picks = "Lithium is the better choice here. The flat voltage curve wins outright.";
+    assert.equal(checkMetadataClaim("LITHIUM KILLS AGM", picks).ok, true,
+      "punchy comparative CTR copy is fine when the narration argues it");
+  });
+
+  test("a physical-failure headline is not a winner claim", () => {
+    assert.equal(checkMetadataClaim("THIS WIRE MELTS", PROMISED_TEST).ok, true);
+    assert.equal(checkMetadataClaim("BATTERY FAILS FIRST", PROMISED_TEST).ok, true);
+  });
+
+  test("a death hook is blocked unless the script claims a fatality", () => {
+    const ais = [
+      "Because there's a version that lets you see other boats — and a version",
+      "that lets other boats see you. Confusing those two could matter a lot.",
+      "When a container ship is doing 18 knots in fog and you're crossing the",
+      "channel, being visible isn't optional anymore.",
+    ].join(" ");
+    const r = checkMetadataClaim("WRONG AIS KILLS YOU", ais);
+    assert.equal(r.ok, false, "a safety topic is not licence for a death claim");
+    assert.ok(r.violations.some((v) => v.kind === "fatal"));
+
+    const fatal = "Every year people drown because no one saw them. It is a fatal mistake.";
+    assert.equal(checkMetadataClaim("WRONG AIS KILLS YOU", fatal).ok, true);
+  });
+
+  test("error framing and per-scenario winners are not winner claims", () => {
+    // All three of these fired in an earlier draft of the lexicon and would
+    // have failed legitimate chapter labels from the shipped batch.
+    for (const ok of [
+      "Why This Decision Is So Easy to Get Wrong",
+      "Structure, Bait, and Bottom — Which Mode Wins Each",
+      "Picking the wrong transducer mount is the most common mistake",
+      "The Kayak and Bass Angler's Best Friend",
+    ]) {
+      assert.equal(checkMetadataClaim(ok, NO_WINNER).ok, true,
+        `"${ok}" is error/per-scenario framing, not a verdict`);
+    }
+  });
+
+  test("an unambiguous loser verdict still fires", () => {
+    assert.equal(checkMetadataClaim("Stop Using the Wrong One", NO_WINNER).ok, false,
+      "'the wrong one' names a loser the script refuses to name");
+  });
+
+  test("long prose can opt out of the winner class without losing the others", () => {
+    const copy = "We tested the wrong one so you don't have to. Full results inside.";
+    assert.equal(checkMetadataClaim(copy, NO_WINNER).ok, false, "unscoped, both classes fire");
+    const scoped = checkMetadataClaim(copy, NO_WINNER, ["performed", "fatal"]);
+    assert.equal(scoped.ok, false, "a tested claim still fires in a description");
+    assert.ok(scoped.violations.every((v) => v.kind !== "winner"),
+      "but the winner class is not applied to long prose");
+  });
+});
+
+describe("unresolved placeholders never reach a description", () => {
+  const DESC = [
+    "Forward-facing sonar can transform how you find fish.",
+    "",
+    "GEAR MENTIONED IN THIS VIDEO:",
+    "Garmin LiveScope Plus System: [AFFILIATE_LINK_placeholder]",
+    "Humminbird MEGA Live Imaging Transducer: [AFFILIATE_LINK_placeholder]",
+    "",
+    "TIMESTAMPS:",
+    "0:00 — Introduction",
+  ].join("\n");
+
+  test("the placeholder that shipped 33 times is found", () => {
+    assert.deepEqual(findPlaceholders(DESC), ["[AFFILIATE_LINK_placeholder]"]);
+  });
+
+  test("stripping leaves the product name, which is the format now asked for", () => {
+    const out = stripPlaceholders(DESC);
+    assert.ok(!out.includes("AFFILIATE"), "no placeholder survives");
+    // The prompt now asks for bare product names, so the strip converts the old
+    // format into the new one rather than discarding the useful half.
+    assert.ok(out.includes("Garmin LiveScope Plus System"), "the product is kept");
+    assert.ok(!out.includes("Garmin LiveScope Plus System:"), "the dangling colon is not");
+    assert.ok(out.includes("GEAR MENTIONED"), "the heading still introduces real items");
+    assert.ok(out.includes("TIMESTAMPS:"), "real sections are untouched");
+  });
+
+  test("a heading left introducing nothing is dropped too", () => {
+    const bare = [
+      "Intro line.",
+      "",
+      "GEAR MENTIONED IN THIS VIDEO:",
+      "- [AFFILIATE_LINK_placeholder]",
+      "- [AFFILIATE_LINK_placeholder]",
+      "",
+      "TIMESTAMPS:",
+      "0:00 — Introduction",
+    ].join("\n");
+    const out = stripPlaceholders(bare);
+    assert.ok(!out.includes("GEAR MENTIONED"),
+      "every item was scaffolding, so the section carries nothing");
+    assert.ok(out.includes("TIMESTAMPS:"));
+  });
+
+  test("ordinary bracketed prose is left alone", () => {
+    const keep = "[NEW_OWNER] match mount type to hull material. See note [1].";
+    assert.deepEqual(findPlaceholders(keep), []);
+    assert.equal(stripPlaceholders(keep), keep);
+  });
+
+  test("repeated scanning is stable — no lastIndex leak between calls", () => {
+    // A /g regex reused across .test() calls skips matches; both must agree
+    // every time, on every line.
+    for (let i = 0; i < 3; i++) {
+      assert.equal(findPlaceholders(DESC).length, 1);
+      assert.ok(!stripPlaceholders(DESC).includes("AFFILIATE"));
+    }
+  });
+
+  test("the upload boundary refuses rather than sanitising", () => {
+    assert.throws(
+      () => assertNoPlaceholders({ title: "ok", description: DESC }),
+      /unresolved placeholder/,
+    );
+    assert.doesNotThrow(() => assertNoPlaceholders({ title: "ok", description: "clean copy" }));
+  });
+});
+
+describe("disallowed subjects are screened on GENERATED output, not just the seed", () => {
+  const WC = [/\bkayak/i, /\bcanoe/i, /\bjet\s*ski/i, /\bPWC\b/];
+
+  test("the chapter label that reached the channel is caught", () => {
+    const hits = screenDisallowed(
+      { chapters: ["Trolling Motor Mount — The Kayak and Bass Angler's Best Friend"] },
+      WC,
+    );
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0]!.field, "chapters");
+  });
+
+  test("a hashtag with no word boundary is still caught", () => {
+    // /\bkayak/ does not match inside "#kayakfishing" without the spaced form.
+    assert.equal(screenDisallowed({ description: "#kayakfishing" }, WC).length, 1);
+  });
+
+  test("disallowed tags are dropped, allowed ones kept", () => {
+    const kept = dropDisallowed(
+      ["marine electronics", "kayak fishing gear", "boating tips", "#kayakfishing", "jet ski tips"],
+      WC,
+    );
+    assert.deepEqual(kept, ["marine electronics", "boating tips"]);
+  });
+
+  test("powerboat metadata passes untouched", () => {
+    assert.deepEqual(screenDisallowed({ title: "Chartplotter Screen Size at the Helm" }, WC), []);
   });
 });

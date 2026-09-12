@@ -1,4 +1,5 @@
 import { normalize } from "./scriptStructure";
+import { performedEvidence } from "./metadataFidelity";
 
 /**
  * A title may not assert what the script never established.
@@ -153,7 +154,11 @@ export interface FidelityResult {
  */
 export function checkTitleFidelity(title: string, evidence: string): FidelityResult {
   const nt = normalize(title);
-  const ne = normalize(evidence);
+  // Work the script PROMISES cannot license a claim that it was done. A CTA
+  // reading "we're putting all three on the same hull — subscribe" is the
+  // proof no comparison happened, so it must not be able to vouch for one.
+  // See performedEvidence: promissory sentences are dropped before matching.
+  const ne = normalize(performedEvidence(evidence));
   const triggered: string[] = [];
   const unsupported: string[] = [];
 

@@ -2,7 +2,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { VideoStatus } from "@prisma/client";
 import {
   prisma, buildYouTubeClient,
-  prepareUpload, confirmUploadState, assertNoDuplicateUploadRecord,
+  prepareUpload, confirmUploadState, assertNoDuplicateUploadRecord, assertNoPlaceholders,
   currentPilot, uploadPolicyFor, assertPilotUploadAllowed,
   nextPublishSlot, describeSlot,
 } from "@yt-pipeline/pipeline-core";
@@ -120,6 +120,14 @@ export async function wcYoutubeUpload(
   if (!ctx.seo) {
     return { success: false, error: "Missing SEO metadata in context", durationMs: Date.now() - start };
   }
+
+  // No unresolved template scaffolding reaches a published description.
+  // The SEO stage strips placeholders and its prompt no longer asks for them;
+  // this is the backstop at the last point the text is still ours. It throws
+  // rather than sanitising — a placeholder here means generation or the DB
+  // write regressed, and a silent fix would hide that. Before QA so a doomed
+  // upload is refused without burning a QA pass.
+  assertNoPlaceholders({ title: ctx.seo.title, description: ctx.seo.description });
 
   // ── Final-video QA is a precondition for ANY upload ──────────────────
   //
