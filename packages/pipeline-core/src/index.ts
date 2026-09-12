@@ -342,6 +342,13 @@ export { runAssembly, cleanupAssemblyTmp, TITLE_CARD_DURATION, DURATION_TOLERANC
 export type { AssemblyOutcome, AssemblyDeps, RenderedBeat } from "./stages/assemblyShared";
 export { chooseAssemblyRepair } from "./stages/assemblyShared";
 export type { AssemblyRepairOption } from "./stages/assemblyShared";
+/**
+ * Exported so the Shorts path can search with the SAME subject terms the
+ * long-form assembler uses. Shorts previously sent the raw topic title to
+ * Pexels as one keyword string, which matches nothing and falls back to cards.
+ */
+export { resolveSegmentSubject } from "./stages/assemblyShared";
+export type { SegmentSubject } from "./stages/assemblyShared";
 export { clearSceneRecords } from "./lib/visuals";
 export { youtubeUpload } from "./stages/youtubeUpload";
 export { thumbnailGenerator } from "./stages/thumbnailGenerator";

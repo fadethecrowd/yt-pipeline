@@ -7,7 +7,7 @@ import {
   prisma, env, prepareUpload, confirmUploadState, buildYouTubeClient,
   readManifest, readAlignments, buildLongformCaptions, buildShortsCaptions,
   resolveHookWindow, validateHookWindow, HookAlignmentError,
-  TITLE_CARD_DURATION,
+  TITLE_CARD_DURATION, resolveSegmentSubject,
 } from "@yt-pipeline/pipeline-core";
 import type { PipelineContext, StageResult } from "@yt-pipeline/pipeline-core";
 
@@ -21,29 +21,82 @@ const MIN_SHORT_SECS = 30;
 const SHORT_CAPTION_FONT_SIZE = 72;
 const NUM_VISUAL_CLIPS = 3;
 
+/**
+ * Fallback cards tolerated before the Short is abandoned. 2 of 3 means the
+ * Short is mostly a slideshow of its own title; 1 of 3 is a gap a viewer reads
+ * as a beat. Mirrors the long-form fallback_cards_bounded / no-consecutive
+ * checks, which Shorts otherwise bypass entirely by running after QA.
+ */
+const MAX_FALLBACK_CLIPS = 2;
+
 // ── Fresh Pexels clips for visual track ──────────────────────────────────
 
+/**
+ * Search Pexels across SEVERAL queries and pool the results.
+ *
+ * One query used to be the whole topic title — "Reading Structure on Sonar:
+ * Finding What Holds Fish" sent verbatim to a keyword search. Long natural
+ * queries match nothing, and the miss is silent: every clip falls back to a
+ * title card, so the Short becomes three captioned cards and uploads anyway.
+ *
+ * The queries now come from `resolveSegmentSubject`, the same subject
+ * extraction the long-form assembler searches with. Each is tried in turn and
+ * unique clips accumulate, so a narrow first query that returns one usable
+ * result is topped up by the next rather than abandoning the Short to cards.
+ */
 async function searchPexelsMulti(
-  query: string,
+  queries: string[],
   apiKey: string,
   count: number,
 ): Promise<string[]> {
-  const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&per_page=${count * 2}&orientation=landscape&size=medium`;
-  const res = await fetch(url, { headers: { Authorization: apiKey } });
-  if (!res.ok) return [];
-  const data = (await res.json()) as any;
-  if (!data.videos?.length) return [];
   const links: string[] = [];
-  for (const video of data.videos) {
+  const seen = new Set<string>();
+
+  for (const query of queries) {
     if (links.length >= count) break;
-    const files = (video.video_files as any[])
-      .filter((f: any) => f.width >= 1280)
-      .sort(
-        (a: any, b: any) =>
-          Math.abs(a.height - 1080) - Math.abs(b.height - 1080),
-      );
-    const link = files[0]?.link ?? null;
-    if (link) links.push(link as string);
+    if (!query.trim()) continue;
+
+    // Over-fetch so there is something to choose between, rather than taking
+    // whatever the API happened to rank first.
+    const perPage = Math.max(count * 2, 10);
+    const url = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}`
+      + `&per_page=${perPage}&orientation=landscape&size=medium`;
+
+    let data: any;
+    try {
+      const res = await fetch(url, { headers: { Authorization: apiKey } });
+      if (!res.ok) continue;
+      data = await res.json();
+    } catch {
+      continue; // one bad query must not lose the clips the others found
+    }
+    if (!data?.videos?.length) continue;
+
+    // Shuffle within this query's results so a retry of the same video does
+    // not rebuild the identical Short. Selection stays inside the pool the
+    // query returned, so relevance is unaffected — only which of the
+    // equally-relevant clips wins.
+    const pool = [...(data.videos as any[])];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+
+    for (const video of pool) {
+      if (links.length >= count) break;
+      if (seen.has(String(video.id))) continue;
+      const files = (video.video_files as any[])
+        .filter((f: any) => f.width >= 1280)
+        .sort(
+          (a: any, b: any) =>
+            Math.abs(a.height - 1080) - Math.abs(b.height - 1080),
+        );
+      const link = files[0]?.link ?? null;
+      if (link) {
+        seen.add(String(video.id));
+        links.push(link as string);
+      }
+    }
   }
   return links;
 }
@@ -184,6 +237,29 @@ export async function wcShortsGenerator(
     const config = env();
     const topicQuery = video.topic?.title ?? "boating";
 
+    // Search terms for the clip hunt.
+    //
+    // The hook is folded into segment 0, so that segment's subject is what the
+    // Short is actually about. resolveSegmentSubject is the long-form
+    // assembler's own extraction — it strips comparison vehicles, withholds
+    // domains the narration cannot justify, and returns several short queries
+    // rather than one long sentence.
+    //
+    // The raw title stays on the end as a last resort: a resumed run may have
+    // no script in context, and a weak query still beats no query, because the
+    // alternative is a card.
+    const hookSegment = ctx.script?.segments?.[0];
+    const scriptText = ctx.script
+      ? [ctx.script.hook, ...ctx.script.segments.map((s) => s.narration), ctx.script.cta].join("\n")
+      : "";
+    const subjectQueries = hookSegment && scriptText
+      ? resolveSegmentSubject(hookSegment, scriptText, "wet-circuit").queries
+      : [];
+    const searchQueries = [...subjectQueries, topicQuery];
+    console.log(
+      `[wc:shorts] clip queries (${searchQueries.length}): ${searchQueries.slice(0, 6).join(" | ")}`,
+    );
+
     // ── 1. Extract voiceover audio from hook time range ────────────────
 
     const audioPath = join(tmpDir, "hook-audio.aac");
@@ -200,16 +276,17 @@ export async function wcShortsGenerator(
     // ── 2. Fetch 3 fresh Pexels clips for visual variety ───────────────
 
     const clipLinks = await searchPexelsMulti(
-      topicQuery,
+      searchQueries,
       config.PEXELS_API_KEY,
       NUM_VISUAL_CLIPS,
     );
     console.log(
-      `[wc:shorts] Pexels returned ${clipLinks.length} clip(s) for "${topicQuery}"`,
+      `[wc:shorts] Pexels returned ${clipLinks.length}/${NUM_VISUAL_CLIPS} clip(s) across ${searchQueries.length} quer(ies)`,
     );
 
     const clipDuration = trimDuration / NUM_VISUAL_CLIPS;
     const preparedClips: string[] = [];
+    let fallbackCount = 0;
 
     for (let i = 0; i < NUM_VISUAL_CLIPS; i++) {
       const clipPath = join(tmpDir, `visual-${i}.mp4`);
@@ -257,9 +334,39 @@ export async function wcShortsGenerator(
       }
 
       preparedClips.push(clipPath);
+      if (!ok) fallbackCount++;
       console.log(
         `[wc:shorts] Visual clip ${i + 1}/${NUM_VISUAL_CLIPS}: ${ok ? "pexels" : "fallback"} (${clipDuration.toFixed(1)}s)`,
       );
+    }
+
+    // ── Fallback-card bound ────────────────────────────────────────────
+    //
+    // The long-form path refuses to ship a video whose scenes are mostly cards
+    // — fallback_cards_bounded caps them at 15% and no_consecutive_fallback_cards
+    // forbids runs of them, both FATAL. Shorts had neither check, and they run
+    // at stage 75, AFTER finalVideoQa at stage 69, so nothing ever measured the
+    // Short. A query that matched nothing produced three captioned title cards
+    // and uploaded them.
+    //
+    // Two of three cards means the Short is mostly a slideshow of its own
+    // title, which is worse than no Short: it publishes to the channel and
+    // competes with real content. Skipping costs nothing, because the Short is
+    // derived from a long-form video that has already shipped.
+    //
+    // Refused BEFORE the concat and mux rather than before the upload: the
+    // encode is pure waste once the outcome is known, and the check needs
+    // nothing the loop above has not already produced.
+    if (fallbackCount >= MAX_FALLBACK_CLIPS) {
+      console.log(
+        `[wc:shortsGenerator] SKIPPED — ${fallbackCount}/${NUM_VISUAL_CLIPS} clips are fallback cards `
+        + `(cap ${MAX_FALLBACK_CLIPS - 1}). Pexels matched too little for "${topicQuery}". `
+        + `Not encoding or uploading a Short that is mostly its own title card.`,
+      );
+      await rm(tmpDir, { recursive: true, force: true });
+      // success:true — a Short is optional output. The long-form video is
+      // already uploaded and must not be failed for the Short's sake.
+      return { success: true, data: { skipped: "fallback-cards", fallbackCount }, durationMs: Date.now() - start };
     }
 
     // ── 3. Concat visual clips ─────────────────────────────────────────
